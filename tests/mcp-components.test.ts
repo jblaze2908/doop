@@ -7,6 +7,7 @@ import type { Canvas } from '../shared/types.ts'
 
 vi.mock('../server/db/persist.ts', () => ({
   saveCanvas: () => {},
+  saveCanvasSoon: () => {},
   saveComponent: () => {},
   saveFrame: () => {},
   saveActivity: () => {},

@@ -16,5 +16,7 @@ lists every file in this folder.
   backed by an offset-preserving HTML parser.
 - [linked-components.md](linked-components.md) - Linked components: custom elements with shadow DOM
   templates shared by every frame; runtime, cascade trap, tombstones, surfaces.
+- [performance.md](performance.md) - Measured memory/CPU work: streaming deltas, broadcast and
+  persistence coalescing, with before/after numbers.
 - [workspaces-billing.md](workspaces-billing.md) - Shared workspaces (org-level canvas access with
   roles) and the per-seat Team plan on Stripe: data model, entitlement rules, API, webhook flow.

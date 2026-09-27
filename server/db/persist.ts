@@ -61,6 +61,22 @@ export function saveCanvas(c: Canvas) {
   )
 }
 
+const canvasTimers = new Map<string, { canvas: Canvas; timer: ReturnType<typeof setTimeout> }>()
+
+/** saveCanvas for the frame-edit hot path: every streamed chunk bumps the
+ *  canvas's updatedAt, so the upsert is coalesced like frame writes are. */
+export function saveCanvasSoon(c: Canvas) {
+  const pending = canvasTimers.get(c.id)
+  if (pending) clearTimeout(pending.timer)
+  canvasTimers.set(c.id, {
+    canvas: c,
+    timer: setTimeout(() => {
+      canvasTimers.delete(c.id)
+      saveCanvas(c)
+    }, FRAME_DEBOUNCE_MS),
+  })
+}
+
 export function saveCanvasTheme(canvasId: string, theme: CanvasTheme) {
   swallow(db.update(t.canvases).set({ theme }).where(eq(t.canvases.id, canvasId)))
 }
@@ -565,17 +581,26 @@ export function saveActivity(canvasId: string, item: ActivityItem) {
   )
 }
 
-/** Flush pending debounced frame writes (called on shutdown). */
+/** Flush pending debounced frame and canvas writes (called on shutdown). */
 export async function flush(getFrame: (id: string) => Frame | undefined): Promise<void> {
   const ids = [...frameTimers.keys()]
   for (const [, timer] of frameTimers) clearTimeout(timer)
   frameTimers.clear()
-  await Promise.allSettled(
-    ids.map((id) => {
+  const canvases = [...canvasTimers.values()]
+  for (const { timer } of canvases) clearTimeout(timer)
+  canvasTimers.clear()
+  await Promise.allSettled([
+    ...ids.map((id) => {
       const f = getFrame(id)
       return f ? writeFrame(f) : Promise.resolve()
     }),
-  )
+    ...canvases.map(({ canvas: c }) =>
+      db
+        .insert(t.canvases)
+        .values({ id: c.id, ...canvasColumns(c), createdAt: c.createdAt })
+        .onConflictDoUpdate({ target: t.canvases.id, set: canvasColumns(c) }),
+    ),
+  ])
 }
 
 /* ------------------------------------------------------------------ */

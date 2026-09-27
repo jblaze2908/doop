@@ -463,6 +463,18 @@ export type ServerMessage =
   | { type: 'frame:drag'; clientId: string; frameId: string; x: number; y: number; width: number; height: number }
   | { type: 'frame:created'; frame: Frame; actor: Actor }
   | { type: 'frame:updated'; frame: Frame; actor: Actor }
+  /** a live stream or reveal grew the frame: `chunk` goes at raw offset `at`.
+   *  Heal the accumulated raw html before rendering; a frame:updated with the
+   *  whole frame always ends the stream. */
+  | {
+      type: 'frame:append'
+      frameId: string
+      at: number
+      chunk: string
+      updatedAt: number
+      updatedBy: string
+      actor: Actor
+    }
   | { type: 'frame:deleted'; frameId: string; actor: Actor }
   | { type: 'frame:streaming'; frameId: string; active: boolean; actor: Actor }
   | { type: 'canvas:renamed'; name: string; actor: Actor }

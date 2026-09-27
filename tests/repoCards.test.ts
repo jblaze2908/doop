@@ -11,6 +11,7 @@ vi.mock('../server/db/persist.ts', () => ({
   saveDecision: () => {},
   saveProposal: () => {},
   saveCanvas: () => {},
+  saveCanvasSoon: () => {},
 }))
 
 const actions = await import('../server/actions.ts')

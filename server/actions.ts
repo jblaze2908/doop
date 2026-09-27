@@ -1044,26 +1044,23 @@ function revealDuration(chars: number): number {
   return Math.min(REVEAL_MAX_MS, Math.max(REVEAL_MIN_MS, chars / REVEAL_CHARS_PER_MS))
 }
 
-/** Make partially-revealed HTML paint sensibly. */
-export function healPartialHtml(html: string): string {
-  // drop a trailing half-written tag: "<div cla"
-  const lastOpen = html.lastIndexOf('<')
-  if (lastOpen > html.lastIndexOf('>')) html = html.slice(0, lastOpen)
-  const lower = html.toLowerCase()
-  // drop an unclosed <script> entirely — never run half-written JS
-  const scriptAt = lower.lastIndexOf('<script')
-  if (scriptAt !== -1 && lower.indexOf('</script', scriptAt) === -1) html = html.slice(0, scriptAt)
-  // close an unclosed <style> so everything after it renders
-  const styleAt = html.toLowerCase().lastIndexOf('<style')
-  if (styleAt !== -1 && html.toLowerCase().indexOf('</style', styleAt) === -1) html += '</style>'
-  return html
-}
-
 function commonPrefixLen(a: string, b: string): number {
   const n = Math.min(a.length, b.length)
   let i = 0
   while (i < n && a[i] === b[i]) i++
   return i
+}
+
+function appendMessage(frame: Frame, at: number, chunk: string, actor: Actor): ServerMessage {
+  return {
+    type: 'frame:append',
+    frameId: frame.id,
+    at,
+    chunk,
+    updatedAt: frame.updatedAt,
+    updatedBy: frame.updatedBy,
+    actor,
+  }
 }
 
 function startReveal(frame: Frame, actor: Actor, shown: number) {
@@ -1110,11 +1107,13 @@ setInterval(() => {
       continue
     }
 
-    /* drain the rest evenly so the playback lands exactly at the deadline */
+    /* drain the rest evenly so the playback lands exactly at the deadline;
+       each tick sends only the newly revealed slice (see frame:append) */
     const ticksLeft = Math.max(1, Math.ceil((r.deadline - now) / TICK_MS))
+    const at = r.shown
     r.shown = Math.min(total, r.shown + Math.ceil(remaining / ticksLeft))
-    const partial = r.shown >= total ? frame.html : healPartialHtml(frame.html.slice(0, r.shown))
-    broadcast(frame.canvasId, { type: 'frame:updated', frame: { ...frame, html: partial }, actor: r.actor })
+    if (r.shown >= total) broadcast(frame.canvasId, { type: 'frame:updated', frame, actor: r.actor })
+    else broadcast(frame.canvasId, appendMessage(frame, at, frame.html.slice(at, r.shown), r.actor))
   }
   for (const [frameId, s] of streams) {
     if (now - s.lastActivity > STREAM_IDLE_MS) finishStream(frameId, false) // agent died mid-stream
@@ -1136,6 +1135,8 @@ export function appendFrameHtml(
      sample) and must never be sniffed on its own */
   const escaped = starting ? looksEscapedHtml(chunk) : (streams.get(frameId)?.escaped ?? false)
   const piece = escaped ? decodeEscapedHtml(chunk) : chunk
+  /* read before the update: the store mutates the frame object in place */
+  const at = opts.start ? 0 : before.html.length
   const html = opts.start ? piece : before.html + piece
   const frame = store.updateFrame(frameId, { html }, actor.name)!
 
@@ -1150,12 +1151,11 @@ export function appendFrameHtml(
   s.lastActivity = Date.now()
   s.escaped = escaped
 
-  /* the chunk renders the moment it arrives — viewers see the agent's real progress */
-  broadcast(frame.canvasId, {
-    type: 'frame:updated',
-    frame: opts.done ? frame : { ...frame, html: healPartialHtml(frame.html) },
-    actor,
-  })
+  /* the chunk renders the moment it arrives — viewers see the agent's real
+     progress. Mid-stream only the chunk travels; the last message carries
+     the whole frame, which also resyncs any viewer that missed a chunk. */
+  if (opts.done) broadcast(frame.canvasId, { type: 'frame:updated', frame, actor })
+  else broadcast(frame.canvasId, appendMessage(frame, at, piece, actor))
   if (opts.done) finishStream(frameId, true)
 
   touch(frame.canvasId, actor, frameId)

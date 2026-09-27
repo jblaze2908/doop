@@ -150,14 +150,17 @@ function room(canvasId: string): Conn[] {
   return [...conns.values()].filter((c) => c.canvasId === canvasId)
 }
 
-function send(ws: WebSocket, msg: ServerMessage) {
-  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg))
+function send(ws: WebSocket, msg: ServerMessage | string) {
+  if (ws.readyState === WebSocket.OPEN) ws.send(typeof msg === 'string' ? msg : JSON.stringify(msg))
 }
 
+/* serialized once per broadcast, not once per viewer: a stream chunk carries
+   the frame, and a room can hold many viewers */
 function broadcast(canvasId: string, msg: ServerMessage, excludeClientId?: string) {
+  let json: string | undefined
   for (const c of room(canvasId)) {
     if (excludeClientId && c.presence.clientId === excludeClientId) continue
-    send(c.ws, msg)
+    send(c.ws, (json ??= JSON.stringify(msg)))
   }
 }
 
@@ -192,6 +195,8 @@ function agentTouch(
   }
   p.lastSeen = Date.now()
   if (owner && !p.owner) p.owner = owner
+  /* every streamed chunk touches with the same frame — only a move is news */
+  const frameChanged = frameId !== undefined && (p.activeFrameId ?? null) !== (frameId ?? null)
   if (frameId !== undefined) p.activeFrameId = frameId
   let statusChanged = false
   if (status !== undefined) {
@@ -204,7 +209,7 @@ function agentTouch(
   if (isNew) {
     broadcast(canvasId, { type: 'presence:join', presence: p })
   } else {
-    if (frameId !== undefined) {
+    if (frameChanged) {
       broadcast(canvasId, { type: 'editing', clientId: p.clientId, frameId: p.activeFrameId ?? null })
     }
     if (statusChanged) {

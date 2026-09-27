@@ -167,8 +167,24 @@ export function componentsStamp(defs: readonly ComponentDef[] | undefined): stri
   return `${defs.length}.${Math.max(...defs.map((d) => d.updatedAt))}`
 }
 
+const runtimeCache = new WeakMap<readonly ComponentDef[], ComponentRuntimeDef[]>()
+const scriptCache = new WeakMap<readonly ComponentRuntimeDef[], string>()
+const NO_DEFS: ComponentRuntimeDef[] = []
+
+/** Memoized per definitions array — the store replaces the array on every
+ *  write, so a render or a preview never rebuilds it for an unchanged canvas. */
 export function runtimeDefs(defs: readonly ComponentDef[] | undefined): ComponentRuntimeDef[] {
-  return (defs ?? []).map(({ name, html, css, props, version, deletedAt }) => ({
+  if (!defs?.length) return NO_DEFS
+  let out = runtimeCache.get(defs)
+  if (!out) {
+    out = buildRuntimeDefs(defs)
+    runtimeCache.set(defs, out)
+  }
+  return out
+}
+
+function buildRuntimeDefs(defs: readonly ComponentDef[]): ComponentRuntimeDef[] {
+  return defs.map(({ name, html, css, props, version, deletedAt }) => ({
     name,
     html,
     css,
@@ -319,6 +335,14 @@ if (/<(head|html|!doctype)\b/i.test(COMPONENT_RUNTIME))
  *  inside a <script> element. */
 export function componentScript(defs: readonly ComponentRuntimeDef[]): string {
   if (!defs.length) return ''
+  const hit = scriptCache.get(defs)
+  if (hit !== undefined) return hit
+  const script = buildComponentScript(defs)
+  scriptCache.set(defs, script)
+  return script
+}
+
+function buildComponentScript(defs: readonly ComponentRuntimeDef[]): string {
   /* "<" escaped so no "</script" or "<!--" survives; U+2028/9 are line breaks to old JS parsers */
   const json = JSON.stringify(defs)
     .replace(/</g, '\\u003c')

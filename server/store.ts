@@ -467,7 +467,7 @@ class Store {
     const c = this.canvases.get(frame.canvasId)!
     c.updatedAt = frame.updatedAt
     persist.saveFrame(frame) // debounced: streaming appends land as one write per burst
-    persist.saveCanvas(c)
+    persist.saveCanvasSoon(c) // likewise: updatedAt moves on every chunk
     return frame
   }
 

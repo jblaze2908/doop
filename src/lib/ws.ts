@@ -2,12 +2,16 @@ import type { ClientMessage, ServerMessage } from '../../shared/types'
 import { isPeerViewport } from '../../shared/viewport'
 import { getIdentity } from './identity'
 import { useStore } from './store'
+import { healPartialHtml } from '../../shared/stream'
 
 let socket: WebSocket | null = null
 let currentCanvasId: string | null = null
 let retryTimer: number | null = null
 /* the server build this page first connected under; survives reconnects */
 let loadedBuild: string | null = null
+/* raw text of frames mid-stream: the store holds the healed version that
+   renders, deltas append to what the server actually has */
+const streamRaw = new Map<string, string>()
 
 export function connect(canvasId: string) {
   currentCanvasId = canvasId
@@ -85,11 +89,13 @@ function open() {
   }
 }
 
-function handle(msg: ServerMessage) {
+/** Apply one server message to the store (exported for tests). */
+export function handle(msg: ServerMessage) {
   const s = useStore.getState()
   const me = getIdentity().clientId
   switch (msg.type) {
     case 'init':
+      streamRaw.clear() // the snapshot holds the server's raw html
       /* a reconnect that lands on a different build means this page is
          running a stale bundle — offer a reload instead of forcing one,
          so in-progress work is never yanked away */
@@ -140,7 +146,19 @@ function handle(msg: ServerMessage) {
       s.upsertFrame(msg.frame)
       if (msg.actor.clientId !== me) s.flash(msg.frame.id, msg.actor.color)
       break
+    case 'frame:append': {
+      const frame = s.canvas?.frames.find((f) => f.id === msg.frameId)
+      if (!frame) break
+      const raw = msg.at === 0 ? '' : (streamRaw.get(msg.frameId) ?? frame.html)
+      /* a missed chunk (joined mid-reveal, reconnect): wait for the whole frame */
+      if (raw.length !== msg.at) break
+      const next = raw + msg.chunk
+      streamRaw.set(msg.frameId, next)
+      s.upsertFrame({ ...frame, html: healPartialHtml(next), updatedAt: msg.updatedAt, updatedBy: msg.updatedBy })
+      break
+    }
     case 'frame:updated':
+      streamRaw.delete(msg.frame.id)
       s.upsertFrame(msg.frame)
       /* during a live stream the marching border replaces per-chunk flashes */
       if (msg.actor.clientId !== me && !s.streams[msg.frame.id]) s.flash(msg.frame.id, msg.actor.color)
@@ -149,6 +167,7 @@ function handle(msg: ServerMessage) {
       s.setStream(msg.frameId, msg.active ? { name: msg.actor.name, color: msg.actor.color } : null)
       break
     case 'frame:deleted':
+      streamRaw.delete(msg.frameId)
       s.removeFrame(msg.frameId)
       break
     case 'canvas:renamed':

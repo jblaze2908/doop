@@ -8,6 +8,7 @@ import type { Canvas } from '../shared/types.ts'
 /* Real action layer and store; only persistence and the agent side effects are stubbed. */
 vi.mock('../server/db/persist.ts', () => ({
   saveCanvas: () => {},
+  saveCanvasSoon: () => {},
   saveCanvasTheme: () => {},
   saveFrame: () => {},
   saveActivity: () => {},
