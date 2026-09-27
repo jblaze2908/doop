@@ -13,7 +13,6 @@ import type {
   WorkspaceRole,
   WorkspaceSummary,
 } from '../../shared/types'
-import type { BillingInterval, Plan } from '../../shared/billing'
 
 export type HomeActivity = ActivityItem & { canvasId: string; canvasName: string }
 
@@ -117,14 +116,6 @@ import { getIdentity } from './identity'
 
 export interface WorkspacesResponse {
   workspaces: WorkspaceSummary[]
-  billing: { enabled: boolean }
-}
-
-export interface PlansResponse {
-  enabled: boolean
-  plans: Plan[]
-  /** intervals the server holds a Stripe price for */
-  intervals: BillingInterval[]
 }
 
 /** An invite lands one of two ways: an existing account is a member at
@@ -148,13 +139,6 @@ export class ApiError extends Error {
       this.body = {}
     }
   }
-}
-
-/** The paywall: a 402 naming the workspace that needs a plan. Every surface
- *  that can grow a workspace turns this into the upgrade modal for it. */
-export function paywalledWorkspace(err: unknown): string | null {
-  if (!(err instanceof ApiError) || err.status !== 402) return null
-  return typeof err.body.workspaceId === 'string' ? err.body.workspaceId : null
 }
 
 export function errorMessage(err: unknown, fallback: string): string {
@@ -319,7 +303,7 @@ export const api = {
   resolveComment: (commentId: string) => req(`/api/comments/${commentId}/resolve`, { method: 'POST' }),
   retryComment: (commentId: string) => req(`/api/comments/${commentId}/retry`, { method: 'POST' }),
   retryTaskFeedback: (feedbackId: string) => req(`/api/feedback/${feedbackId}/retry`, { method: 'POST' }),
-  /* workspaces: the shared, per-seat paid space for a team */
+  /* workspaces: a team's shared space for canvases */
   listWorkspaces: () => req<WorkspacesResponse>('/api/workspaces'),
   createWorkspace: (name: string) =>
     req<WorkspaceSummary>('/api/workspaces', { method: 'POST', body: JSON.stringify({ name }) }),
@@ -338,19 +322,6 @@ export const api = {
     req(`/api/workspaces/${id}/members/${userId}`, { method: 'DELETE' }),
   revokeWorkspaceInvite: (id: string, inviteId: string) =>
     req(`/api/workspaces/${id}/invites/${inviteId}`, { method: 'DELETE' }),
-  /* billing: the catalogue, and the hosted Stripe pages */
-  billingPlans: () => req<PlansResponse>('/api/billing/plans'),
-  workspaceCheckout: (id: string, interval: BillingInterval) =>
-    req<{ url: string }>(`/api/workspaces/${id}/billing/checkout`, {
-      method: 'POST',
-      body: JSON.stringify({ interval }),
-    }),
-  workspacePortal: (id: string) => req<{ url: string }>(`/api/workspaces/${id}/billing/portal`, { method: 'POST' }),
-  syncWorkspaceBilling: (id: string, sessionId?: string) =>
-    req<WorkspaceSummary>(`/api/workspaces/${id}/billing/sync`, {
-      method: 'POST',
-      body: JSON.stringify({ sessionId }),
-    }),
 }
 
 /** better-auth's admin endpoint, not ours: ending a "view as" session swaps

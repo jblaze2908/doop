@@ -1,24 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { WorkspaceDetail, WorkspaceRole } from '../../shared/types'
-import { formatUsd, STATUS_LABELS, TEAM_SEAT_PRICE } from '../../shared/billing'
 import { navigate } from '../App'
-import { api, errorMessage, paywalledWorkspace } from '../lib/api'
+import { api, errorMessage } from '../lib/api'
 import { authClient } from '../lib/auth'
 import { posthog } from '../lib/posthog'
-import {
-  AccountMenu,
-  ConnectCard,
-  IconBack,
-  IconBilling,
-  IconChevron,
-  IconGear,
-  IconShare,
-} from '../components/DashShell'
-import { UpgradeModal } from '../components/WorkspaceModals'
+import { AccountMenu, ConnectCard, IconBack, IconChevron, IconGear, IconShare } from '../components/DashShell'
 import { Avatar } from '../components/ui/avatar'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
-import { Callout } from '../components/ui/callout'
 import { Card, CardBody, CardDescription, CardHeader, CardRow, CardTitle } from '../components/ui/card'
 import { ConfirmDialog } from '../components/ui/alert-dialog'
 import { Input, Sel } from '../components/ui/input'
@@ -39,28 +28,16 @@ import {
 } from '../components/ui/dash'
 import { timeAgo } from '../lib/time'
 
-type Pane = 'members' | 'billing' | 'general'
+type Pane = 'members' | 'general'
 
-/**
- * One workspace's settings, in the dashboard shell: who is in it, what it
- * costs, and the name. Stripe's hosted pages do the money — this page only
- * opens them and mirrors what they did. It is also where Checkout lands
- * back (?checkout=success), so the plan takes effect on the screen they see.
- */
+/** One workspace's settings, in the dashboard shell: who is in it, and the name. */
 export function Workspace({ workspaceId }: { workspaceId: string }) {
   const { data: session } = authClient.useSession()
   const meId = session?.user.id
   const [ws, setWs] = useState<WorkspaceDetail | null>(null)
   const [missing, setMissing] = useState(false)
-  const [upgrade, setUpgrade] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
-  /* the checkout round-trip lands here with its outcome in the query; read
-     once, then clean the URL in the effect below */
-  const [landing] = useState(() => {
-    const q = new URLSearchParams(location.search)
-    return { checkout: q.get('checkout'), sessionId: q.get('session_id') ?? undefined }
-  })
-  const [pane, setPane] = useState<Pane>(landing.checkout ? 'billing' : 'members')
+  const [pane, setPane] = useState<Pane>('members')
 
   const reload = useCallback(() => {
     api
@@ -69,36 +46,15 @@ export function Workspace({ workspaceId }: { workspaceId: string }) {
       .catch(() => setMissing(true))
   }, [workspaceId])
 
-  useEffect(() => {
-    if (landing.checkout) history.replaceState(null, '', location.pathname)
-    if (landing.checkout === 'success') {
-      /* pull the subscription now rather than wait for the webhook */
-      api
-        .syncWorkspaceBilling(workspaceId, landing.sessionId)
-        .then((summary) => {
-          if (summary.active && summary.plan) {
-            posthog.capture('workspace_plan_activated', { workspaceId, interval: summary.interval })
-            showToast('Team plan is active — welcome aboard')
-          }
-        })
-        .catch(console.error)
-        .finally(reload)
-    } else {
-      if (landing.checkout === 'canceled') showToast('Checkout canceled — nothing was charged')
-      reload()
-    }
-  }, [landing, workspaceId, reload])
+  useEffect(reload, [reload])
 
   function showToast(message: string) {
     setToast(message)
     window.setTimeout(() => setToast(null), 3200)
   }
 
-  /** every 402 on this page means the same thing */
   function handle(caught: unknown, fallback: string) {
-    const walled = paywalledWorkspace(caught)
-    if (walled) setUpgrade(`"${ws?.name ?? 'This workspace'}" needs a plan first.`)
-    else showToast(errorMessage(caught, fallback))
+    showToast(errorMessage(caught, fallback))
   }
 
   const admin = ws ? ws.role !== 'member' : false
@@ -140,9 +96,6 @@ export function Workspace({ workspaceId }: { workspaceId: string }) {
           <DashNavItem icon={<IconShare />} active={pane === 'members'} onClick={() => setPane('members')}>
             People
           </DashNavItem>
-          <DashNavItem icon={<IconBilling />} active={pane === 'billing'} onClick={() => setPane('billing')}>
-            Plan &amp; billing
-          </DashNavItem>
           <DashNavItem icon={<IconGear />} active={pane === 'general'} onClick={() => setPane('general')}>
             General
           </DashNavItem>
@@ -177,7 +130,7 @@ export function Workspace({ workspaceId }: { workspaceId: string }) {
                 {ws
                   ? `${ws.memberCount} ${ws.memberCount === 1 ? 'person' : 'people'} · ${ws.canvasCount} ${
                       ws.canvasCount === 1 ? 'canvas' : 'canvases'
-                    } · ${ws.billing.enabled ? STATUS_LABELS[ws.status] : 'Self-hosted, included'}`
+                    }`
                   : '…'}
               </DashSubtitle>
             </div>
@@ -186,59 +139,20 @@ export function Workspace({ workspaceId }: { workspaceId: string }) {
           <Tabs value={pane} onValueChange={(next) => setPane(next as Pane)} className="mt-4 flex md:hidden">
             <TabsList className="h-10 w-full border border-line bg-surface p-1 shadow-card">
               <TabsTrigger value="members">People</TabsTrigger>
-              <TabsTrigger value="billing">Billing</TabsTrigger>
               <TabsTrigger value="general">General</TabsTrigger>
             </TabsList>
           </Tabs>
-
-          {ws && ws.billing.enabled && !ws.active && (
-            <Callout className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
-              <span className="flex-1">
-                <b>No plan yet.</b> Inviting people and adding canvases waits until this workspace is on Team.
-                {ws.status === 'canceled' ? ' Your existing canvases stay open to everyone in it.' : ''}
-              </span>
-              {isOwner && (
-                <Button variant="primary" size="sm" onClick={() => setUpgrade('')}>
-                  {ws.status === 'canceled' ? 'Reactivate' : 'Choose a plan'}
-                </Button>
-              )}
-            </Callout>
-          )}
-          {ws && ws.status === 'past_due' && (
-            <Callout tone="error" className="mt-4">
-              <b>The last payment failed.</b> Stripe is retrying; update the card in the billing portal to keep the
-              plan.
-            </Callout>
-          )}
 
           {!ws ? (
             <Skeleton className="mt-5 min-h-[260px] max-w-[1000px] rounded-[12px]" />
           ) : pane === 'members' ? (
             <MembersPane ws={ws} meId={meId} admin={admin} onChange={reload} onError={handle} onToast={showToast} />
-          ) : pane === 'billing' ? (
-            <BillingPane
-              ws={ws}
-              isOwner={isOwner}
-              onUpgrade={() => setUpgrade('')}
-              onSynced={reload}
-              onToast={showToast}
-            />
           ) : (
             <GeneralPane ws={ws} admin={admin} isOwner={isOwner} onChange={reload} onToast={showToast} />
           )}
         </DashContent>
       </DashMain>
 
-      {upgrade !== null && (
-        <UpgradeModal
-          workspaceId={workspaceId}
-          reason={upgrade || undefined}
-          onClose={() => {
-            setUpgrade(null)
-            reload()
-          }}
-        />
-      )}
       {toast && <Toast>{toast}</Toast>}
     </DashLayout>
   )
@@ -317,9 +231,7 @@ function MembersPane({
       <CardHeader>
         <CardTitle>People</CardTitle>
         <CardDescription>
-          Everyone here opens every canvas in the workspace. Admins invite and remove people; the owner holds the
-          billing.
-          {ws.billing.enabled ? ' Each person is one seat.' : ''}
+          Everyone here opens every canvas in the workspace. Admins invite and remove people.
         </CardDescription>
         {admin && (
           <div className="mt-4 flex flex-col items-stretch gap-2 sm:flex-row">
@@ -434,7 +346,7 @@ function MembersPane({
         description={
           removing?.userId === meId
             ? 'You lose access to every canvas in this workspace except the ones you own.'
-            : 'They lose access to every canvas in this workspace except the ones they own. Their seat is released.'
+            : 'They lose access to every canvas in this workspace except the ones they own.'
         }
         confirmLabel={removing?.userId === meId ? 'Leave workspace' : 'Remove'}
         destructive
@@ -443,133 +355,6 @@ function MembersPane({
           setRemoving(null)
         }}
       />
-    </Card>
-  )
-}
-
-/* ---- plan & billing ---- */
-
-function BillingPane({
-  ws,
-  isOwner,
-  onUpgrade,
-  onSynced,
-  onToast,
-}: {
-  ws: WorkspaceDetail
-  isOwner: boolean
-  onUpgrade: () => void
-  onSynced: () => void
-  onToast: (message: string) => void
-}) {
-  const [busy, setBusy] = useState(false)
-  const perSeat = ws.interval ? TEAM_SEAT_PRICE[ws.interval] : TEAM_SEAT_PRICE.month
-  const paid = ws.plan === 'team' && ws.status !== 'inactive'
-
-  async function portal() {
-    if (busy) return
-    setBusy(true)
-    try {
-      posthog.capture('workspace_portal_opened')
-      const { url } = await api.workspacePortal(ws.id)
-      location.assign(url)
-    } catch (caught) {
-      onToast(errorMessage(caught, 'Couldn’t open the billing portal'))
-      setBusy(false)
-    }
-  }
-
-  async function sync() {
-    if (busy) return
-    setBusy(true)
-    try {
-      await api.syncWorkspaceBilling(ws.id)
-      onSynced()
-      onToast('Up to date with Stripe')
-    } catch (caught) {
-      onToast(errorMessage(caught, 'Couldn’t refresh'))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Card className="mt-4 max-w-[1000px] overflow-hidden sm:mt-5">
-      <CardHeader>
-        <CardTitle>Plan &amp; billing</CardTitle>
-        <CardDescription>
-          {ws.billing.enabled
-            ? 'Team is billed per seat: every person in the workspace, monthly or yearly. Seats follow the people list — add someone and the next invoice grows, remove them and it shrinks.'
-            : 'Billing isn’t configured on this server. Workspaces are included on self-hosted doop; there is nothing to pay for here.'}
-        </CardDescription>
-      </CardHeader>
-      <CardRow label="Plan">
-        <b className="text-[13.5px]">{paid ? 'Team' : ws.billing.enabled ? 'Personal' : 'Self-hosted'}</b>
-        {ws.billing.enabled && (
-          <Badge
-            tone={
-              ws.status === 'active' || ws.status === 'trialing'
-                ? 'accent'
-                : ws.status === 'past_due'
-                  ? 'banned'
-                  : 'default'
-            }
-          >
-            {STATUS_LABELS[ws.status]}
-          </Badge>
-        )}
-        {ws.cancelAtPeriodEnd && ws.currentPeriodEnd && (
-          <span className="text-[12px] text-ink-faint">ends {new Date(ws.currentPeriodEnd).toLocaleDateString()}</span>
-        )}
-      </CardRow>
-      {paid && (
-        <>
-          <CardRow label="Seats">
-            <span className="text-[13.5px]">
-              {ws.seats} × {formatUsd(perSeat)} = <b>{formatUsd(ws.seats * perSeat)}</b> per {ws.interval ?? 'month'}
-            </span>
-            {ws.seats !== ws.memberCount && (
-              <span className="text-[12px] text-ink-faint">
-                ({ws.memberCount} {ws.memberCount === 1 ? 'person' : 'people'} now — Stripe catches up on the next
-                invoice)
-              </span>
-            )}
-          </CardRow>
-          {ws.currentPeriodEnd && (
-            <CardRow label={ws.cancelAtPeriodEnd ? 'Ends' : 'Renews'}>
-              <span className="text-[13.5px]">{new Date(ws.currentPeriodEnd).toLocaleDateString()}</span>
-            </CardRow>
-          )}
-        </>
-      )}
-      {ws.billing.enabled && (
-        <CardRow label="Manage">
-          {isOwner ? (
-            <>
-              {!ws.active || !paid ? (
-                <Button variant="primary" onClick={onUpgrade}>
-                  {ws.status === 'canceled' ? 'Reactivate on Team' : 'Choose a plan'}
-                </Button>
-              ) : null}
-              {ws.billing.portal && (
-                <Button onClick={portal} disabled={busy}>
-                  {busy ? 'Opening…' : 'Manage billing on Stripe'}
-                </Button>
-              )}
-              {ws.billing.portal && (
-                <Button variant="ghost" onClick={sync} disabled={busy}>
-                  Refresh
-                </Button>
-              )}
-              <span className="text-[12px] text-ink-faint">Cards, invoices, cancelling — all on Stripe’s portal.</span>
-            </>
-          ) : (
-            <span className="text-[13px] text-ink-soft">
-              The owner holds the billing; only they can change the plan.
-            </span>
-          )}
-        </CardRow>
-      )}
     </Card>
   )
 }
@@ -658,7 +443,6 @@ function GeneralPane({
             <CardDescription>
               Every canvas goes back to the personal space of whoever owns it — nothing is deleted. People lose access
               to canvases that aren’t theirs.
-              {ws.billing.enabled && ws.plan ? ' The Team subscription is canceled immediately.' : ''}
             </CardDescription>
           </CardHeader>
           <CardBody>
@@ -672,7 +456,7 @@ function GeneralPane({
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
         title={`Delete “${ws.name}”?`}
-        description="Canvases return to their owners and the subscription ends now. This can’t be undone."
+        description="Canvases return to their owners. This can’t be undone."
         confirmLabel="Delete workspace"
         destructive
         onConfirm={() => {

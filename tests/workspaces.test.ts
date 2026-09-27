@@ -2,9 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Client, startServer, type Server } from './harness.ts'
 
 /**
- * Shared workspaces on a self-hosted instance (no Stripe): every workspace
- * is active, membership grants access to every canvas inside, and the
- * per-canvas rules keep working around it. Real server, real database.
+ * Shared workspaces: membership grants access to every canvas inside, and
+ * the per-canvas rules keep working around it. Real server, real database.
  */
 
 const PORT = 5001
@@ -17,7 +16,7 @@ beforeAll(async () => {
 
 afterAll(() => server?.stop())
 
-describe('workspaces (self-hosted, billing off)', () => {
+describe('workspaces', () => {
   let owner: Client
   let teammate: Client
   let stranger: Client
@@ -38,21 +37,16 @@ describe('workspaces (self-hosted, billing off)', () => {
     strangerId = (await (await stranger.get('/api/me')).json()).id
   })
 
-  it('creates a workspace that is active without Stripe', async () => {
+  it('creates a workspace', async () => {
     const res = await owner.post('/api/workspaces', { name: 'Acme Design' })
     const ws = await res.json()
     expect(res.status, JSON.stringify(ws)).toBe(200)
     workspaceId = ws.id
     expect(ws.role).toBe('owner')
-    expect(ws.active).toBe(true)
-    expect(ws.status).toBe('inactive')
     expect(ws.memberCount).toBe(1)
 
     const list = await (await owner.get('/api/workspaces')).json()
-    expect(list.billing.enabled).toBe(false)
     expect(list.workspaces.map((w: { id: string }) => w.id)).toEqual([workspaceId])
-    const me = await (await owner.get('/api/me')).json()
-    expect(me.plan).toBe('free')
   })
 
   it('hides the workspace from non-members', async () => {

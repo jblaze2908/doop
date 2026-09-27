@@ -1,20 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Canvas, CanvasMeta, WorkspaceSummary } from '../../shared/types'
 import { colorFor } from '../../shared/types'
-import { api, errorMessage, paywalledWorkspace, type HomeActivity } from '../lib/api'
+import { api, errorMessage, type HomeActivity } from '../lib/api'
 import { authClient } from '../lib/auth'
 import { navigate } from '../App'
 import { Logo } from '../components/Logo'
 import { timeAgo } from '../lib/time'
 import { AgentIcon } from '../components/AgentIcon'
 import { ShareModal } from '../components/ShareModal'
-import { CreateWorkspaceModal, MoveCanvasModal, UpgradeModal } from '../components/WorkspaceModals'
+import { CreateWorkspaceModal, MoveCanvasModal } from '../components/WorkspaceModals'
 import {
   AccountMenu,
   ConnectCard,
   IconGrid,
   IconList,
-  IconLock,
   IconShare,
   IconUser,
   IconWorkspace,
@@ -27,7 +26,6 @@ import { Badge } from '../components/ui/badge'
 import { Input } from '../components/ui/input'
 import { Card, cardVariants } from '../components/ui/card'
 import { Skeleton } from '../components/ui/skeleton'
-import { Callout } from '../components/ui/callout'
 import { Dot } from '../components/ui/dot'
 import { Wordmark } from '../components/ui/wordmark'
 import { SegmentedIconItem, SegmentedIcons } from '../components/ui/segmented'
@@ -92,8 +90,6 @@ export function Home() {
   const [deleteCanvas, setDeleteCanvas] = useState<CanvasMeta | null>(null)
   const [moveCanvas, setMoveCanvas] = useState<CanvasMeta | null>(null)
   const [creatingWorkspace, setCreatingWorkspace] = useState(false)
-  /* the upgrade wall, aimed at one workspace, with what they were doing */
-  const [upgrade, setUpgrade] = useState<{ workspaceId: string; reason?: string } | null>(null)
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   /* a clock the render can read: an agent that just worked shows as live, and
@@ -128,8 +124,7 @@ export function Home() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  /* inside a workspace view the new canvas is filed there — and a workspace
-     without a plan answers with the wall instead */
+  /* inside a workspace view the new canvas is filed there */
   async function createCanvas() {
     const workspaceId = workspaceOf(scope)
     try {
@@ -137,9 +132,7 @@ export function Home() {
       posthog.capture('canvas_created', { workspace: !!workspaceId })
       open(canvas.id, canvas.name)
     } catch (error) {
-      const walled = paywalledWorkspace(error)
-      if (walled) setUpgrade({ workspaceId: walled, reason: 'Adding a canvas to a workspace needs a Team plan.' })
-      else showToast(errorMessage(error, 'Couldn’t create the canvas'))
+      showToast(errorMessage(error, 'Couldn’t create the canvas'))
     }
   }
 
@@ -299,15 +292,7 @@ export function Home() {
               key={w.id}
               icon={<IconWorkspace />}
               label={w.name}
-              count={
-                w.active ? (
-                  (workspaceCounts.get(w.id) ?? 0)
-                ) : (
-                  <span className="inline-flex items-center gap-1" title="No plan yet">
-                    <IconLock />
-                  </span>
-                )
-              }
+              count={workspaceCounts.get(w.id) ?? 0}
               on={scope === `ws:${w.id}`}
               go={() => setScope(`ws:${w.id}`)}
             />
@@ -433,14 +418,14 @@ export function Home() {
                   <DashSubtitle>
                     {`${visible.length} ${visible.length === 1 ? 'canvas' : 'canvases'} · ${currentWorkspace.memberCount} ${
                       currentWorkspace.memberCount === 1 ? 'person' : 'people'
-                    } · ${currentWorkspace.plan === 'team' && currentWorkspace.active ? 'Team plan' : currentWorkspace.active ? 'Shared workspace' : 'No plan yet'}`}
+                    }`}
                     {' · '}
                     <button
                       type="button"
                       className="font-semibold text-ink underline underline-offset-2"
                       onClick={() => navigate(`/w/${currentWorkspace.id}`)}
                     >
-                      People &amp; billing
+                      People
                     </button>
                   </DashSubtitle>
                 </>
@@ -474,22 +459,6 @@ export function Home() {
               </SegmentedIconItem>
             </SegmentedIcons>
           </div>
-
-          {currentWorkspace && !currentWorkspace.active && (
-            <Callout className="mt-4 flex max-w-[760px] flex-col gap-2 sm:flex-row sm:items-center">
-              <span className="flex-1">
-                <b>{currentWorkspace.name} has no plan yet.</b>{' '}
-                {currentWorkspace.role !== 'owner'
-                  ? 'Ask the owner to choose one — until then no canvases can be added here.'
-                  : 'Choose a Team plan to add canvases and invite your team.'}
-              </span>
-              {currentWorkspace.role === 'owner' && (
-                <Button variant="primary" size="sm" onClick={() => setUpgrade({ workspaceId: currentWorkspace.id })}>
-                  Choose a plan
-                </Button>
-              )}
-            </Callout>
-          )}
 
           <div className="mt-4 flex items-center gap-2 md:hidden">
             <Tabs
@@ -658,19 +627,6 @@ export function Home() {
             setCreatingWorkspace(false)
             reload()
             setScope(`ws:${ws.id}`)
-            /* a workspace that cannot grow yet goes straight to the plan picker */
-            if (!ws.active)
-              setUpgrade({ workspaceId: ws.id, reason: `"${ws.name}" is ready — pick a plan to start using it.` })
-          }}
-        />
-      )}
-      {upgrade && (
-        <UpgradeModal
-          workspaceId={upgrade.workspaceId}
-          reason={upgrade.reason}
-          onClose={() => {
-            setUpgrade(null)
-            reload()
           }}
         />
       )}
@@ -683,10 +639,6 @@ export function Home() {
             setMoveCanvas(null)
             showToast(workspaceId ? `Moved to ${workspaceName(workspaceId) ?? 'the workspace'}` : 'Moved to Personal')
             reload()
-          }}
-          onPaywall={(workspaceId) => {
-            setMoveCanvas(null)
-            setUpgrade({ workspaceId, reason: 'Moving a canvas into a workspace needs a Team plan.' })
           }}
         />
       )}

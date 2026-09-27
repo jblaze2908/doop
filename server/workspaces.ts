@@ -5,10 +5,7 @@ import { db } from './db/index.ts'
 import * as t from './db/schema.ts'
 import * as authSchema from './db/auth-schema.ts'
 import { store } from './store.ts'
-import * as billing from './billing.ts'
 import { mailerConfigured, sendMail } from './mailer.ts'
-import { isBillingInterval, isWorkspaceActive } from '../shared/billing.ts'
-import type { BillingInterval, WorkspaceStatus } from '../shared/billing.ts'
 import { isWorkspaceRole } from '../shared/types.ts'
 import type {
   WorkspaceDetail,
@@ -24,27 +21,12 @@ import type {
  * membership index lives in memory next to the canvases (canAccessCanvas
  * runs on every request and every MCP call) and is written through to the
  * database the way the store does it.
- *
- * Paid: with Stripe configured (server/billing.ts) a workspace must hold a
- * live per-seat subscription before it can GROW — create canvases, invite,
- * take canvases in. Its existing canvases stay reachable whatever the
- * subscription does; a lapsed card never locks a team out of its work.
- * Without Stripe every workspace is active.
  */
 
 export interface WorkspaceRecord {
   id: string
   name: string
   ownerId: string
-  status: WorkspaceStatus
-  plan: 'team' | null
-  interval: BillingInterval | null
-  seats: number
-  stripeCustomerId: string | null
-  stripeSubscriptionId: string | null
-  currentPeriodEnd: number | null
-  cancelAtPeriodEnd: boolean
-  billingEventAt: number | null
   createdAt: number
   updatedAt: number
 }
@@ -73,15 +55,6 @@ export async function hydrateWorkspaces(): Promise<void> {
       id: r.id,
       name: r.name,
       ownerId: r.ownerId,
-      status: r.status as WorkspaceStatus,
-      plan: r.plan === 'team' ? 'team' : null,
-      interval: isBillingInterval(r.interval) ? r.interval : null,
-      seats: r.seats,
-      stripeCustomerId: r.stripeCustomerId,
-      stripeSubscriptionId: r.stripeSubscriptionId,
-      currentPeriodEnd: r.currentPeriodEnd,
-      cancelAtPeriodEnd: r.cancelAtPeriodEnd,
-      billingEventAt: r.billingEventAt,
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
     })
@@ -131,36 +104,14 @@ export function canvasesFor(userId: string) {
   return store.listCanvases(userId, workspaceIdsFor(userId))
 }
 
-/** May members grow this workspace right now? */
-export function isActive(ws: WorkspaceRecord): boolean {
-  return !billing.billingEnabled() || isWorkspaceActive(ws.status)
-}
-
-/** 'team' when the user belongs to at least one live paid workspace. */
-export function planFor(userId: string): 'free' | 'team' {
-  if (!billing.billingEnabled()) return 'free'
-  for (const id of workspaceIdsFor(userId)) {
-    const ws = records.get(id)
-    if (ws && isWorkspaceActive(ws.status)) return 'team'
-  }
-  return 'free'
-}
-
 export function summaryFor(ws: WorkspaceRecord, viewerId: string): WorkspaceSummary {
   return {
     id: ws.id,
     name: ws.name,
     ownerId: ws.ownerId,
     role: roleOf(ws.id, viewerId) ?? 'member',
-    status: ws.status,
-    active: isActive(ws),
-    plan: ws.plan,
-    interval: ws.interval,
-    seats: ws.seats,
     memberCount: members.get(ws.id)?.size ?? 0,
     canvasCount: store.countWorkspaceCanvases(ws.id),
-    ...(ws.currentPeriodEnd ? { currentPeriodEnd: ws.currentPeriodEnd } : {}),
-    cancelAtPeriodEnd: ws.cancelAtPeriodEnd,
     createdAt: ws.createdAt,
     updatedAt: ws.updatedAt,
   }
@@ -178,22 +129,7 @@ export function listFor(userId: string): WorkspaceSummary[] {
 
 export function createWorkspace(name: string, ownerId: string): WorkspaceRecord {
   const now = Date.now()
-  const ws: WorkspaceRecord = {
-    id: nanoid(10),
-    name,
-    ownerId,
-    status: 'inactive',
-    plan: null,
-    interval: null,
-    seats: 0,
-    stripeCustomerId: null,
-    stripeSubscriptionId: null,
-    currentPeriodEnd: null,
-    cancelAtPeriodEnd: false,
-    billingEventAt: null,
-    createdAt: now,
-    updatedAt: now,
-  }
+  const ws: WorkspaceRecord = { id: nanoid(10), name, ownerId, createdAt: now, updatedAt: now }
   records.set(ws.id, ws)
   membersOf(ws.id).set(ownerId, { role: 'owner', addedAt: now })
   swallow(
@@ -217,11 +153,9 @@ export function renameWorkspace(id: string, name: string): WorkspaceRecord | und
 }
 
 /** Tear a workspace down: its canvases return to their owners' personal
- *  spaces (nothing is deleted), its subscription is canceled on Stripe. */
+ *  spaces (nothing is deleted). */
 export async function deleteWorkspace(id: string): Promise<void> {
-  const ws = records.get(id)
-  if (!ws) return
-  if (billing.billingEnabled()) await billing.cancelSubscription(ws)
+  if (!records.has(id)) return
   store.detachWorkspace(id)
   records.delete(id)
   members.delete(id)
@@ -232,102 +166,13 @@ export async function deleteWorkspace(id: string): Promise<void> {
   })
 }
 
-/** Mirror a Stripe subscription onto the row. The one place billing state
- *  changes — the webhook and the post-checkout sync both land here.
- *
- *  Durable before it answers: the webhook must not acknowledge an event
- *  whose write failed (Stripe would never retry it). Ordered: Stripe does
- *  not promise delivery order, so an event older than the last one applied
- *  is dropped rather than rolling a cancellation back to active. Single:
- *  if a different, still-live subscription was on file — two checkouts
- *  completed — the older one is cancelled so nobody is billed twice. */
-const billingChains = new Map<string, Promise<unknown>>()
-
-export function applySubscription(
-  id: string,
-  patch: billing.SubscriptionPatch,
-): Promise<{ ws: WorkspaceRecord; applied: boolean } | undefined> {
-  /* one at a time per workspace: two overlapping webhooks (or a webhook and
-     the post-checkout sync) must not both pass the ordering check on the
-     same stale state */
-  const next = (billingChains.get(id) ?? Promise.resolve()).then(
-    () => applySubscriptionNow(id, patch),
-    () => applySubscriptionNow(id, patch),
-  )
-  billingChains.set(id, next)
-  return next
-}
-
-async function applySubscriptionNow(
-  id: string,
-  patch: billing.SubscriptionPatch,
-): Promise<{ ws: WorkspaceRecord; applied: boolean } | undefined> {
-  const ws = records.get(id)
-  if (!ws) return undefined
-  /* the ordering guard holds across subscriptions too: a delayed event for
-     the subscription this workspace already left must not overwrite the
-     current one — or, worse, cancel it as "superseded" */
-  if (ws.billingEventAt !== null && patch.billingEventAt < ws.billingEventAt) {
-    return { ws, applied: false }
-  }
-  const sameSubscription = ws.stripeSubscriptionId === patch.stripeSubscriptionId
-  const superseded =
-    !sameSubscription && ws.stripeSubscriptionId && isWorkspaceActive(ws.status) ? ws.stripeSubscriptionId : null
-  const updatedAt = Date.now()
-  await db
-    .update(t.workspaces)
-    .set({ ...patch, updatedAt })
-    .where(eq(t.workspaces.id, id))
-  Object.assign(ws, patch, { updatedAt })
-  if (superseded) {
-    console.warn(
-      `[billing] workspace ${id} moved to subscription ${patch.stripeSubscriptionId}; cancelling ${superseded}`,
-    )
-    billing.cancelSubscriptionById(superseded).catch((err) => console.error('[billing] cancel superseded failed', err))
-  }
-  return { ws, applied: true }
-}
-
-export function setCustomer(id: string, stripeCustomerId: string): void {
-  const ws = records.get(id)
-  if (!ws || ws.stripeCustomerId === stripeCustomerId) return
-  ws.stripeCustomerId = stripeCustomerId
-  swallow(db.update(t.workspaces).set({ stripeCustomerId }).where(eq(t.workspaces.id, id)))
-}
-
-/** Keep Stripe's quantity equal to the member count, in the background:
- *  seat changes must never make the invite itself fail. One chain per
- *  workspace, and the count is read when the update runs, not when it was
- *  queued — so a burst of adds and removes settles on the real number
- *  instead of whichever request finished last. */
-const seatChains = new Map<string, Promise<void>>()
-
-function reconcileSeats(ws: WorkspaceRecord): void {
-  if (!billing.billingEnabled() || !ws.stripeSubscriptionId) return
-  const run = async () => {
-    const seats = members.get(ws.id)?.size ?? 0
-    if (!records.has(ws.id)) return // deleted while queued
-    await billing.syncSeats(ws, seats)
-    if (ws.seats !== seats) {
-      ws.seats = seats
-      await db.update(t.workspaces).set({ seats }).where(eq(t.workspaces.id, ws.id))
-    }
-  }
-  const next = (seatChains.get(ws.id) ?? Promise.resolve())
-    .then(run)
-    .catch((err) => console.error(`[billing] seat sync failed for workspace ${ws.id}`, err))
-  seatChains.set(ws.id, next)
-}
-
 export function addMember(workspaceId: string, userId: string, role: WorkspaceRole, addedBy: string): boolean {
-  const ws = records.get(workspaceId)
-  if (!ws) return false
+  if (!records.has(workspaceId)) return false
   const map = membersOf(workspaceId)
   if (map.has(userId)) return false
   const addedAt = Date.now()
   map.set(userId, { role, addedAt })
   swallow(db.insert(t.workspaceMembers).values({ workspaceId, userId, role, addedBy, addedAt }).onConflictDoNothing())
-  reconcileSeats(ws)
   return true
 }
 
@@ -348,14 +193,12 @@ export function setRole(workspaceId: string, userId: string, role: WorkspaceRole
  *  answers: one that only reached memory would quietly come back at the
  *  next restart, with the member's access to every workspace canvas. */
 export async function removeMember(workspaceId: string, userId: string): Promise<boolean> {
-  const ws = records.get(workspaceId)
   const map = members.get(workspaceId)
-  if (!ws || !map?.has(userId)) return false
+  if (!records.has(workspaceId) || !map?.has(userId)) return false
   await db
     .delete(t.workspaceMembers)
     .where(and(eq(t.workspaceMembers.workspaceId, workspaceId), eq(t.workspaceMembers.userId, userId)))
   map.delete(userId)
-  reconcileSeats(ws)
   return true
 }
 
@@ -415,17 +258,12 @@ async function acceptInvite(
     await tx.delete(t.workspaceInvites).where(eq(t.workspaceInvites.id, invite.id))
   })
   const map = membersOf(ws.id)
-  if (!map.has(userId)) {
-    map.set(userId, { role, addedAt })
-    reconcileSeats(ws)
-  }
+  if (!map.has(userId)) map.set(userId, { role, addedAt })
 }
 
 /** A new account with an invited email joins its workspaces on arrival.
  *  Called from the auth hooks — after email verification where a mailer
- *  exists, after signup in mailer-less development. An invite whose
- *  workspace cannot take members right now (no plan, lapsed) is kept, so
- *  reactivating the workspace does not lose the people it invited. */
+ *  exists, after signup in mailer-less development. */
 export async function acceptInvites(userId: string, email: string): Promise<void> {
   const clean = email.trim().toLowerCase()
   const rows = await db.select().from(t.workspaceInvites).where(eq(t.workspaceInvites.email, clean))
@@ -436,28 +274,7 @@ export async function acceptInvites(userId: string, email: string): Promise<void
       await db.delete(t.workspaceInvites).where(eq(t.workspaceInvites.id, invite.id))
       continue
     }
-    if (!isActive(ws)) continue
     await acceptInvite(ws, userId, invite)
-  }
-}
-
-/** Reactivation catches up on invites whose people signed up meanwhile. */
-async function acceptPendingInvitesFor(ws: WorkspaceRecord): Promise<void> {
-  const rows = await db.select().from(t.workspaceInvites).where(eq(t.workspaceInvites.workspaceId, ws.id))
-  if (!rows.length) return
-  const users = await db
-    .select({ id: authSchema.user.id, email: authSchema.user.email, emailVerified: authSchema.user.emailVerified })
-    .from(authSchema.user)
-    .where(
-      inArray(
-        authSchema.user.email,
-        rows.map((r) => r.email),
-      ),
-    )
-  for (const u of users) {
-    if (mailerConfigured && !u.emailVerified) continue
-    const invite = rows.find((r) => r.email === u.email)
-    if (invite) await acceptInvite(ws, u.id, invite)
   }
 }
 
@@ -488,12 +305,7 @@ async function listMembers(workspaceId: string): Promise<WorkspaceMember[]> {
 async function detailFor(ws: WorkspaceRecord, viewerId: string): Promise<WorkspaceDetail> {
   const admin = hasRole(ws.id, viewerId, 'admin')
   const [memberList, invites] = await Promise.all([listMembers(ws.id), admin ? listInvites(ws.id) : []])
-  return {
-    ...summaryFor(ws, viewerId),
-    members: memberList,
-    invites,
-    billing: { enabled: billing.billingEnabled(), portal: !!ws.stripeCustomerId },
-  }
+  return { ...summaryFor(ws, viewerId), members: memberList, invites }
 }
 
 /* ------------------------------------------------------------------ */
@@ -501,16 +313,6 @@ async function detailFor(ws: WorkspaceRecord, viewerId: string): Promise<Workspa
 /* ------------------------------------------------------------------ */
 
 export const workspacesRouter = express.Router()
-
-/** 402 with a stable error code — every client surface turns this into the
- *  upgrade modal for that workspace. */
-export function planRequired(res: express.Response, ws: WorkspaceRecord) {
-  return res.status(402).json({
-    error: 'workspace_plan_required',
-    workspaceId: ws.id,
-    message: `"${ws.name}" needs a Team plan before it can grow`,
-  })
-}
 
 function requireWorkspace(req: express.Request, res: express.Response, id: string, atLeast: WorkspaceRole = 'member') {
   const ws = records.get(id)
@@ -527,7 +329,7 @@ function requireWorkspace(req: express.Request, res: express.Response, id: strin
 }
 
 workspacesRouter.get('/', (req, res) => {
-  res.json({ workspaces: listFor(req.user!.id), billing: { enabled: billing.billingEnabled() } })
+  res.json({ workspaces: listFor(req.user!.id) })
 })
 
 workspacesRouter.post('/', (req, res) => {
@@ -569,7 +371,6 @@ workspacesRouter.delete('/:id', async (req, res) => {
 workspacesRouter.post('/:id/members', async (req, res) => {
   const ws = requireWorkspace(req, res, req.params.id, 'admin')
   if (!ws) return
-  if (!isActive(ws)) return planRequired(res, ws)
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : ''
   if (!email || !email.includes('@')) return res.status(400).json({ error: 'a valid email is required' })
   const role: WorkspaceRole = req.body?.role === 'admin' ? 'admin' : 'member'
@@ -640,97 +441,3 @@ workspacesRouter.delete('/:id/invites/:inviteId', async (req, res) => {
     .where(and(eq(t.workspaceInvites.workspaceId, ws.id), eq(t.workspaceInvites.id, req.params.inviteId)))
   res.json({ ok: true })
 })
-
-/* ---- billing: hosted Stripe pages, and the mirror ---- */
-
-/* The owner pays: the Stripe customer is theirs, and only they can start or
-   manage a subscription. Admins run the people list; the bill is not theirs
-   to move under their own name. */
-workspacesRouter.post('/:id/billing/checkout', async (req, res) => {
-  const ws = requireWorkspace(req, res, req.params.id, 'owner')
-  if (!ws) return
-  if (!billing.billingEnabled()) return res.status(400).json({ error: 'billing is not configured on this server' })
-  const interval = req.body?.interval
-  if (!isBillingInterval(interval)) return res.status(400).json({ error: 'interval must be month or year' })
-  /* one subscription per workspace: a second checkout would bill twice
-     while only the last one is on file */
-  if (ws.stripeSubscriptionId && isWorkspaceActive(ws.status))
-    return res.status(409).json({ error: 'this workspace already has a plan — change it from the billing portal' })
-  try {
-    const customerId = await billing.ensureCustomer(ws, req.user!.email)
-    setCustomer(ws.id, customerId)
-    const seats = members.get(ws.id)?.size ?? 1
-    const url = await billing.createCheckout({ ...ws, stripeCustomerId: customerId }, interval, seats)
-    res.json({ url })
-  } catch (err) {
-    console.error('[billing] checkout failed', err)
-    res.status(502).json({ error: err instanceof Error ? err.message : 'could not start checkout' })
-  }
-})
-
-workspacesRouter.post('/:id/billing/portal', async (req, res) => {
-  const ws = requireWorkspace(req, res, req.params.id, 'owner')
-  if (!ws) return
-  if (!billing.billingEnabled()) return res.status(400).json({ error: 'billing is not configured on this server' })
-  if (!ws.stripeCustomerId) return res.status(400).json({ error: 'no billing account yet — choose a plan first' })
-  try {
-    res.json({ url: await billing.createPortal({ ...ws, stripeCustomerId: ws.stripeCustomerId }) })
-  } catch (err) {
-    console.error('[billing] portal failed', err)
-    res.status(502).json({ error: 'could not open the billing portal' })
-  }
-})
-
-/* The browser is back from Checkout: pull the subscription now rather than
-   wait for the webhook, so the workspace unlocks on the page they land on. */
-workspacesRouter.post('/:id/billing/sync', async (req, res) => {
-  const ws = requireWorkspace(req, res, req.params.id, 'admin')
-  if (!ws) return
-  if (!billing.billingEnabled()) return res.json(summaryFor(ws, req.user!.id))
-  const sessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId : undefined
-  try {
-    const patch = await billing.fetchSubscription(ws, sessionId)
-    if (patch) {
-      const result = await applySubscription(ws.id, patch)
-      if (result?.applied && isActive(ws)) await acceptPendingInvitesFor(ws)
-    }
-    res.json(summaryFor(ws, req.user!.id))
-  } catch (err) {
-    console.error('[billing] sync failed', err)
-    res.status(502).json({ error: 'could not read the subscription from Stripe' })
-  }
-})
-
-/** Stripe → workspace row. Mounted outside the session gate in index.ts with
- *  the raw body (signatures are over the exact bytes). */
-export async function handleStripeWebhook(req: express.Request, res: express.Response): Promise<void> {
-  if (!billing.webhookConfigured()) {
-    res.status(501).json({ error: 'webhook not configured' })
-    return
-  }
-  let event
-  try {
-    event = billing.parseWebhook(req.body as Buffer, req.header('stripe-signature'))
-  } catch (err) {
-    res.status(400).json({ error: err instanceof Error ? err.message : 'bad signature' })
-    return
-  }
-  try {
-    const found = await billing.subscriptionFromEvent(event)
-    if (found) {
-      const result = await applySubscription(found.workspaceId, found.patch)
-      if (result?.applied) {
-        const { ws } = result
-        console.log(`[billing] ${event.type}: workspace ${ws.id} → ${ws.status} (${ws.seats} seats)`)
-        if (isActive(ws)) await acceptPendingInvitesFor(ws)
-      } else if (result) {
-        console.log(`[billing] ${event.type}: stale for workspace ${result.ws.id} — ignored`)
-      }
-    }
-    res.json({ received: true })
-  } catch (err) {
-    /* a 5xx makes Stripe retry, which is what we want for a transient failure */
-    console.error('[billing] webhook failed', err)
-    res.status(500).json({ error: 'webhook handling failed' })
-  }
-}

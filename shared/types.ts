@@ -1,4 +1,3 @@
-import type { BillingInterval, WorkspaceStatus } from './billing.ts'
 import type { CanvasTheme } from './theme.ts'
 import type { ComponentDef } from './components.ts'
 
@@ -86,19 +85,8 @@ export interface WorkspaceSummary {
   ownerId: string
   /** the viewer's role in it */
   role: WorkspaceRole
-  status: WorkspaceStatus
-  /** true when members may grow it: no billing on this server, or a live
-   *  subscription. Canvases inside stay reachable either way. */
-  active: boolean
-  plan: 'team' | null
-  interval: BillingInterval | null
-  /** seats Stripe is billing for right now */
-  seats: number
   memberCount: number
   canvasCount: number
-  /** next renewal (or the end, when cancelAtPeriodEnd) — epoch ms */
-  currentPeriodEnd?: number
-  cancelAtPeriodEnd: boolean
   createdAt: number
   updatedAt: number
 }
@@ -124,12 +112,6 @@ export interface WorkspaceDetail extends WorkspaceSummary {
   members: WorkspaceMember[]
   /** only admins and the owner see these */
   invites: WorkspaceInvite[]
-  billing: {
-    /** Stripe is configured on this server — plans can be bought */
-    enabled: boolean
-    /** a Stripe customer exists, so the billing portal can open */
-    portal: boolean
-  }
 }
 
 /* ---- design memory ---- */

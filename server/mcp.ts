@@ -359,8 +359,6 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
       if (workspace_id) {
         const ws = workspaces.getWorkspace(workspace_id)
         if (!ws || !workspaces.isWorkspaceMember(ws.id, ownerId)) return err(`no workspace with id ${workspace_id}`)
-        if (!workspaces.isActive(ws))
-          return err(`workspace "${ws.name}" needs a Team plan before canvases can be added`)
       }
       /* owned by the connecting user — an ownerless canvas would be invisible
          on every dashboard (and was once visible on all of them) */

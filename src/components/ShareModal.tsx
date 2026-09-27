@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react'
 import type { Canvas } from '../../shared/types'
 import { navigate } from '../App'
 import type { WorkspaceSummary } from '../../shared/types'
-import { api, ApiError, paywalledWorkspace, type CanvasMember } from '../lib/api'
-import { UpgradeModal } from './WorkspaceModals'
+import { api, ApiError, type CanvasMember } from '../lib/api'
 import { authClient } from '../lib/auth'
 import { posthog } from '../lib/posthog'
 import { Avatar } from './ui/avatar'
@@ -35,7 +34,6 @@ export function ShareModal({
   const linkEdits = canvas.linkAccess === 'edit'
   const [people, setPeople] = useState<CanvasMember[] | null>(null)
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([])
-  const [upgrade, setUpgrade] = useState<string | null>(null)
   const [email, setEmail] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -67,9 +65,7 @@ export function ShareModal({
       posthog.capture('canvas_moved', { into: !!workspaceId })
       onChange({ workspaceId: workspaceId ?? undefined })
     } catch (caught) {
-      const walled = paywalledWorkspace(caught)
-      if (walled) setUpgrade(walled)
-      else setError(caught instanceof ApiError ? String(caught.body.error ?? 'move failed') : 'move failed')
+      setError(caught instanceof ApiError ? String(caught.body.error ?? 'move failed') : 'move failed')
     } finally {
       setBusy(false)
     }
@@ -237,7 +233,6 @@ export function ShareModal({
               {workspaces.map((w) => (
                 <option key={w.id} value={w.id}>
                   {w.name}
-                  {w.active ? '' : ' (needs a plan)'}
                 </option>
               ))}
             </Sel>
@@ -261,13 +256,6 @@ export function ShareModal({
             ⧉ Copy link
           </Button>
         </div>
-        {upgrade && (
-          <UpgradeModal
-            workspaceId={upgrade}
-            reason="Moving a canvas into a workspace needs a Team plan."
-            onClose={() => setUpgrade(null)}
-          />
-        )}
       </>
     </Modal>
   )
