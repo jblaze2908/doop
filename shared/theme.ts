@@ -181,13 +181,20 @@ export function withoutTheme(html: string): string {
   return `${html.slice(0, at)}<html data-doop-theme="off">${html.slice(at)}`
 }
 
+/** Insert markup as the first thing in the document's <head>. The anchors
+ *  mirror where a parser opens <head>, so the result is first in head for
+ *  every document shape: head tag, html tag only, doctype only, or a fragment. */
+export function spliceHead(html: string, markup: string): string {
+  if (!markup) return html
+  const anchor = /<head\b[^>]*>/i.exec(html) ?? /<html\b[^>]*>/i.exec(html) ?? /<!doctype[^>]*>/i.exec(html)
+  if (!anchor) return markup + html
+  const at = anchor.index + anchor[0].length
+  return html.slice(0, at) + markup + html.slice(at)
+}
+
 /** Put the theme first in the frame's <head>, where the frame runtime puts it
  *  in the browser: the frame's own styles come later and win the cascade. */
 export function spliceTheme(html: string, css: string): string {
   if (!css || themeOptedOut(html)) return html
-  const tag = `<style data-doop-theme>${css}</style>`
-  const anchor = /<head\b[^>]*>/i.exec(html) ?? /<html\b[^>]*>/i.exec(html) ?? /<!doctype[^>]*>/i.exec(html)
-  if (!anchor) return tag + html
-  const at = anchor.index + anchor[0].length
-  return html.slice(0, at) + tag + html.slice(at)
+  return spliceHead(html, `<style data-doop-theme>${css}</style>`)
 }

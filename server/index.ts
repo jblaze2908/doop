@@ -1252,6 +1252,44 @@ app.put('/api/canvases/:id/theme', async (req, res) => {
   }
 })
 
+/* linked components: same permission model as the theme */
+app.put('/api/canvases/:id/components/:name', (req, res) => {
+  if (!requireCanvas(req, res, req.params.id)) return
+  const actor = actions.resolveActor({ name: req.user!.name, kind: 'user' })
+  const { html, css, props, description } = req.body ?? {}
+  if (typeof html !== 'string') return res.status(400).json({ error: 'html must be a string' })
+  if (props !== undefined && !Array.isArray(props)) return res.status(400).json({ error: 'props must be an array' })
+  try {
+    const def = actions.setComponent(
+      req.params.id,
+      {
+        name: req.params.name,
+        html,
+        ...(typeof css === 'string' ? { css } : {}),
+        ...(props ? { props } : {}),
+        ...(typeof description === 'string' ? { description } : {}),
+      },
+      actor,
+    )
+    if (!def) return res.status(404).json({ error: 'not found' })
+    res.json(def)
+  } catch (e) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'invalid component' })
+  }
+})
+
+app.delete('/api/canvases/:id/components/:name', (req, res) => {
+  if (!requireCanvas(req, res, req.params.id)) return
+  const actor = actions.resolveActor({ name: req.user!.name, kind: 'user' })
+  try {
+    if (!actions.deleteComponent(req.params.id, req.params.name, actor))
+      return res.status(404).json({ error: 'component not found' })
+    res.json({ ok: true })
+  } catch (e) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'invalid component name' })
+  }
+})
+
 /* design memory: pin/unpin reference frames, accept/dismiss rule proposals */
 app.post('/api/canvases/:id/references', (req, res) => {
   if (!requireCanvas(req, res, req.params.id)) return

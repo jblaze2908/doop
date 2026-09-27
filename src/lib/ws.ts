@@ -160,6 +160,9 @@ function handle(msg: ServerMessage) {
     case 'theme':
       s.setThemeLocal(msg.theme)
       break
+    case 'component':
+      s.setComponentLocal(msg.component)
+      break
     case 'reference':
       s.setReferenceLocal(msg.id, msg.reference)
       break

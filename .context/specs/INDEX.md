@@ -8,5 +8,7 @@ lists every file in this folder.
 
 - [canvas-theme.md](canvas-theme.md) - Canvas theme: tokens, Google Fonts and shared CSS every
   frame inherits; injection order, render-cache stamp, MCP/REST/WS surfaces.
+- [linked-components.md](linked-components.md) - Linked components: custom elements with shadow DOM
+  templates shared by every frame; runtime, cascade trap, tombstones, surfaces.
 - [workspaces-billing.md](workspaces-billing.md) - Shared workspaces (org-level canvas access with
   roles) and the per-seat Team plan on Stripe: data model, entitlement rules, API, webhook flow.

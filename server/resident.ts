@@ -18,6 +18,7 @@ import { DESIGN_BRIEF, DESIGN_QUALITY } from './guide.ts'
 import { describeInspiration, INSPIRATION_USAGE_NOTE, searchInspiration } from './inspiration.ts'
 import type { AgentTask, Frame } from '../shared/types.ts'
 import { isThemeEmpty, type CanvasTheme } from '../shared/theme.ts'
+import { liveComponents, templateSlots, type ComponentDef } from '../shared/components.ts'
 import { websiteAccessErrorMessage } from './websiteAccess.ts'
 import { executeGuardedBatch } from './guardedBatch.ts'
 import { runRepoCards } from './githubRecon.ts'
@@ -459,7 +460,13 @@ async function runAgent(canvasId: string, agentName: string, stalled: Set<string
           ]
         : []
       const theme = store.getCanvas(canvasId)?.theme
-      if (theme && !isThemeEmpty(theme)) guidelinesBlock.push({ text: describeTheme(theme), cache: true })
+      /* one cached block for the design system: theme + components change together */
+      const components = liveComponents(store.getComponents(canvasId))
+      const systemText = [
+        ...(theme && !isThemeEmpty(theme) ? [describeTheme(theme)] : []),
+        ...(components.length ? [describeComponents(components)] : []),
+      ].join('\n\n')
+      if (systemText) guidelinesBlock.push({ text: systemText, cache: true })
       const maxTurns = REDESIGN_RE.test(workText) ? MAX_REDESIGN_TURNS : MAX_TURNS
       if (model.runHarness) {
         const result = await model.runHarness({
@@ -699,6 +706,19 @@ function describeTheme(theme: CanvasTheme): string {
   ]
     .filter(Boolean)
     .join('\n\n')
+}
+
+/** The component catalog as the model reads it: how to instantiate each one. */
+function describeComponents(defs: ComponentDef[]): string {
+  const lines = defs.map((d) => {
+    const attrs = d.props.map((p) => (p.default !== undefined ? `${p.name}="${p.default}"` : p.name)).join(' ')
+    return `- <${d.name}${attrs ? ` ${attrs}` : ''}> slots: ${templateSlots(d.html).join(', ') || 'none'}${d.description ? ` — ${d.description}` : ''}`
+  })
+  return [
+    '# Canvas components',
+    'Linked components every frame can use as custom elements. Write instances (always with a closing tag) instead of rewriting their markup; get_component shows a template, set_component changes it everywhere.',
+    lines.join('\n'),
+  ].join('\n\n')
 }
 
 const TOOLS: Anthropic.Tool[] = [
@@ -1042,6 +1062,39 @@ const TOOLS: Anthropic.Tool[] = [
       properties: { families: { type: 'array', items: { type: 'string' } } },
       required: ['families'],
     },
+  },
+  {
+    name: 'get_component',
+    description: 'Read one linked component: its shadow template, scoped CSS, props and slots.',
+    input_schema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
+  },
+  {
+    name: 'set_component',
+    description:
+      'Create or replace a linked component — a custom element frames use as <name attr="…">content</name>. html is the shadow template: <slot></slot> for children, <slot name="x"> for children with slot="x", {{prop}} for an attribute value. css is scoped: :host for the element, :host([variant="primary"]) for variants; theme tokens and classes work inside. Every instance updates.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Custom element tag with a hyphen, e.g. "ds-stat"' },
+        html: { type: 'string' },
+        css: { type: 'string' },
+        props: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: { name: { type: 'string' }, default: { type: 'string' }, description: { type: 'string' } },
+            required: ['name'],
+          },
+        },
+        description: { type: 'string' },
+      },
+      required: ['name', 'html'],
+    },
+  },
+  {
+    name: 'delete_component',
+    description: 'Delete a linked component; its instances render a visible "missing component" box.',
+    input_schema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
   },
   {
     name: 'screenshot_frame',
@@ -1574,6 +1627,48 @@ async function execTool(
         return ok(
           `theme v${theme.version}: ${theme.tokens.length} tokens, ${theme.css.length} chars of CSS, fonts [${theme.fonts.join(', ')}]${unresolved} — every frame inherits it`,
         )
+      }
+      case 'get_component': {
+        const name = String((block.input as { name?: unknown }).name ?? '')
+          .trim()
+          .toLowerCase()
+        const d = liveComponents(store.getComponents(canvasId)).find((x) => x.name === name)
+        if (!d) return fail(`no component named <${name}>`)
+        return ok(
+          JSON.stringify({ name: d.name, props: d.props, slots: templateSlots(d.html), html: d.html, css: d.css }),
+        )
+      }
+      case 'set_component': {
+        const raw = block.input as {
+          name?: unknown
+          html?: unknown
+          css?: unknown
+          props?: unknown
+          description?: unknown
+        }
+        if (typeof raw.name !== 'string' || typeof raw.html !== 'string') return fail('name and html must be strings')
+        const d = actions.setComponent(
+          canvasId,
+          {
+            name: raw.name,
+            html: raw.html,
+            ...(typeof raw.css === 'string' ? { css: raw.css } : {}),
+            ...(Array.isArray(raw.props) ? { props: raw.props } : {}),
+            ...(typeof raw.description === 'string' ? { description: raw.description } : {}),
+          },
+          actor,
+        )
+        if (!d) return fail('canvas not found')
+        const warnings = actions.componentWarnings(canvasId, d)
+        return ok(
+          `saved <${d.name}> v${d.version} — props [${d.props.map((p) => p.name).join(', ')}], slots [${templateSlots(d.html).join(', ')}]; every instance updates${warnings.length ? `. Warning: ${warnings.join(' ')}` : ''}`,
+        )
+      }
+      case 'delete_component': {
+        const name = String((block.input as { name?: unknown }).name ?? '')
+        return actions.deleteComponent(canvasId, name, actor)
+          ? ok(`deleted <${name.trim().toLowerCase()}>`)
+          : fail('no such component')
       }
       case 'screenshot_frame': {
         const f = store.getFrame(input.frame_id)

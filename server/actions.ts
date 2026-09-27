@@ -6,6 +6,17 @@ import { colorFor } from '../shared/types.ts'
 import { DEFAULT_ROLE_ID, mentionedRole, normalizePipeline, roleByAgentName, roleName } from '../shared/agents.ts'
 import { decodeEscapedHtml, looksEscapedHtml, repairEscapedHtml } from './escapedHtml.ts'
 import { resolveFonts } from './theme.ts'
+import { compileTheme } from '../shared/theme.ts'
+import {
+  componentUsages,
+  hostBoxWarning,
+  liveComponents,
+  MAX_COMPONENTS,
+  normalizeComponent,
+  normalizeComponentName,
+  type ComponentDef,
+  type ComponentInput,
+} from '../shared/components.ts'
 import {
   mergeTokens,
   normalizeFontSpecs,
@@ -1356,6 +1367,64 @@ export function patchGuideline(
   return true
 }
 
+/* ------------------------------------------------------------------ */
+/* Linked components: canvas-level custom elements frames instantiate. */
+/* ------------------------------------------------------------------ */
+
+/** Why a definition may not render as its author expects, if anything. */
+export function componentWarnings(canvasId: string, def: ComponentDef): string[] {
+  const warning = hostBoxWarning(def.css, compileTheme(store.getCanvas(canvasId)?.theme))
+  return warning ? [warning] : []
+}
+
+/** Create or replace a definition. Returns it, undefined when the canvas is
+ *  missing; throws on invalid input with a caller-facing message. */
+export function setComponent(canvasId: string, input: ComponentInput, actor: Actor): ComponentDef | undefined {
+  const c = store.getCanvas(canvasId)
+  if (!c) return undefined
+  const clean = normalizeComponent(input)
+  const prev = store.getComponents(canvasId).find((d) => d.name === clean.name)
+  if ((!prev || prev.deletedAt) && liveComponents(c.components).length >= MAX_COMPONENTS)
+    throw new Error(`this canvas already has ${MAX_COMPONENTS} components — delete one first`)
+  const def: ComponentDef = {
+    ...clean,
+    version: (prev?.version ?? 0) + 1,
+    updatedAt: Date.now(),
+    updatedBy: actor.name,
+  }
+  store.putComponent(canvasId, def)
+  broadcast(canvasId, { type: 'component', component: def, actor })
+  const used = componentUsages(c.frames, def.name).length
+  logActivity(
+    canvasId,
+    actor,
+    `${prev && !prev.deletedAt ? 'updated' : 'created'} the component <${def.name}>${used ? ` (used in ${used} frame${used === 1 ? '' : 's'})` : ''}`,
+  )
+  touch(canvasId, actor)
+  return def
+}
+
+/** Tombstone a definition: instances keep their markup and render a visible
+ *  "missing component" box. Returns false when there is nothing to delete. */
+export function deleteComponent(canvasId: string, rawName: string, actor: Actor): boolean {
+  const name = normalizeComponentName(rawName)
+  const prev = store.getComponents(canvasId).find((d) => d.name === name)
+  if (!prev || prev.deletedAt) return false
+  const now = Date.now()
+  const def: ComponentDef = {
+    ...prev,
+    version: prev.version + 1,
+    updatedAt: now,
+    updatedBy: actor.name,
+    deletedAt: now,
+  }
+  store.putComponent(canvasId, def)
+  broadcast(canvasId, { type: 'component', component: def, actor })
+  logActivity(canvasId, actor, `deleted the component <${name}>`)
+  touch(canvasId, actor)
+  return true
+}
+
 /* Per-process memory of which agents have read a canvas's design docs —
    worst case after a restart is one extra nudge, same trade-off as the
    task log's announce tracking. */
@@ -1369,16 +1438,16 @@ export function hasSeenGuidelines(canvasId: string, agentName: string): boolean 
   return guidelinesSeen.has(`${canvasId}:${agentName}`)
 }
 
-/* same trade-off for the canvas theme: an agent that never saw it tends to
-   paste a whole design system into each frame */
-const themeSeen = new Set<string>()
+/* same trade-off for the canvas theme and components: an agent that never saw
+   them tends to paste a whole design system into each frame */
+const designSystemSeen = new Set<string>()
 
-export function markThemeSeen(canvasId: string, agentName: string) {
-  themeSeen.add(`${canvasId}:${agentName}`)
+export function markDesignSystemSeen(canvasId: string, agentName: string) {
+  designSystemSeen.add(`${canvasId}:${agentName}`)
 }
 
-export function hasSeenTheme(canvasId: string, agentName: string): boolean {
-  return themeSeen.has(`${canvasId}:${agentName}`)
+export function hasSeenDesignSystem(canvasId: string, agentName: string): boolean {
+  return designSystemSeen.has(`${canvasId}:${agentName}`)
 }
 
 /* ------------------------------------------------------------------ */

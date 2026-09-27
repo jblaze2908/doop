@@ -1,21 +1,25 @@
 import { store } from './store.ts'
 import { compileTheme, fontFamilyOf, MAX_FONT_FACE_CHARS, sanitizeFontFaces } from '../shared/theme.ts'
+import { componentsStamp, prepareFrameHtml, runtimeDefs } from '../shared/components.ts'
 import type { Frame } from '../shared/types.ts'
 
 /* Google serves woff2 with unicode-range subsets only to a modern browser UA */
 const FONT_UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
 
-/** Compiled theme CSS for a frame's canvas: an in-memory lookup plus a
- *  memoized compile, cheap enough for every render. */
-export function themeCssFor(frame: Pick<Frame, 'canvasId'>): string {
-  return compileTheme(store.getCanvas(frame.canvasId)?.theme)
+/** Everything a frame render depends on: the frame, its canvas theme and
+ *  component definitions. Render caches compare this, not frame.updatedAt. */
+export function renderStamp(frame: Pick<Frame, 'canvasId' | 'updatedAt'>): string {
+  const c = store.getCanvas(frame.canvasId)
+  return `${frame.updatedAt}:${c?.theme?.version ?? 0}:${componentsStamp(c?.components)}`
 }
 
-/** Everything a frame render depends on: the frame and its canvas theme.
- *  Render caches compare this, not frame.updatedAt alone. */
-export function renderStamp(frame: Pick<Frame, 'canvasId' | 'updatedAt'>): string {
-  return `${frame.updatedAt}:${store.getCanvas(frame.canvasId)?.theme?.version ?? 0}`
+/** The frame document server renders load: theme and component runtime
+ *  spliced in exactly where the browser runtime puts them. */
+export function renderableHtml(frame: Pick<Frame, 'canvasId' | 'html'>): string {
+  const c = store.getCanvas(frame.canvasId)
+  const html = frame.html || '<!doctype html><html><body></body></html>'
+  return prepareFrameHtml(html, compileTheme(c?.theme), runtimeDefs(c?.components))
 }
 
 /* a bare family asks for every weight first; static families 400 on a range */

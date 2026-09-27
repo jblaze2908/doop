@@ -1,4 +1,5 @@
 import { FRAME_REPLAY_RUNTIME } from './frameReplayRuntime'
+import { COMPONENT_RUNTIME } from '../../shared/components'
 
 /**
  * Bootstrap document loaded once per frame iframe. The parent posts HTML in
@@ -10,6 +11,7 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
 <html><head></head><body><script data-v-boot>
 (function () {
   ${FRAME_REPLAY_RUNTIME}
+  ${COMPONENT_RUNTIME}
   /* horizontal overscroll inside a frame must not chain to the parent page,
      where the browser turns it into a history back/forward swipe. Adopted
      sheet, not a <style> tag — the morph would wipe a tag from <head>. */
@@ -110,6 +112,12 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
     var live = document.head.querySelector('style[data-doop-theme]')
     if (live) live.parentNode.removeChild(live)
     addTheme(document)
+    shareTheme()
+  }
+
+  /* component shadow roots see the theme only through their own sheet */
+  function shareTheme() {
+    doopComponents.setTheme(themeOff(document.documentElement) ? '' : themeCss)
   }
 
   function render(html) {
@@ -124,6 +132,8 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
       morphChildren(document.head, doc.head)
       morphChildren(document.body, doc.body)
       activateScripts()
+      shareTheme()
+      doopComponents.refresh() // the morph may have changed instance attributes
     } catch (e) {
       if (doc) document.documentElement.innerHTML = doc.documentElement.innerHTML
     }
@@ -484,6 +494,7 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
       parent.postMessage({ type: 'doop:style-result', reqId: d.reqId, ok: applied, info: applied ? inspect(d.selector) : null }, '*')
     }
     if (d.type === 'doop:theme' && typeof d.css === 'string') setTheme(d.css)
+    if (d.type === 'doop:components' && Array.isArray(d.defs)) doopComponents.set(d.defs)
     if (d.type === 'doop:html' && typeof d.html === 'string' && !editing) render(d.html)
     if (d.type === 'doop:edit') setEdit(!!d.on)
     if (d.type === 'doop:probe') {

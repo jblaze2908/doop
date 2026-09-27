@@ -8,7 +8,7 @@ import { sendWs } from '../lib/ws'
 import { throttle } from '../lib/throttle'
 import { getIdentity } from '../lib/identity'
 import { FRAME_BOOTSTRAP } from '../lib/frameRuntime'
-import { useThemeCss } from '../lib/theme'
+import { useComponentDefs, useThemeCss } from '../lib/theme'
 import { recordCreate, recordUpdate, recordUpdates, trackSave } from '../lib/history'
 import { snapFrame } from '../lib/snap'
 import { gesture } from '../lib/gesture'
@@ -303,6 +303,11 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
     if (!runtimeReady) return
     iframeRef.current?.contentWindow?.postMessage({ type: 'doop:theme', css: themeCss }, '*')
   }, [runtimeReady, themeCss])
+  const componentDefs = useComponentDefs()
+  useEffect(() => {
+    if (!runtimeReady) return
+    iframeRef.current?.contentWindow?.postMessage({ type: 'doop:components', defs: componentDefs }, '*')
+  }, [runtimeReady, componentDefs])
   useEffect(() => {
     if (!runtimeReady || editing || suspendPost) return
     iframeRef.current?.contentWindow?.postMessage({ type: 'doop:html', html }, '*')

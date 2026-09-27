@@ -2,6 +2,7 @@ import { nanoid } from 'nanoid'
 import * as persist from './db/persist.ts'
 import type { Canvas, CommunityCategory, Frame, GuidelineDoc, MemoryReference } from '../shared/types.ts'
 import type { CanvasTheme } from '../shared/theme.ts'
+import type { ComponentDef } from '../shared/components.ts'
 
 /**
  * In-memory canvas/frame state — the hot path for reads, reveals and
@@ -127,6 +128,9 @@ class Store {
       ...(guidelines?.length ? { guidelines } : {}),
       ...(references?.length ? { references } : {}),
       ...(source.theme ? { theme: { ...source.theme, updatedAt: now, updatedBy: by } } : {}),
+      ...(source.components?.length
+        ? { components: source.components.map((d) => ({ ...d, updatedAt: now, updatedBy: by })) }
+        : {}),
     }
     await persist.saveCanvasCopy(canvas)
     this.canvases.set(canvas.id, canvas)
@@ -281,6 +285,25 @@ class Store {
     persist.saveCanvasTheme(canvasId, theme)
     persist.saveCanvas(c)
     return c
+  }
+
+  getComponents(canvasId: string): ComponentDef[] {
+    return this.canvases.get(canvasId)?.components ?? []
+  }
+
+  /** Upsert a definition (or tombstone) by name, keeping the list sorted.
+   *  A definition change is a design edit. */
+  putComponent(canvasId: string, def: ComponentDef): ComponentDef | undefined {
+    const c = this.canvases.get(canvasId)
+    if (!c) return undefined
+    const list = (c.components ??= []).filter((d) => d.name !== def.name)
+    list.push(def)
+    list.sort((a, b) => a.name.localeCompare(b.name))
+    c.components = list
+    c.updatedAt = def.updatedAt
+    persist.saveComponent(canvasId, def)
+    persist.saveCanvas(c)
+    return def
   }
 
   getGuidelines(canvasId: string): GuidelineDoc[] {

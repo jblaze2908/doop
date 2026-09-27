@@ -12,9 +12,11 @@ import { ListHint, ListItem, ListMeta, ListRow, ListSection, ListSummary, ListTi
 import { MarkdownBlock, Modal, ModalActions, ModalLede, ModalSpacer, ModalTitle } from './ui/modal'
 import { ConfirmDialog } from './ui/alert-dialog'
 import { DoopMark } from './Logo'
-import { isThemeEmpty, spliceTheme } from '../../shared/theme'
-import { useThemeCss } from '../lib/theme'
+import { isThemeEmpty } from '../../shared/theme'
+import { prepareFrameHtml } from '../../shared/components'
+import { useComponentDefs, useThemeCss } from '../lib/theme'
 import { ThemeSection } from './ThemeSection'
+import { ComponentsSection } from './ComponentsSection'
 
 const MAX_GUIDELINE_CHARS = 24_000
 const MAX_TITLE_CHARS = 80
@@ -143,6 +145,7 @@ export function MemoryPanel() {
       )}
 
       <ThemeSection canvasId={canvasId} />
+      <ComponentsSection canvasId={canvasId} />
 
       <ListSection>
         <span>Rules</span>
@@ -202,7 +205,7 @@ export function MemoryPanel() {
 function RefThumb({ reference }: { reference: MemoryReference }) {
   const w = 264 // panel content width
   const scale = w / reference.width
-  const html = spliceTheme(reference.html, useThemeCss())
+  const html = prepareFrameHtml(reference.html, useThemeCss(), useComponentDefs())
   return (
     <span
       className="block w-full overflow-hidden rounded-[8px] border border-line bg-white"
@@ -212,7 +215,7 @@ function RefThumb({ reference }: { reference: MemoryReference }) {
         className="pointer-events-none origin-top-left border-0"
         title={reference.title}
         srcDoc={html}
-        sandbox=""
+        sandbox="allow-scripts"
         tabIndex={-1}
         style={{ width: reference.width, height: reference.height, transform: `scale(${scale})` }}
       />
@@ -231,6 +234,7 @@ function RefModal({
   onClose: () => void
 }) {
   const themeCss = useThemeCss()
+  const componentDefs = useComponentDefs()
   if (!reference) {
     return (
       <Modal size="xl" onClose={onClose}>
@@ -246,7 +250,7 @@ function RefModal({
   }
   const w = Math.min(696, window.innerWidth - 110)
   const scale = Math.min(1, w / reference.width)
-  const html = spliceTheme(reference.html, themeCss)
+  const html = prepareFrameHtml(reference.html, themeCss, componentDefs)
   return (
     <Modal size="xl" onClose={onClose}>
       <>
@@ -268,7 +272,7 @@ function RefModal({
             className="pointer-events-none origin-top-left border-0"
             title={reference.title}
             srcDoc={html}
-            sandbox=""
+            sandbox="allow-scripts"
             tabIndex={-1}
             style={{ width: reference.width, height: reference.height, transform: `scale(${scale})` }}
           />

@@ -1,4 +1,5 @@
 import type { CanvasTheme, ThemeTokenInput } from '../../shared/theme'
+import type { ComponentDef, ComponentInput } from '../../shared/components'
 import type { LocalAgentPreference, LocalAgentJob, LocalAgentResult } from '../../shared/localAgent'
 import type {
   ActivityItem,
@@ -324,6 +325,13 @@ export const api = {
     canvasId: string,
     patch: { tokens?: ThemeTokenInput[]; mode?: 'merge' | 'replace'; css?: string; fonts?: string[] },
   ) => req<CanvasTheme>(`/api/canvases/${canvasId}/theme`, { method: 'PUT', body: JSON.stringify(patch) }),
+  setComponent: (canvasId: string, input: ComponentInput) =>
+    req<ComponentDef>(`/api/canvases/${canvasId}/components/${encodeURIComponent(input.name)}`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }),
+  deleteComponent: (canvasId: string, name: string) =>
+    req(`/api/canvases/${canvasId}/components/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   /* design memory */
   pinReference: (canvasId: string, frameId: string) =>
     req(`/api/canvases/${canvasId}/references`, { method: 'POST', body: JSON.stringify({ frameId }) }),

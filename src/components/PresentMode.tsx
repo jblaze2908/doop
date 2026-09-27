@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../lib/store'
 import { FRAME_BOOTSTRAP } from '../lib/frameRuntime'
-import { useThemeCss } from '../lib/theme'
+import { useComponentDefs, useThemeCss } from '../lib/theme'
 import { Button } from './ui/button'
 import { XIcon } from './ui/icons'
 
@@ -31,6 +31,11 @@ export function PresentMode({ frameId, onClose }: { frameId: string; onClose: ()
     if (!ready) return
     iframeRef.current?.contentWindow?.postMessage({ type: 'doop:theme', css: themeCss }, '*')
   }, [ready, themeCss])
+  const componentDefs = useComponentDefs()
+  useEffect(() => {
+    if (!ready) return
+    iframeRef.current?.contentWindow?.postMessage({ type: 'doop:components', defs: componentDefs }, '*')
+  }, [ready, componentDefs])
 
   const html = frame?.html ?? ''
   useEffect(() => {

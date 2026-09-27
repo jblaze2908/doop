@@ -12,6 +12,7 @@ import {
 } from 'drizzle-orm/pg-core'
 import type { Schedule, Step } from '../../shared/automations.ts'
 import type { CanvasTheme } from '../../shared/theme.ts'
+import type { ComponentProp } from '../../shared/components.ts'
 
 /**
  * One Postgres-dialect schema for every environment: PGlite (embedded, file
@@ -355,6 +356,25 @@ export const guidelines = pgTable(
     /* world position of the card on the canvas; null = auto-placed */
     x: doublePrecision('x'),
     y: doublePrecision('y'),
+  },
+  (t) => [primaryKey({ columns: [t.canvasId, t.name] })],
+)
+
+/** Linked component definitions per canvas. A deletion keeps the row as a
+ *  tombstone (deleted_at) so old instances render a visible fallback. */
+export const components = pgTable(
+  'components',
+  {
+    canvasId: text('canvas_id').notNull(),
+    name: text('name').notNull(),
+    html: text('html').notNull(),
+    css: text('css').notNull(),
+    props: jsonb('props').$type<ComponentProp[]>().notNull(),
+    description: text('description'),
+    version: integer('version').notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    updatedBy: text('updated_by').notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
   },
   (t) => [primaryKey({ columns: [t.canvasId, t.name] })],
 )

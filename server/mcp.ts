@@ -31,6 +31,14 @@ import {
   THEME_TOKEN_TYPES,
   type CanvasTheme,
 } from '../shared/theme.ts'
+import {
+  componentUsages,
+  liveComponents,
+  MAX_COMPONENT_CSS_CHARS,
+  MAX_COMPONENT_HTML_CHARS,
+  templateSlots,
+  type ComponentDef,
+} from '../shared/components.ts'
 import * as allowance from './allowance.ts'
 
 const INSTRUCTIONS = `Doop is a shared multiplayer design canvas: humans and AI agents design together in real time. Canvases contain frames — artboards that render complete HTML documents live for everyone viewing.
@@ -48,6 +56,7 @@ You MUST call get_guide({ topic: "doop-instructions" }) once before using other 
 - Feedback: humans reply to your tasks; their notes arrive inside your tool results as HUMAN FEEDBACK blocks — address them before continuing.
 - Comments: call get_comments to read element-pinned comments and replies on a canvas, optionally filtered by frame; reply_to_comment answers a thread and resolve_comment closes it. Reading does not claim feedback or comments. A reply that @mentions a resident role is metered like a comment left in the browser.
 - Theme: a canvas can carry a theme — design tokens, Google Fonts and shared CSS injected into EVERY frame. get_canvas shows it; read it with get_theme and build frames from its classes and var(--…) tokens, never pasting it into a frame. Put a design system's shared CSS in the theme (set_theme_tokens / set_theme_css / set_theme_fonts), not in each frame.
+- Components: a canvas can carry linked components — custom elements (<ds-stat label="…">…</ds-stat>) whose template and CSS live on the canvas. get_canvas lists them; use instances instead of rewriting their markup, and create reusable pieces with set_component so a change updates every frame.
 - Guidelines: canvases can carry named style guides (brand rules, style recipes). get_canvas lists them with one-line summaries — read the relevant ones with get_guidelines BEFORE designing and follow them.
 - Memory: canvases can also carry pinned style references — exemplar designs humans marked as "more like this". get_canvas lists them; read the relevant one with get_reference and match its look. When your human gives you design feedback in conversation and you address it, record it with save_decision so the canvas remembers their taste.`
 
@@ -67,6 +76,14 @@ function textWithNudge(data: unknown, nudge: string) {
 
 const THEME_NOTE =
   'This canvas has a theme: every frame inherits its tokens (var(--…)), fonts and CSS classes automatically. Read it with get_theme and build frames from it — never paste the theme into a frame.'
+
+const COMPONENTS_NOTE =
+  'This canvas has linked components. Use them in frames as custom elements — <name attr="…">slot content</name>, always with a closing tag — instead of rewriting their markup; editing a component then updates every instance. Read one with get_component.'
+
+/** One line per component: what an agent needs to instantiate it. */
+function componentSummary(d: ComponentDef) {
+  return { name: d.name, props: d.props.map((p) => p.name), slots: templateSlots(d.html) }
+}
 
 function themeSummary(theme: CanvasTheme) {
   return {
@@ -117,9 +134,16 @@ function withGuidelinesNudge<T extends { content: { type: 'text' | 'image'; [k: 
   actor?: Actor,
 ): T {
   if (!actor) return result
-  if (!isThemeEmpty(store.getCanvas(canvasId)?.theme) && !actions.hasSeenTheme(canvasId, actor.name)) {
-    actions.markThemeSeen(canvasId, actor.name) // one nudge is enough
-    result.content.push({ type: 'text' as const, text: THEME_NOTE })
+  const canvas = store.getCanvas(canvasId)
+  if (!actions.hasSeenDesignSystem(canvasId, actor.name)) {
+    actions.markDesignSystemSeen(canvasId, actor.name) // one nudge is enough
+    if (!isThemeEmpty(canvas?.theme)) result.content.push({ type: 'text' as const, text: THEME_NOTE })
+    const live = liveComponents(canvas?.components)
+    if (live.length)
+      result.content.push({
+        type: 'text' as const,
+        text: `${COMPONENTS_NOTE} Components here: ${live.map((d) => `<${d.name}>`).join(', ')}.`,
+      })
   }
   const docs = store.getGuidelines(canvasId)
   if (docs.length === 0 || actions.hasSeenGuidelines(canvasId, actor.name)) return result
@@ -359,7 +383,8 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
          the synced screens — context a redesign must respect */
       const flow = describeSyncFlow(await getSyncFlow(c), c.frames)
       const theme = isThemeEmpty(c.theme) ? undefined : c.theme
-      if (theme && agent_name) actions.markThemeSeen(canvas_id, actorFrom(agent_name).name)
+      const components = liveComponents(c.components)
+      if (agent_name) actions.markDesignSystemSeen(canvas_id, actorFrom(agent_name).name)
       const notes = [
         ...(flow.length
           ? [
@@ -377,6 +402,7 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
             ]
           : []),
         ...(theme ? [THEME_NOTE] : []),
+        ...(components.length ? [COMPONENTS_NOTE] : []),
       ]
       return withFeedback(
         text({
@@ -400,6 +426,7 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
             pinnedBy: r.pinnedBy,
           })),
           ...(theme ? { theme: themeSummary(theme) } : {}),
+          ...(components.length ? { components: components.map(componentSummary) } : {}),
           ...(flow.length ? { flow } : {}),
           ...(notes.length ? { note: notes.join(' ') } : {}),
         }),
@@ -522,7 +549,7 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
       const c = canvasFor(canvas_id)
       if (!c) return noCanvas(canvas_id)
       arrive(canvas_id, agent_name)
-      if (agent_name) actions.markThemeSeen(canvas_id, actorFrom(agent_name).name)
+      if (agent_name) actions.markDesignSystemSeen(canvas_id, actorFrom(agent_name).name)
       const theme = c.theme
       if (!theme || isThemeEmpty(theme))
         return text({
@@ -555,7 +582,7 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
   ) => {
     if (!canvasFor(canvas_id)) return noCanvas(canvas_id)
     const actor = actorFrom(agent_name)
-    actions.markThemeSeen(canvas_id, actor.name)
+    actions.markDesignSystemSeen(canvas_id, actor.name)
     try {
       const theme = await actions.setTheme(canvas_id, patch, actor)
       if (!theme) return noCanvas(canvas_id)
@@ -625,6 +652,160 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
             }
           : {}),
       })),
+  )
+
+  const noComponent = (canvasId: string, name: string) => {
+    const names = liveComponents(store.getComponents(canvasId)).map((d) => d.name)
+    return err(
+      names.length
+        ? `no component named <${name}> — this canvas has: ${names.join(', ')}`
+        : 'this canvas has no components yet — create one with set_component',
+    )
+  }
+
+  server.registerTool(
+    'list_components',
+    {
+      description:
+        "List the canvas's linked components: custom elements every frame can use, with their props (attributes) and slots. Instances stay linked — editing a component updates every frame that uses it.",
+      inputSchema: { canvas_id: z.string(), agent_name: agentName.optional() },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ canvas_id, agent_name }) => {
+      const c = canvasFor(canvas_id)
+      if (!c) return noCanvas(canvas_id)
+      arrive(canvas_id, agent_name)
+      if (agent_name) actions.markDesignSystemSeen(canvas_id, actorFrom(agent_name).name)
+      const live = liveComponents(c.components)
+      return withFeedback(
+        text({
+          components: live.map((d) => ({
+            ...componentSummary(d),
+            ...(d.description ? { description: d.description } : {}),
+            usedIn: componentUsages(c.frames, d.name).length,
+          })),
+          ...(live.length ? {} : { note: 'No components yet. Create one with set_component.' }),
+        }),
+        canvas_id,
+        agent_name ? actorFrom(agent_name) : undefined,
+      )
+    },
+  )
+
+  server.registerTool(
+    'get_component',
+    {
+      description:
+        'Read one linked component in full: its shadow template, scoped CSS, props with defaults, and slots.',
+      inputSchema: { canvas_id: z.string(), name: z.string(), agent_name: agentName.optional() },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ canvas_id, name, agent_name }) => {
+      const c = canvasFor(canvas_id)
+      if (!c) return noCanvas(canvas_id)
+      const d = liveComponents(c.components).find((x) => x.name === name.trim().toLowerCase())
+      if (!d) return noComponent(canvas_id, name)
+      return withFeedback(
+        text({
+          name: d.name,
+          ...(d.description ? { description: d.description } : {}),
+          props: d.props,
+          slots: templateSlots(d.html),
+          html: d.html,
+          css: d.css,
+          version: d.version,
+        }),
+        canvas_id,
+        agent_name ? actorFrom(agent_name) : undefined,
+      )
+    },
+  )
+
+  server.registerTool(
+    'set_component',
+    {
+      description: `Create or replace a linked component: a custom element frames use as <name attr="…">content</name> (always with a closing tag). \`html\` is its shadow template (max ${MAX_COMPONENT_HTML_CHARS.toLocaleString('en-US')} chars): <slot></slot> takes the instance's children, <slot name="x"> takes children with slot="x", {{prop}} inserts an attribute value (escaped). \`css\` is scoped to the component (max ${MAX_COMPONENT_CSS_CHARS.toLocaleString('en-US')} chars): style the element itself with :host (display and layout; padding/margin go on an inner element, since a theme's * reset outranks :host), variants with :host([variant="primary"]). Theme tokens (var(--…)) and theme classes work inside. Frame CSS cannot reach inside a component — expose variation as props. Every instance on every frame updates when you change it.`,
+      inputSchema: {
+        canvas_id: z.string(),
+        name: z.string().describe('Custom element tag with a hyphen, e.g. "ds-stat"'),
+        html: z.string().max(MAX_COMPONENT_HTML_CHARS),
+        css: z.string().max(MAX_COMPONENT_CSS_CHARS).optional(),
+        props: z
+          .array(z.object({ name: z.string(), default: z.string().optional(), description: z.string().optional() }))
+          .optional()
+          .describe('Attributes the component reads; {{placeholders}} in html are added automatically'),
+        description: z.string().optional(),
+        agent_name: agentName,
+      },
+    },
+    async ({ canvas_id, agent_name, ...input }) => {
+      const c = canvasFor(canvas_id)
+      if (!c) return noCanvas(canvas_id)
+      const actor = actorFrom(agent_name)
+      actions.markDesignSystemSeen(canvas_id, actor.name)
+      try {
+        const d = actions.setComponent(canvas_id, input, actor)
+        if (!d) return noCanvas(canvas_id)
+        const warnings = actions.componentWarnings(canvas_id, d)
+        return withFeedback(
+          text({
+            ok: true,
+            ...componentSummary(d),
+            version: d.version,
+            usedIn: componentUsages(c.frames, d.name).length,
+            ...(warnings.length ? { warnings } : {}),
+          }),
+          canvas_id,
+          actor,
+        )
+      } catch (e) {
+        return err(e instanceof Error ? e.message : 'invalid component')
+      }
+    },
+  )
+
+  server.registerTool(
+    'delete_component',
+    {
+      description:
+        'Delete a linked component. Frames keep their instance markup, which then renders as a visible "missing component" box until you replace it or recreate the component.',
+      inputSchema: { canvas_id: z.string(), name: z.string(), agent_name: agentName },
+    },
+    async ({ canvas_id, name, agent_name }) => {
+      const c = canvasFor(canvas_id)
+      if (!c) return noCanvas(canvas_id)
+      const actor = actorFrom(agent_name)
+      try {
+        if (!actions.deleteComponent(canvas_id, name, actor)) return noComponent(canvas_id, name)
+      } catch (e) {
+        return err(e instanceof Error ? e.message : 'invalid component name')
+      }
+      const used = componentUsages(c.frames, name.trim().toLowerCase())
+      return withFeedback(
+        text({ ok: true, deleted: name.trim().toLowerCase(), stillUsedIn: used.map((u) => u.frameId) }),
+        canvas_id,
+        actor,
+      )
+    },
+  )
+
+  server.registerTool(
+    'component_usages',
+    {
+      description: 'Which frames use a component, and how many instances each holds.',
+      inputSchema: { canvas_id: z.string(), name: z.string(), agent_name: agentName.optional() },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ canvas_id, name, agent_name }) => {
+      const c = canvasFor(canvas_id)
+      if (!c) return noCanvas(canvas_id)
+      const used = componentUsages(c.frames, name.trim().toLowerCase())
+      return withFeedback(
+        text({ frames: used.map((u) => ({ frame_id: u.frameId, name: u.frameName, instances: u.count })) }),
+        canvas_id,
+        agent_name ? actorFrom(agent_name) : undefined,
+      )
+    },
   )
 
   server.registerTool(

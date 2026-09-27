@@ -307,6 +307,28 @@ own <style> still wins where it needs to. get_canvas reports it; get_theme reads
 - A frame that must ignore the theme (an import, a page that ships its own full CSS)
   opts out with <html data-doop-theme="off">.
 
+## Components — build screens from linked instances
+
+A canvas can carry linked components: custom elements whose template and CSS live on
+the canvas, not in frames. get_canvas and list_components list them with their props
+and slots.
+
+- Using one: write an instance in the frame — <ds-stat label="Net worth">₹18,42,300</ds-stat>.
+  Always write the closing tag (custom elements are never self-closing). Children fill
+  the default <slot>; children with slot="x" fill <slot name="x">; attributes fill
+  {{prop}} placeholders and :host([prop="…"]) variants.
+- Making one: set_component with a shadow template (html) and scoped css. Style the
+  element itself with :host (give it a display — custom elements are inline by default)
+  and variants with :host([variant="primary"]). Put padding and margin on an element
+  inside the template, not on :host: a theme's * reset outranks :host for those. Theme tokens (var(--…)) and theme
+  classes work inside; the frame's own CSS does not reach inside, so expose variation as
+  props rather than styling internals from the frame.
+- Anything that repeats — buttons, chips, cards, table rows, nav items — is a component.
+  Changing it with set_component updates every instance on every frame at once;
+  component_usages shows where it is used.
+- delete_component leaves instances in place, rendered as a visible "missing component"
+  box, so nothing disappears silently.
+
 ## Style guides — read before designing
 
 Canvases can carry named style guides: markdown packs of brand and style rules

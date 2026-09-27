@@ -8,6 +8,7 @@ import { extractAssetIds } from '../assets.ts'
 import { roleByAgentName } from '../../shared/agents.ts'
 import { isCommunityCategory } from '../../shared/types.ts'
 import { isCanvasTheme, type CanvasTheme } from '../../shared/theme.ts'
+import type { ComponentDef } from '../../shared/components.ts'
 import type {
   ActivityItem,
   AgentTask,
@@ -106,6 +107,10 @@ export async function saveCanvasCopy(c: Canvas): Promise<void> {
       )
     }
 
+    if (c.components?.length) {
+      await tx.insert(t.components).values(c.components.map((d) => componentRow(c.id, d)))
+    }
+
     if (c.references?.length) {
       await tx.insert(t.memoryReferences).values(
         c.references.map((ref) => ({
@@ -140,6 +145,33 @@ export function deleteMember(canvasId: string, userId: string) {
 }
 
 /* Single-shot writes (one save per explicit edit) — no debounce needed. */
+function componentRow(canvasId: string, d: ComponentDef) {
+  return {
+    canvasId,
+    name: d.name,
+    html: d.html,
+    css: d.css,
+    props: d.props,
+    description: d.description ?? null,
+    version: d.version,
+    updatedAt: d.updatedAt,
+    updatedBy: d.updatedBy,
+    deletedAt: d.deletedAt ?? null,
+  }
+}
+
+/** Upsert a definition or its tombstone. */
+export function saveComponent(canvasId: string, d: ComponentDef) {
+  const row = componentRow(canvasId, d)
+  const { canvasId: _c, name: _n, ...set } = row
+  swallow(
+    db
+      .insert(t.components)
+      .values(row)
+      .onConflictDoUpdate({ target: [t.components.canvasId, t.components.name], set }),
+  )
+}
+
 export function saveGuideline(canvasId: string, doc: GuidelineDoc) {
   const row = {
     canvasId,
@@ -575,6 +607,7 @@ export async function hydrate(): Promise<Hydrated> {
     decisionRows,
     proposalRows,
     memberRows,
+    componentRows,
   ] = await Promise.all([
     db.select().from(t.canvases),
     db.select().from(t.frames),
@@ -587,6 +620,7 @@ export async function hydrate(): Promise<Hydrated> {
     db.select().from(t.decisions).orderBy(desc(t.decisions.at)),
     db.select().from(t.memoryProposals).orderBy(desc(t.memoryProposals.at)),
     db.select().from(t.canvasMembers).orderBy(t.canvasMembers.addedAt),
+    db.select().from(t.components).orderBy(t.components.name),
   ])
 
   const canvases: Canvas[] = canvasRows.map((c) => ({
@@ -623,6 +657,21 @@ export async function hydrate(): Promise<Hydrated> {
       height: r.height,
       pinnedBy: r.pinnedBy,
       pinnedAt: r.pinnedAt,
+    })
+  }
+  for (const d of componentRows) {
+    const c = byId.get(d.canvasId)
+    if (!c) continue
+    ;(c.components ??= []).push({
+      name: d.name,
+      html: d.html,
+      css: d.css,
+      props: d.props,
+      ...(d.description ? { description: d.description } : {}),
+      version: d.version,
+      updatedAt: d.updatedAt,
+      updatedBy: d.updatedBy,
+      ...(d.deletedAt != null ? { deletedAt: d.deletedAt } : {}),
     })
   }
   for (const g of guidelineRows) {
