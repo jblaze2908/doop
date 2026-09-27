@@ -1325,3 +1325,59 @@ export function replaceSource(html: string, el: ElementNode, replacement: string
   assertFits(html, el)
   return html.slice(0, el.start) + replacement + html.slice(el.end)
 }
+
+/* ------------------------------------------------------------------ search */
+
+const CODE_TEXT = new Set(['style', 'script'])
+
+export interface TextHit {
+  frame_id: string
+  frame: string
+  /** @path of the innermost element holding the text; absent in <head> */
+  path?: string
+  /** that element's source around the first occurrence, exact enough for a find/replace */
+  source: string
+}
+
+/** Elements whose own text or attribute values contain `query` (case-sensitive,
+ *  raw source), innermost first, across frames. One parse per frame per call. */
+export function findText(
+  frames: readonly { id: string; name: string; html: string }[],
+  query: string,
+  limit: number,
+): TextHit[] {
+  const hits: TextHit[] = []
+  for (const f of frames) {
+    if (!f.html.includes(query)) continue
+    const seen = new Set<ElementNode>()
+    const visit = (parent: TreeParent) => {
+      for (const kid of parent.children) {
+        if (hits.length >= limit) return
+        /* CSS and script source are not copy */
+        if (kid.type === 'text' && kid.value.includes(query) && parent.type === 'element' && !CODE_TEXT.has(parent.tag))
+          record(parent)
+        if (kid.type !== 'element') continue
+        if (kid.attrs.some((a) => a.value.includes(query))) record(kid)
+        visit(kid)
+      }
+    }
+    const record = (el: ElementNode) => {
+      if (seen.has(el) || el.implied) return
+      seen.add(el)
+      const src = f.html.slice(el.start, el.end)
+      const at = src.indexOf(query)
+      const from = Math.max(0, at - 120)
+      const to = Math.min(src.length, at + query.length + 120)
+      const path = findOutlinePath(el)
+      hits.push({
+        frame_id: f.id,
+        frame: f.name,
+        ...(path !== null ? { path: `@${path}` } : {}),
+        source: `${from > 0 ? '…' : ''}${src.slice(from, to)}${to < src.length ? '…' : ''}`,
+      })
+    }
+    visit(parseHtml(f.html))
+    if (hits.length >= limit) break
+  }
+  return hits
+}

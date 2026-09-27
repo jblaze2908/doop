@@ -23,7 +23,7 @@ import { createImportedWebpageFrame } from './webpageImport.ts'
 import { normalizeImportUrl } from './importer.ts'
 import { websiteAccessErrorMessage } from './websiteAccess.ts'
 import { mentionedRole } from '../shared/agents.ts'
-import { outlineOf, outlinePath, parseHtml, replaceSource, resolveOne, sourceOf } from './htmlTree.ts'
+import { findText, outlineOf, outlinePath, parseHtml, replaceSource, resolveOne, sourceOf } from './htmlTree.ts'
 import {
   isThemeEmpty,
   MAX_THEME_CSS_CHARS,
@@ -52,7 +52,7 @@ You MUST call get_guide({ topic: "doop-instructions" }) once before using other 
 - Creating: create_frame, then stream the design with append_frame_html one complete section at a time (~1–4 KB chunks; start=true on the first, done=true on the last). Each chunk renders the moment it arrives — viewers watch you work.
 - Review: after every create or significant edit you MUST call get_frame_screenshot and fix what looks wrong before moving on.
 - Small edits: edit_frame_html (exact find/replace — the change morphs into the rendered frame in place). Full redesigns: set_frame_html or a new stream. Rename/move/resize: update_frame.
-- Lean reads: get_frame returns the whole document. To change part of an existing frame, call get_frame_outline (one line per element, with @path locators), read the part with get_frame_section, and change it with edit_frame_html or replace_frame_section — never re-read or resend a whole document for a local edit.
+- Lean reads: get_frame returns the whole document. For copy edits ("change X everywhere") call find_in_canvas — it returns each element containing the text with its source, ready for edit_frame_html. To change part of an existing frame, call get_frame_outline (one line per element, with @path locators), read the part with get_frame_section, and change it with edit_frame_html or replace_frame_section — never re-read or resend a whole document for a local edit.
 - Images: real imagery makes designs. search_images finds stock photos (you SEE thumbnails and pick), search_icons finds 200k+ UI icons as hotlinkable SVGs, search_logos finds real company logos by brand name or domain — call it once per brand BEFORE writing any logo wall, integration row, press bar or testimonial, and never ship a placeholder tile, "LOGO" text or an invented wordmark in its place, list_backgrounds shows a page of curated hero/section/bento backgrounds (glows, grainy meshes, aurora, painterly scenes) as thumbnails — browse it when a section wants atmosphere rather than defaulting to a flat CSS gradient, judge by eye whether one fits the frame, and draw your own when none does, upload_asset stores your own file (remote file → source_url; local file → local_file=true, returns a curl command) and returns a permanent URL. generate_image makes a new image from a prompt (a full-bleed hero background in the frame's exact palette, illustration, a product render, brand-specific hero art that stock cannot supply) and stores it as a permanent asset — reach for it when search_images cannot deliver the exact visual, or when the human asks for a generated image; it costs the human money or quota, so one considered prompt beats five drafts. Never inline images as data: URIs.
 - Websites: when a request names an existing site or URL — a redesign of it, or "like acme.com" — call import_webpage FIRST so an editable HTML snapshot lands on the canvas. Leave that source frame unchanged and design in a separate frame. view_website is only for read-only inspection when the page should not be added. If Doop cannot capture the site, do not retry with view_website because it uses the same capture path. Use your own browser or web tool and work only from content you actually observe; if that is unavailable, ask the user for screenshots or an HTML export rather than inventing content.
 - Feedback: humans reply to your tasks; their notes arrive inside your tool results as HUMAN FEEDBACK blocks — address them before continuing.
@@ -1081,7 +1081,8 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
   server.registerTool(
     'get_frame',
     {
-      description: 'Get a frame including its full HTML content.',
+      description:
+        'Get a frame including its full HTML content — thousands of tokens on a real page. To find text use find_in_canvas; to read or change one part use get_frame_outline and get_frame_section.',
       inputSchema: { frame_id: z.string(), agent_name: agentName.optional() },
     },
     async ({ frame_id, agent_name }) => {
@@ -1753,6 +1754,38 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
       } catch (e) {
         return err(e instanceof Error ? e.message : 'bad locator')
       }
+    },
+  )
+
+  server.registerTool(
+    'find_in_canvas',
+    {
+      description:
+        'Find every element whose text or attribute values contain a string, across all frames of a canvas (or one frame): frame id, the element\'s @path and its source, trimmed. Use it for copy edits ("change X everywhere") instead of reading whole frames; then edit with edit_frame_html using the exact source shown.',
+      inputSchema: {
+        canvas_id: z.string(),
+        text: z.string().min(1).describe('Exact, case-sensitive text to look for'),
+        frame_id: z.string().optional().describe('Limit the search to one frame'),
+        agent_name: agentName.optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ canvas_id, text: query, frame_id, agent_name }) => {
+      const c = canvasFor(canvas_id)
+      if (!c) return noCanvas(canvas_id)
+      arrive(canvas_id, agent_name)
+      const frames = c.frames.filter((f) => !f.demo && (!frame_id || f.id === frame_id))
+      const hits = findText(frames, query, 60)
+      return withFeedback(
+        text({
+          matches: hits.length,
+          ...(hits.length
+            ? { results: hits }
+            : { note: `“${query}” does not appear in ${frame_id ? 'that frame' : 'any frame'}` }),
+        }),
+        canvas_id,
+        agent_name ? actorFrom(agent_name) : undefined,
+      )
     },
   )
 

@@ -294,7 +294,9 @@ edit round-trip.
 ## Lean reads — outline, section, replace
 
 get_frame returns the whole document; on a big frame that is thousands of tokens per
-read. For a change to part of an existing frame:
+read. For copy edits across frames ("change X everywhere"), call find_in_canvas: it
+lists every element containing the text, with its @path and the exact source around the
+match, ready for edit_frame_html. For a change to part of an existing frame:
 
 1. get_frame_outline — one line per element with an @path locator, e.g.
    2.1 h1.t-display "Every rupee…". [N] marks children hidden by depth; pass from="@2"

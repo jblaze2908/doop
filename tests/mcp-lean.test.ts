@@ -122,6 +122,23 @@ describe('lean frame reads', () => {
     }
   })
 
+  it('finds text and attribute values across frames with the source to edit', async () => {
+    const { call, close } = await connect()
+    try {
+      const found = JSON.parse((await call('find_in_canvas', { canvas_id: 'lean', text: 'Get early access' })).text)
+      expect(found).toEqual({
+        matches: 1,
+        results: [{ frame_id: 'lp', frame: 'Landing', path: '@2.3', source: '<a class="btn">Get early access</a>' }],
+      })
+      const attr = JSON.parse((await call('find_in_canvas', { canvas_id: 'lean', text: 'hero' })).text)
+      expect(attr.results.map((r: { path: string }) => r.path)).toEqual(['@2'])
+      const none = JSON.parse((await call('find_in_canvas', { canvas_id: 'lean', text: 'Nope' })).text)
+      expect(none).toMatchObject({ matches: 0 })
+    } finally {
+      await close()
+    }
+  })
+
   it('keeps $ patterns literal in edit_frame_html replacements', async () => {
     const { call, close } = await connect()
     try {

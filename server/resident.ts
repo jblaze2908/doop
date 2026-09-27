@@ -19,7 +19,7 @@ import { describeInspiration, INSPIRATION_USAGE_NOTE, searchInspiration } from '
 import type { AgentTask, Frame } from '../shared/types.ts'
 import { isThemeEmpty, type CanvasTheme } from '../shared/theme.ts'
 import { liveComponents, templateSlots, type ComponentDef } from '../shared/components.ts'
-import { outlineOf, outlinePath, parseHtml, replaceSource, resolveOne, sourceOf } from './htmlTree.ts'
+import { findText, outlineOf, outlinePath, parseHtml, replaceSource, resolveOne, sourceOf } from './htmlTree.ts'
 import { websiteAccessErrorMessage } from './websiteAccess.ts'
 import { executeGuardedBatch } from './guardedBatch.ts'
 import { runRepoCards } from './githubRecon.ts'
@@ -777,6 +777,12 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'find_in_canvas',
+    description:
+      'Find every element whose text or attribute values contain a string, across all frames on this canvas: frame id, @path and the source around the match. Use it for copy edits instead of reading whole frames.',
+    input_schema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+  },
+  {
     name: 'get_frame_outline',
     description:
       "A compact outline of a frame's element tree: one line per element with an @path locator (e.g. @2.1), tag, #id, .classes and a text snippet. Much cheaper than get_frame_html when you only need to find or change one part.",
@@ -1266,6 +1272,13 @@ async function execTool(
         return ok(
           `Frame HTML: ${f.html.length} characters. Returning chars ${offset}-${end}.${end < f.html.length ? ` Continue with offset=${end}, or use query for a targeted snippet.` : ''}\n\n${f.html.slice(offset, end)}`,
         )
+      }
+      case 'find_in_canvas': {
+        const query = String((block.input as { text?: unknown }).text ?? '')
+        if (!query) return fail('text must be a non-empty string')
+        const frames = (store.getCanvas(canvasId)?.frames ?? []).filter((f) => !f.demo)
+        const hits = findText(frames, query, 60)
+        return ok(hits.length ? JSON.stringify(hits) : `"${query}" does not appear in any frame`)
       }
       case 'get_frame_outline':
       case 'get_frame_section':
