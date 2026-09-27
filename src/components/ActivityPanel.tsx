@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import type { AgentTask } from '../../shared/types'
 import { useStore } from '../lib/store'
 import { api } from '../lib/api'
 import { timeAgo } from '../lib/time'
 import { cn } from '@/lib/utils'
 import { AgentIcon } from './AgentIcon'
-import { MemoryPanel } from './MemoryPanel'
 import { Panel, PanelBody, PanelHeader, PanelTab, PanelTabPanel, PanelTabs, PanelTabsRoot } from './ui/panel'
 import { Button } from './ui/button'
 import { Tooltip } from './ui/tooltip'
@@ -13,6 +12,9 @@ import { PanelCollapseRightIcon } from './ui/icons'
 import { Input } from './ui/input'
 import { Dot } from './ui/dot'
 import { isResidentLimit } from './TeamAllowance'
+
+/* the Memory tab is a chunk of its own: most visits never open it */
+const MemoryPanel = lazy(() => import('./MemoryPanel').then((m) => ({ default: m.MemoryPanel })))
 
 const emptyNote = 'px-4 py-6 text-center text-[13px] text-ink-faint'
 
@@ -100,7 +102,9 @@ export function ActivityPanel({
           <ActivityList />
         </PanelTabPanel>
         <PanelTabPanel value="memory">
-          <MemoryPanel />
+          <Suspense fallback={null}>
+            <MemoryPanel />
+          </Suspense>
         </PanelTabPanel>
       </PanelTabsRoot>
     </Panel>

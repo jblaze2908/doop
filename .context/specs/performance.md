@@ -25,3 +25,18 @@ join, and an MCP agent streams a landing frame in 40 chunks, 150 ms apart.
 | browser task time                | 0.81–0.91 s → 0.51–0.61 s    | 0.94 s → 0.69–0.74 s        |
 
 Server CPU moved from 0.63–0.81 s to 0.41–0.71 s: inside run-to-run noise, not claimed.
+
+## Client bundle (2026-09-27)
+
+- The PostHog SDK (with replay, exception capture, web vitals and conversations compiled in) was
+  586 KB of rendered code in the only chunk. `src/lib/posthog.ts` is now a queueing facade; the
+  SDK (`src/lib/posthogBoot.ts`) loads with a dynamic import only when `VITE_POSTHOG_KEY` is set,
+  once the page is idle. Keyless builds drop it entirely.
+- Every page is its own chunk (`React.lazy` in `App.tsx`); the canvas chunk is prefetched while
+  idle. Inside the canvas, Board, Inspector, ElementPanel, Onboarding, PresentMode, ConnectModal,
+  ShareModal and the Memory tab load when first shown.
+
+| production build, keyless   | before                            | after                  |
+| --------------------------- | --------------------------------- | ---------------------- |
+| JS a canvas visit downloads | 1,420 KB (435 KB gzip), one chunk | ~590 KB (~182 KB gzip) |
+| canvas page chunk           | (inside the one chunk)            | 163 KB (50 KB gzip)    |

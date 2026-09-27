@@ -1,18 +1,6 @@
 import { startLocalAgent } from './lib/localAgent'
-import { useEffect, useRef, useState } from 'react'
-import { Home } from './pages/Home'
-import { Community } from './pages/Community'
-import { Settings } from './pages/Settings'
-import { CanvasPage } from './pages/CanvasPage'
-import { AuthPage } from './pages/AuthPage'
-import { DesktopHandoff } from './pages/DesktopHandoff'
-import { DesktopSignIn } from './pages/DesktopSignIn'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { DESKTOP_HANDOFF_PATH, DESKTOP_SIGNIN_PATH } from './lib/desktopAuth'
-import { Admin } from './pages/Admin'
-import { Automations } from './pages/Automations'
-import { AutomationEditor } from './pages/AutomationEditor'
-import { Integrations } from './pages/Integrations'
-import { Workspace } from './pages/Workspace'
 import { authClient } from './lib/auth'
 import { setName } from './lib/identity'
 import { posthog, syncReplayForUser, suspendAnalyticsWhileImpersonating } from './lib/posthog'
@@ -24,12 +12,40 @@ import { DesktopTabs, ShellDragBar } from './components/DesktopTabs'
 import { setTabsUser } from './lib/desktop'
 import { isDesktopShell } from './lib/shell'
 
+/* Every page is its own chunk: a visitor opening one canvas downloads the
+   canvas page, not the admin, automations and gallery code too. */
+const Home = lazy(() => import('./pages/Home').then((m) => ({ default: m.Home })))
+const Community = lazy(() => import('./pages/Community').then((m) => ({ default: m.Community })))
+const Settings = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })))
+const loadCanvasPage = () => import('./pages/CanvasPage')
+const CanvasPage = lazy(() => loadCanvasPage().then((m) => ({ default: m.CanvasPage })))
+const AuthPage = lazy(() => import('./pages/AuthPage').then((m) => ({ default: m.AuthPage })))
+const DesktopHandoff = lazy(() => import('./pages/DesktopHandoff').then((m) => ({ default: m.DesktopHandoff })))
+const DesktopSignIn = lazy(() => import('./pages/DesktopSignIn').then((m) => ({ default: m.DesktopSignIn })))
+const Admin = lazy(() => import('./pages/Admin').then((m) => ({ default: m.Admin })))
+const Automations = lazy(() => import('./pages/Automations').then((m) => ({ default: m.Automations })))
+const AutomationEditor = lazy(() => import('./pages/AutomationEditor').then((m) => ({ default: m.AutomationEditor })))
+const Integrations = lazy(() => import('./pages/Integrations').then((m) => ({ default: m.Integrations })))
+const Workspace = lazy(() => import('./pages/Workspace').then((m) => ({ default: m.Workspace })))
+
+/* the canvas is where almost every visit goes next: fetch it while idle */
+if (typeof requestIdleCallback === 'function') requestIdleCallback(() => void loadCanvasPage(), { timeout: 4000 })
+
 export function navigate(path: string) {
   history.pushState(null, '', path)
   window.dispatchEvent(new PopStateEvent('popstate'))
 }
 
+/* pages load as chunks; the blank shell is what the app showed before them anyway */
 export function App() {
+  return (
+    <Suspense fallback={<div className="auth-page" />}>
+      <Routes />
+    </Suspense>
+  )
+}
+
+function Routes() {
   const [path, setPath] = useState(location.pathname)
   const { data: session, isPending } = authClient.useSession()
   const me = useMe(session?.user.id)

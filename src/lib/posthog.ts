@@ -1,35 +1,14 @@
-/* Session replay + exception capture + web vitals are compiled into our
-   bundle (instead of posthog-js lazy-loading them from PostHog's CDN at
-   runtime), and the no-external build guarantees nothing else is remotely
-   loaded. Combined with the same-origin /relay proxy this makes analytics
-   first-party end to end: there is no PostHog-owned URL for blockers to
-   match, so replay works for effectively every user.
+import type { PostHog } from 'posthog-js/dist/module.no-external'
 
-   posthog-recorder (not the legacy dist/recorder) is required: the SDK only
-   starts replay when the entrypoint registers BOTH __PosthogExtensions__
-   .rrweb and .initSessionRecording, and the legacy recorder lacks the
-   latter — replay then waits on a lazy load that the no-external build can
-   never perform and every session sticks at $recording_status
-   "lazy_loading". */
-import 'posthog-js/dist/posthog-recorder'
-import 'posthog-js/dist/exception-autocapture'
-import 'posthog-js/dist/web-vitals'
-/* Conversations (customer support widget): also a lazy-loaded extension, so
-   it must be compiled in or the no-external build can never show it. */
-import 'posthog-js/dist/conversations'
-import posthog from 'posthog-js/dist/module.no-external'
-import { installFrameReplay } from './frameReplay'
-import { desktopPlatform, isDesktopShell, shellVersion } from './shell'
+/* The analytics facade every module imports. The SDK (with session replay,
+   exception capture and web vitals compiled in, see ./posthogBoot) is by far
+   the largest thing the app ships, so it is loaded with a dynamic import
+   only when a key is configured, once the page is idle. Calls made before
+   then are queued; without a key they are dropped and the SDK is never
+   downloaded. */
 
-const key = import.meta.env.VITE_POSTHOG_KEY
-/* Default to the same-origin relay (server/index.ts); VITE_POSTHOG_HOST is an
-   escape hatch for pointing elsewhere, e.g. straight at PostHog in a dev
-   setup without the API server. */
-const host = import.meta.env.VITE_POSTHOG_HOST || `${location.origin}/relay`
+const key: string | undefined = import.meta.env.VITE_POSTHOG_KEY
 
-/* Both keys are inlined at build time, so a build that never saw them ships an
-   app with analytics silently off. Warn rather than throw: a missing key must
-   not white-screen a fresh clone that hasn't copied .env.example yet. */
 /* Accounts on "internal" email domains are excluded from session replay:
    the operators' own usage would drown out real-user recordings. Domains
    come from VITE_POSTHOG_INTERNAL_DOMAINS (comma-separated, inlined at
@@ -41,45 +20,45 @@ const INTERNAL_DOMAINS: string[] = (import.meta.env.VITE_POSTHOG_INTERNAL_DOMAIN
   .map((d: string) => d.trim().toLowerCase())
   .filter(Boolean)
 const isInternalEmail = (email: string) => INTERNAL_DOMAINS.some((d) => email.toLowerCase().endsWith(`@${d}`))
-const NO_REPLAY_KEY = 'doop:internal-no-replay'
+export const NO_REPLAY_KEY = 'doop:internal-no-replay'
+
+type Call = (ph: PostHog) => void
+const MAX_QUEUED = 500
+let real: PostHog | null = null
+const queue: Call[] = []
+
+function run(call: Call) {
+  if (!key) return
+  if (real) call(real)
+  else if (queue.length < MAX_QUEUED) queue.push(call)
+}
+
+type Props = Record<string, unknown>
+
+export const posthog = {
+  capture: (event: string, props?: Props) => run((ph) => void ph.capture(event, props)),
+  identify: (id: string, props?: Props) => run((ph) => ph.identify(id, props)),
+  register: (props: Props) => run((ph) => ph.register(props)),
+  reset: () => run((ph) => ph.reset()),
+  startSessionRecording: () => run((ph) => ph.startSessionRecording()),
+  stopSessionRecording: () => run((ph) => ph.stopSessionRecording()),
+}
 
 if (!key) {
+  /* Both keys are inlined at build time, so a build that never saw them ships
+     an app with analytics silently off. Warn rather than throw: a missing key
+     must not white-screen a fresh clone that hasn't copied .env.example yet. */
   console.warn('VITE_POSTHOG_KEY is unset — PostHog is disabled and no events will be sent.')
 } else {
-  installFrameReplay()
-  posthog.init(key, {
-    api_host: host,
-    /* api_host is our relay; links out to the PostHog app must not be */
-    ui_host: 'https://us.posthog.com',
-    capture_pageview: 'history_change',
-    capture_exceptions: {
-      capture_unhandled_errors: true,
-      capture_unhandled_rejections: true,
-      capture_console_errors: false,
-    },
-    session_recording: {
-      recordCrossOriginIframes: true,
-      /* a design tool: what people type into prompts/comments is the point
-         of watching a replay. Credentials stay masked. */
-      maskAllInputs: false,
-      maskInputOptions: { password: true, email: true },
-    },
-    disable_session_recording: localStorage.getItem(NO_REPLAY_KEY) === '1',
-    defaults: '2026-05-30',
-  })
-
-  /* The desktop shell marks every page it loads (src/lib/shell.ts). Register
-     the shell version and platform as super properties so every event and
-     recording from the shell is segmentable in PostHog. The webview's
-     storage is isolated from the user's browsers, so the flag can never
-     leak onto ordinary web sessions. */
-  if (isDesktopShell()) {
-    posthog.register({
-      desktop_app: true,
-      desktop_app_version: shellVersion(),
-      desktop_app_platform: desktopPlatform(),
-    })
-  }
+  const start = () =>
+    import('./posthogBoot')
+      .then(({ boot }) => {
+        real = boot(key)
+        for (const call of queue.splice(0)) call(real)
+      })
+      .catch((err) => console.error('analytics failed to load', err))
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(start, { timeout: 3000 })
+  else setTimeout(start, 1)
 }
 
 /** Call on every identify: stops replay for internal accounts, (re)starts it
@@ -109,5 +88,3 @@ export function suspendAnalyticsWhileImpersonating() {
   posthog.reset() // subsequent events are anonymous, not the customer's
   posthog.stopSessionRecording()
 }
-
-export { posthog }

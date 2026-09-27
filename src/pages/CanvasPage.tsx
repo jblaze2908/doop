@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../lib/store'
 import { connect, disconnect, sendWs } from '../lib/ws'
 import {
@@ -16,19 +16,12 @@ import { DoopMark } from '../components/Logo'
 import { BarDivider, TopBar, TopBarHome, TopBarTitle } from '../components/TopBar'
 import { ensureTab } from '../lib/desktop'
 import { Stage } from '../components/Stage'
-import { Board } from '../components/Board'
-import { Inspector } from '../components/Inspector'
-import { ElementPanel } from '../components/ElementPanel'
 import { ActivityPanel } from '../components/ActivityPanel'
-import { ConnectModal } from '../components/ConnectModal'
 import { LimitWall, isResidentLimit } from '../components/TeamAllowance'
 import { PromptBar } from '../components/PromptBar'
 import { WorkingNow } from '../components/WorkingNow'
 import { SideRail } from '../components/SideRail'
 import { LayersPanel, LayersRailToggle } from '../components/LayersPanel'
-import { Onboarding } from '../components/Onboarding'
-import { ShareModal } from '../components/ShareModal'
-import { PresentMode } from '../components/PresentMode'
 import { getIdentity, setName } from '../lib/identity'
 import {
   copyFrames,
@@ -68,6 +61,15 @@ import { Tooltip } from '../components/ui/tooltip'
 import { Note } from '../components/ui/note'
 import { Textarea } from '../components/ui/textarea'
 import { Modal, ModalActions, ModalEyebrow, ModalLede, ModalTitle } from '../components/ui/modal'
+
+/* not needed for a canvas's first paint: loaded when first shown */
+const Board = lazy(() => import('../components/Board').then((m) => ({ default: m.Board })))
+const Inspector = lazy(() => import('../components/Inspector').then((m) => ({ default: m.Inspector })))
+const ElementPanel = lazy(() => import('../components/ElementPanel').then((m) => ({ default: m.ElementPanel })))
+const Onboarding = lazy(() => import('../components/Onboarding').then((m) => ({ default: m.Onboarding })))
+const ConnectModal = lazy(() => import('../components/ConnectModal').then((m) => ({ default: m.ConnectModal })))
+const ShareModal = lazy(() => import('../components/ShareModal').then((m) => ({ default: m.ShareModal })))
+const PresentMode = lazy(() => import('../components/PresentMode').then((m) => ({ default: m.PresentMode })))
 
 const STARTER_HTML = `<!doctype html>
 <html>
@@ -427,7 +429,9 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
 
       <div className="relative flex-1 overflow-hidden">
         {view === 'board' ? (
-          <Board canvasId={canvasId} />
+          <Suspense fallback={null}>
+            <Board canvasId={canvasId} />
+          </Suspense>
         ) : (
           <>
             <Stage onAddFrame={addFrame} />
@@ -481,18 +485,24 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
             </div>
             <WorkingNow />
             <PromptBar canvasId={canvasId} />
-            <Onboarding />
+            <Suspense fallback={null}>
+              <Onboarding />
+            </Suspense>
             {!isMobile && (layersOpen ? <LayersPanel onAddFrame={addFrame} /> : <LayersRailToggle />)}
             {!isMobile && selectedFrame && panelElement && !deferPanel && (
-              <ElementPanel
-                key={`${selectedFrame.id}|${panelElement.selector}`}
-                frame={selectedFrame}
-                selector={panelElement.selector}
-                className={propertiesPanelCls}
-              />
+              <Suspense fallback={null}>
+                <ElementPanel
+                  key={`${selectedFrame.id}|${panelElement.selector}`}
+                  frame={selectedFrame}
+                  selector={panelElement.selector}
+                  className={propertiesPanelCls}
+                />
+              </Suspense>
             )}
             {!isMobile && selectedFrame && inspectorOpen && !panelElement && !deferPanel && (
-              <Inspector frame={selectedFrame} className={propertiesPanelCls} />
+              <Suspense fallback={null}>
+                <Inspector frame={selectedFrame} className={propertiesPanelCls} />
+              </Suspense>
             )}
             {!isMobile && !showActivity && <SideRail onOpen={() => setShowActivity(true)} />}
             {!isMobile && showActivity && <ActivityPanel onClose={() => setShowActivity(false)} />}
@@ -566,7 +576,11 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
               className="max-h-[calc(100svh-56px)] gap-0 rounded-t-2xl border-line bg-surface p-0 shadow-pop data-[side=bottom]:h-[min(78svh,680px)]"
             >
               <SheetTitle className="sr-only">Frame inspector</SheetTitle>
-              {selectedFrame && <Inspector frame={selectedFrame} surface="inline" />}
+              {selectedFrame && (
+                <Suspense fallback={null}>
+                  <Inspector frame={selectedFrame} surface="inline" />
+                </Suspense>
+              )}
             </SheetContent>
           </Sheet>
           <Sheet open={showActivity} onOpenChange={setShowActivity}>
@@ -583,22 +597,32 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
       )}
 
       {renaming && <RenameSelfModal current={me.name} onClose={() => setRenaming(false)} />}
-      {showConnect && <ConnectModal canvasId={canvasId} onClose={() => setShowConnect(false)} />}
-      {presenting && selectedId && <PresentMode frameId={selectedId} onClose={() => setPresenting(false)} />}
+      {showConnect && (
+        <Suspense fallback={null}>
+          <ConnectModal canvasId={canvasId} onClose={() => setShowConnect(false)} />
+        </Suspense>
+      )}
+      {presenting && selectedId && (
+        <Suspense fallback={null}>
+          <PresentMode frameId={selectedId} onClose={() => setPresenting(false)} />
+        </Suspense>
+      )}
       {showShare && canvas && (
-        <ShareModal
-          key={canvas.id}
-          canvas={canvas}
-          onChange={(patch) => {
-            const current = useStore.getState().canvas
-            if (current?.id === canvasId) useStore.getState().setCanvas({ ...current, ...patch })
-          }}
-          onClose={() => setShowShare(false)}
-          onCopied={() => {
-            setShowShare(false)
-            showToast('Canvas link copied')
-          }}
-        />
+        <Suspense fallback={null}>
+          <ShareModal
+            key={canvas.id}
+            canvas={canvas}
+            onChange={(patch) => {
+              const current = useStore.getState().canvas
+              if (current?.id === canvasId) useStore.getState().setCanvas({ ...current, ...patch })
+            }}
+            onClose={() => setShowShare(false)}
+            onCopied={() => {
+              setShowShare(false)
+              showToast('Canvas link copied')
+            }}
+          />
+        </Suspense>
       )}
       {limitWall && (
         <LimitWall
