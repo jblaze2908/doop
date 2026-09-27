@@ -1,0 +1,67 @@
+# Draft on a single host behind a reverse proxy, from the repo root (deploy/pull-update.sh does this):
+#   docker compose -p draft -f deploy/compose.yml --env-file /etc/draft/draft.env up --detach --build --remove-orphans
+# The env file (root-only) holds POSTGRES_PASSWORD, BETTER_AUTH_SECRET, BETTER_AUTH_URL, SIGNUP_EMAILS
+# and any optional variable from .env.example; the app receives all of it.
+name: draft
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: draft
+      POSTGRES_USER: draft
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in the env file}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U draft -d draft']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    security_opt: ['no-new-privileges:true']
+    mem_limit: 512m
+
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: draft-app:local
+    restart: unless-stopped
+    env_file:
+      - ${DRAFT_ENV_FILE:-/etc/draft/draft.env}
+    environment:
+      DATABASE_URL: postgres://draft:${POSTGRES_PASSWORD:?set in the env file}@db:5432/draft
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set in the env file}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:?set in the env file}
+      # read_only root: Chromium's profile, crashpad and fontconfig caches go to the tmpfs
+      HOME: /tmp
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # uploaded assets when no S3 bucket is configured (server/storage.ts)
+      - assets:/app/data
+    # Never 0.0.0.0: the proxy reaches the app on a host-local address (e.g. the docker0 gateway).
+    ports:
+      - '${DRAFT_BIND:-127.0.0.1}:${DRAFT_PORT:-4400}:4400'
+    networks: [backend, edge]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    # measured 330 MB for the server alone; Chromium renders on top of that
+    mem_limit: 1536m
+    pids_limit: 1024
+
+networks:
+  # No route in or out: Postgres is reachable only by the app.
+  backend:
+    internal: true
+  # Published port plus outbound fetches (Google Fonts at theme-set time, website imports).
+  edge: {}
+
+volumes:
+  pgdata:
+  assets:
