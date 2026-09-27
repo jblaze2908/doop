@@ -2,7 +2,7 @@ import WebSocket from 'ws'
 import { expect, it } from 'vitest'
 import { Client, startServer } from './harness.ts'
 
-const PORT = 4968
+const PORT = 4990
 
 type Msg = {
   type: string
