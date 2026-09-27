@@ -2,6 +2,7 @@ import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ElementComment, Frame } from '../../shared/types'
 import { colorFor } from '../../shared/types'
 import { frameById, sameFrameButPosition, useStore } from '../lib/store'
+import { useFrameLive } from '../lib/useFrameLive'
 import { useShallow } from 'zustand/react/shallow'
 import { registerFrameWindow, unregisterFrameWindow } from '../lib/frameBridge'
 import { api } from '../lib/api'
@@ -304,6 +305,13 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
      flipped or shifted it away from a viewport edge */
   const menuAt = useRef({ x: 0, y: 0 })
   const [runtimeReady, setRuntimeReady] = useState(false)
+  /* off-screen frames drop their iframe; the next mount is a fresh runtime */
+  const live = useFrameLive(frame.id, selected || !!stream || editing || dragging || editors.length > 0)
+  const [wasLive, setWasLive] = useState(live)
+  if (live !== wasLive) {
+    setWasLive(live)
+    if (!live) setRuntimeReady(false)
+  }
   useEffect(() => {
     function onMsg(ev: MessageEvent) {
       if (ev.data?.type === 'doop:frame-ready' && ev.source === iframeRef.current?.contentWindow) {
@@ -631,6 +639,7 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
               "before:pointer-events-none before:absolute before:-inset-[3px] before:rounded-[9px] before:border-2 before:border-dashed before:border-[var(--editing-color,var(--brand))] before:content-[''] before:animate-[stream-pulse_1.1s_ease-in-out_infinite]",
           )}
           ref={rootRef}
+          data-frame-id={frame.id}
           style={
             {
               width: frame.width,
@@ -710,20 +719,25 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
             }}
             onPointerLeave={clearHover}
           >
-            <iframe
-              ref={iframeRef}
-              className="block border-none bg-white"
-              title={frame.name}
-              data-doop-frame=""
-              sandbox="allow-scripts"
-              srcDoc={FRAME_BOOTSTRAP}
-              style={{
-                width: frame.width * raster,
-                height: frame.height * raster,
-                transform: `scale(${1 / raster})`,
-                transformOrigin: '0 0',
-              }}
-            />
+            {live ? (
+              <iframe
+                ref={iframeRef}
+                className="block border-none bg-white"
+                title={frame.name}
+                data-doop-frame=""
+                data-ready={runtimeReady ? '1' : undefined}
+                sandbox="allow-scripts"
+                srcDoc={FRAME_BOOTSTRAP}
+                style={{
+                  width: frame.width * raster,
+                  height: frame.height * raster,
+                  transform: `scale(${1 / raster})`,
+                  transformOrigin: '0 0',
+                }}
+              />
+            ) : (
+              <div className="bg-white" style={{ width: frame.width, height: frame.height }} />
+            )}
             {!frame.html && (
               <div className="absolute inset-0 grid place-items-center bg-[repeating-linear-gradient(45deg,transparent_0_10px,rgba(28,26,21,0.025)_10px_20px)] text-[13px] text-ink-faint">
                 empty frame — add HTML
