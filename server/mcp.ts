@@ -53,6 +53,7 @@ You MUST call get_guide({ topic: "doop-instructions" }) once before using other 
 - Images: real imagery makes designs. list_backgrounds shows a page of curated hero/section/bento backgrounds (glows, grainy meshes, aurora, painterly scenes) as thumbnails — browse it when a section wants atmosphere rather than defaulting to a flat CSS gradient, judge by eye whether one fits the frame, and draw your own when none does. upload_asset stores your own file (remote file → source_url; local file → local_file=true, returns a curl command) and returns a permanent URL — use it for photos, icons and real company logos you sourced yourself, and never ship a placeholder tile, "LOGO" text or an invented wordmark instead. Never inline images as data: URIs.
 - Websites: when a request names an existing site or URL — a redesign of it, or "like acme.com" — call import_webpage FIRST so an editable HTML snapshot lands on the canvas. Leave that source frame unchanged and design in a separate frame. view_website is only for read-only inspection when the page should not be added. If Doop cannot capture the site, do not retry with view_website because it uses the same capture path. Use your own browser or web tool and work only from content you actually observe; if that is unavailable, ask the user for screenshots or an HTML export rather than inventing content.
 - Feedback: humans reply to your tasks; their notes arrive inside your tool results as HUMAN FEEDBACK blocks — address them before continuing.
+- Board: humans queue cards for agents. A BOARD block in a tool result means cards are waiting: read them with get_cards, claim_card one BEFORE starting it, and report back with finish_card (done, or failed with a reason).
 - Comments: call get_comments to read element-pinned comments and replies on a canvas, optionally filtered by frame; reply_to_comment answers a thread and resolve_comment closes it. Reading does not claim feedback or comments. A comment that @mentions an agent role (@doop, @ux …) is a request for an agent: forAgent and targetAgent are set on it.
 - Theme: a canvas can carry a theme — design tokens, Google Fonts and shared CSS injected into EVERY frame. get_canvas shows it; read it with get_theme and build frames from its classes and var(--…) tokens, never pasting it into a frame. Put a design system's shared CSS in the theme (set_theme_tokens / set_theme_css / set_theme_fonts), not in each frame.
 - Components: a canvas can carry linked components — custom elements (<ds-stat label="…">…</ds-stat>) whose template and CSS live on the canvas. get_canvas lists them; use instances instead of rewriting their markup, and create reusable pieces with set_component so a change updates every frame.
@@ -161,6 +162,7 @@ function withFeedback<T extends { content: { type: 'text' | 'image'; [k: string]
   actor?: Actor,
 ): T {
   if (!actor) return result
+  withQueueNews(result, canvasId, actor)
   const pending = actions.takeFeedbackFor(canvasId, actor.name)
   if (pending.length === 0) return result
   const tasks = actions.getTasks(canvasId)
@@ -175,6 +177,24 @@ function withFeedback<T extends { content: { type: 'text' | 'image'; [k: string]
     text: `HUMAN FEEDBACK — open request(s) on this canvas, now assigned to YOU:\n${lines.join('\n')}\nAddress this NOW, before continuing your plan: locate the frame in question (get_canvas / get_frame), make the change, and review with get_frame_screenshot. If it concerns another agent's frame, edit it anyway — a human request overrides the don't-touch-others'-frames etiquette. Update your set_status to say what you're picking up.`,
   })
   return result
+}
+
+/** Tell an agent, once per change to the queue, that humans left board cards
+ *  for agents — nothing else reaches an agent that never calls get_cards. */
+function withQueueNews(
+  result: { content: { type: 'text' | 'image'; [k: string]: unknown }[] },
+  canvasId: string,
+  actor: Actor,
+) {
+  const queued = actions.takeQueueNews(canvasId, actor.name)
+  if (queued.length === 0) return
+  const clip = (s: string) => (s.length > 120 ? `${s.slice(0, 119)}…` : s)
+  const shown = queued.slice(0, 5).map((c) => `- ${c.id}: “${clip(c.status)}” (from ${c.queuedBy})`)
+  if (queued.length > shown.length) shown.push(`- …and ${queued.length - shown.length} more`)
+  result.content.push({
+    type: 'text' as const,
+    text: `BOARD — ${queued.length} card(s) humans queued on this canvas are waiting for an agent:\n${shown.join('\n')}\nWhen your current work allows, read the full text with get_cards and take one with claim_card BEFORE starting, so no two agents do the same card; report back with finish_card.`,
+  })
 }
 
 /* upload rate limit per connecting user, mirroring the page-import route */
@@ -976,6 +996,109 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
           resolvedBy: resolved.resolvedBy,
           resolvedAt: resolved.resolvedAt ? new Date(resolved.resolvedAt).toISOString() : undefined,
         }),
+        canvas_id,
+        actor,
+      )
+    },
+  )
+
+  const iso = (t?: number) => (t === undefined ? undefined : new Date(t).toISOString())
+
+  server.registerTool(
+    'get_cards',
+    {
+      description:
+        "Read the canvas board: cards humans queued for agents, oldest first. A card's text is the whole request. `queued` cards wait for an agent — take one with claim_card before starting on it; `inProgress` shows which agent holds which card; `failed` cards wait for a human to retry them. Reading claims nothing.",
+      annotations: { readOnlyHint: true },
+      inputSchema: { canvas_id: z.string(), agent_name: agentName.optional() },
+    },
+    async ({ canvas_id, agent_name }) => {
+      if (!canvasFor(canvas_id)) return noCanvas(canvas_id)
+      arrive(canvas_id, agent_name)
+      if (agent_name) actions.markQueueSeen(canvas_id, actorFrom(agent_name).name)
+      const cards = actions.openCards(canvas_id)
+      // Deliberately omit withFeedback: reading the board must not claim work.
+      return text({
+        queued: cards
+          .filter((c) => !c.agentName && !c.failedAt)
+          .map((c) => ({ id: c.id, text: c.status, from: c.queuedBy, queuedAt: iso(c.startedAt) })),
+        inProgress: cards
+          .filter((c) => c.agentName && !c.failedAt)
+          .map((c) => ({
+            id: c.id,
+            text: c.status,
+            from: c.queuedBy,
+            agent: c.agentName,
+            claimedAt: iso(c.claimedAt),
+          })),
+        failed: cards
+          .filter((c) => c.failedAt)
+          .map((c) => ({
+            id: c.id,
+            text: c.status,
+            from: c.queuedBy,
+            agent: c.agentName || undefined,
+            reason: c.failureReason,
+            failedAt: iso(c.failedAt),
+          })),
+      })
+    },
+  )
+
+  server.registerTool(
+    'claim_card',
+    {
+      description:
+        'Take a queued board card (from get_cards) before you start on it: it moves to In progress under your agent_name for everyone watching, and no other agent can claim it. Claiming a card you already hold is a no-op. When the work is done, call finish_card.',
+      inputSchema: {
+        canvas_id: z.string(),
+        card_id: z.string().describe('A queued card id from get_cards'),
+        agent_name: agentName,
+      },
+    },
+    async ({ canvas_id, card_id, agent_name }) => {
+      if (!canvasFor(canvas_id)) return noCanvas(canvas_id)
+      const actor = actorFrom(agent_name)
+      const claimed = actions.claimCard(canvas_id, card_id, actor)
+      if (!claimed.ok) return err(claimed.error)
+      return withFeedback(
+        text({
+          ok: true,
+          id: claimed.card.id,
+          text: claimed.card.status,
+          from: claimed.card.queuedBy,
+          note: 'The card is yours. Do what it asks, narrate with set_status, review with get_frame_screenshot, then call finish_card with outcome "done" — or "failed" with a reason a human can act on.',
+        }),
+        canvas_id,
+        actor,
+      )
+    },
+  )
+
+  server.registerTool(
+    'finish_card',
+    {
+      description:
+        'Report back on a board card you claimed. outcome "done" moves it to Done. outcome "failed" parks it in the Queued column with your reason, where it waits for a human to retry it — use it when you are blocked or the request cannot be met, not to hand work to another agent.',
+      inputSchema: {
+        canvas_id: z.string(),
+        card_id: z.string().describe('The card id you claimed'),
+        outcome: z.enum(['done', 'failed']),
+        reason: z
+          .string()
+          .optional()
+          .describe('For "failed": what blocked you, so the human can fix it before retrying (max 500 chars)'),
+        agent_name: agentName,
+      },
+    },
+    async ({ canvas_id, card_id, outcome, reason, agent_name }) => {
+      if (!canvasFor(canvas_id)) return noCanvas(canvas_id)
+      const actor = actorFrom(agent_name)
+      const finished = actions.finishCard(canvas_id, card_id, actor, outcome, reason)
+      if (!finished.ok) return err(finished.error)
+      const { card } = finished
+      return withFeedback(
+        text({ ok: true, id: card.id, outcome: card.endedAt ? 'done' : 'failed', reason: card.failureReason }),
         canvas_id,
         actor,
       )

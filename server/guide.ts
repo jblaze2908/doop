@@ -99,6 +99,16 @@ request is carried out; resolving an @mention thread also records the exchange i
 canvas Memory. Reading does not claim work or resolve it; task feedback is separate
 (get_feedback).
 
+## Board cards
+
+Humans queue cards on the canvas board; a card's text is the whole request. When cards
+are waiting, your tool results carry a BOARD block. Read the board with
+get_cards({ canvas_id }), oldest first, then claim_card({ canvas_id, card_id, agent_name })
+BEFORE starting: the card moves to In progress under your name and no other agent can
+take it. Work it like any request (set_status, build, review with get_frame_screenshot),
+then finish_card with outcome "done" — or "failed" with a reason the human can act on.
+A failed card waits for a human to retry it.
+
 ## Narrate your work — set_status
 
 People watching the canvas cannot see your reasoning, only your edits. Bridge that gap

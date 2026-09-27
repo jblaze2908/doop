@@ -537,6 +537,7 @@ export function addQueuedCard(canvasId: string, title: string, from: string): Ag
   persist.saveTask(canvasId, card)
   broadcast(canvasId, { type: 'task', task: card })
   logActivity(canvasId, resolveActor({ name: from, kind: 'user' }), `queued a card: “${clean}”`)
+  bumpQueue(canvasId)
   return card
 }
 
@@ -582,7 +583,110 @@ export function retryCard(canvasId: string, cardId: string, by: string): AgentTa
   persist.saveTask(canvasId, card)
   broadcast(canvasId, { type: 'task', task: card })
   logActivity(canvasId, resolveActor({ name: by, kind: 'user' }), `retried a card: “${card.status}”`)
+  bumpQueue(canvasId)
   return card
+}
+
+/* Cards for MCP agents: nothing on the server works the queue, so agents list
+   it (get_cards), take one (claim_card) and report back (finish_card). */
+
+/** A failure reason is a note for the human who retries, not a report. */
+const MAX_REASON_CHARS = 500
+
+export type CardResult = { ok: true; card: AgentTask } | { ok: false; error: string }
+
+function findCard(canvasId: string, cardId: string): AgentTask | undefined {
+  return (taskLog.get(canvasId) ?? []).find((t) => t.id === cardId && t.queuedBy)
+}
+
+/** Cards not yet done, oldest first so the queue is worked in the order humans filled it. */
+export function openCards(canvasId: string): AgentTask[] {
+  return (taskLog.get(canvasId) ?? []).filter((t) => t.queuedBy && !t.endedAt).reverse()
+}
+
+const isQueued = (t: AgentTask) => !!t.queuedBy && !t.agentName && !t.failedAt && !t.endedAt
+
+/** Whether this agent holds a claimed card that is still in flight. */
+export function holdsCard(canvasId: string, agentName: string): boolean {
+  return (taskLog.get(canvasId) ?? []).some((t) => t.queuedBy && t.agentName === agentName && !t.failedAt && !t.endedAt)
+}
+
+/** Claiming is exclusive: a card another agent holds, or one that failed and
+ *  waits for a human retry, stays where it is. Re-claiming your own is a no-op. */
+export function claimCard(canvasId: string, cardId: string, actor: Actor): CardResult {
+  const card = findCard(canvasId, cardId)
+  if (!card) return { ok: false, error: `no card with id ${cardId} on this canvas` }
+  if (card.endedAt) return { ok: false, error: 'that card is already done' }
+  if (card.failedAt) return { ok: false, error: 'that card failed and waits for a human to retry it' }
+  if (card.agentName && !sameAgent(card, actor)) return { ok: false, error: `${card.agentName} already claimed it` }
+  touch(canvasId, actor)
+  if (card.agentName) return { ok: true, card }
+  card.agentName = actor.name
+  card.owner = actor.owner
+  card.color = actor.color
+  card.claimedAt = Date.now()
+  persist.saveTask(canvasId, card)
+  broadcast(canvasId, { type: 'task', task: card })
+  logActivity(canvasId, actor, `picked up a card: “${card.status}”`)
+  return { ok: true, card }
+}
+
+/** Only the claimant finishes a card. A failed card waits for a human retry;
+ *  finishing it done still counts when the work landed after all (e.g. the
+ *  agent came back after its presence lapsed). */
+export function finishCard(
+  canvasId: string,
+  cardId: string,
+  actor: Actor,
+  outcome: 'done' | 'failed',
+  reason = '',
+): CardResult {
+  const card = findCard(canvasId, cardId)
+  if (!card) return { ok: false, error: `no card with id ${cardId} on this canvas` }
+  if (card.endedAt) return { ok: true, card }
+  if (!sameAgent(card, actor)) {
+    return { ok: false, error: card.agentName ? `${card.agentName} holds that card` : 'claim it with claim_card first' }
+  }
+  touch(canvasId, actor)
+  if (outcome === 'done') {
+    delete card.failedAt
+    delete card.failureReason
+    completeCard(canvasId, cardId)
+    logActivity(canvasId, actor, `finished a card: “${card.status}”`)
+    return { ok: true, card }
+  }
+  if (card.failedAt) return { ok: true, card }
+  card.failedAt = Date.now()
+  card.failureReason = reason.trim().slice(0, MAX_REASON_CHARS) || `${actor.name} could not finish it.`
+  persist.saveTask(canvasId, card)
+  broadcast(canvasId, { type: 'task', task: card })
+  logActivity(canvasId, actor, `could not finish a card: “${card.status}”`)
+  return { ok: true, card }
+}
+
+/* Per-process: a canvas's queue version moves when a card becomes claimable
+   (queued or retried); each agent is told once per version. A restart costs at
+   most one repeat notice, the same trade-off as guidelinesSeen. */
+const queueVersion = new Map<string, number>()
+const queueToldAt = new Map<string, number>()
+
+function bumpQueue(canvasId: string) {
+  queueVersion.set(canvasId, (queueVersion.get(canvasId) ?? 0) + 1)
+}
+
+/** Mark the queue as seen by this agent (get_cards shows it all). */
+export function markQueueSeen(canvasId: string, agentName: string) {
+  queueToldAt.set(`${canvasId}:${agentName}`, queueVersion.get(canvasId) ?? 0)
+}
+
+/** Queued cards when the queue moved since this agent last heard; runs on every
+ *  tool result that carries feedback, so the unchanged case is two map reads. */
+export function takeQueueNews(canvasId: string, agentName: string): AgentTask[] {
+  const key = `${canvasId}:${agentName}`
+  const version = queueVersion.get(canvasId) ?? 0
+  if (queueToldAt.get(key) === version) return []
+  queueToldAt.set(key, version)
+  return openCards(canvasId).filter(isQueued)
 }
 
 /* ------------------------------------------------------------------ */
@@ -858,6 +962,7 @@ export function deleteCanvas(canvasId: string): boolean {
   commentLog.delete(canvasId)
   activityLog.delete(canvasId)
   decisionLog.delete(canvasId)
+  queueVersion.delete(canvasId)
   return true
 }
 

@@ -217,13 +217,18 @@ function agentTouch(
   }
 }
 
+/* A model can think for minutes between calls while it holds a board card;
+   expiring at the usual TTL would fail a card that is still being worked. */
+const CARD_LEASE_MS = 10 * 60_000
+
 setInterval(() => {
   const now = Date.now()
   for (const [canvasId, byName] of agentPresences) {
     for (const [name, p] of byName) {
+      const idle = now - p.lastSeen
       /* an agent with a posted status is likely thinking between tool calls —
          keep it (and its status) on screen longer before expiring */
-      if (now - p.lastSeen > (p.status ? 60_000 : 20_000)) {
+      if (idle > (p.status ? 60_000 : 20_000) && !(idle < CARD_LEASE_MS && actions.holdsCard(canvasId, p.name))) {
         byName.delete(name)
         broadcast(canvasId, { type: 'presence:leave', clientId: p.clientId })
         actions.endAgentTasks(canvasId, p.name) // an agent that went silent is no longer "working on" anything

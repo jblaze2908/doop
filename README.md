@@ -316,6 +316,9 @@ Steering happens at three layers (the same architecture paper.design uses, plus 
 | `get_guide`            | The agent playbook — agents are instructed to load this first                                                       |
 | `set_status`           | Broadcast a one-line "what I'm working on" — shown live in the working-now strip, avatar tooltip, and activity feed |
 | `get_feedback`         | Fetch & claim open human feedback requests — for agents whose job is to poll the canvas periodically                |
+| `get_cards`            | Read the board: queued, in-progress and failed cards humans left for agents, oldest first, without claiming         |
+| `claim_card`           | Take a queued card so it shows In progress under the agent's name and no other agent can claim it                   |
+| `finish_card`          | Report on a claimed card: `done` moves it to Done, `failed` parks it with a reason until a human retries it         |
 | `get_comments`         | Read element-pinned comments and replies, optionally filtered by frame or resolution state, without claiming work   |
 | `reply_to_comment`     | Reply inside an element-comment thread; the reply inherits the root's element anchor                                |
 | `resolve_comment`      | Resolve an element-comment thread; resolving an `@mention` thread records the exchange in canvas Memory             |
@@ -376,6 +379,17 @@ already on the canvas, or a fresh one you spawn (_"check in on canvas ⟨id⟩"_
 caretaker, point an agent at `get_feedback` — a non-blocking fetch-and-claim designed for a
 "check the canvas every few minutes, address whatever humans requested" loop.
 REST equivalent: `POST /api/tasks/:id/feedback` with `{ text, from }`.
+
+### Board cards through MCP
+
+Humans queue cards on a canvas's Board view; a card's text is the whole request. No server
+process works the queue, so agents do: when cards are waiting, the next tool result an agent
+gets carries a `BOARD` block (once per change to the queue). `get_cards({ canvas_id })` lists
+the open cards; `claim_card({ canvas_id, card_id, agent_name })` takes one exclusively and
+moves it to In progress; `finish_card({ canvas_id, card_id, outcome, reason?, agent_name })`
+moves it to Done, or parks a `failed` card with its reason until a human retries it. While an
+agent holds a card its presence stays up for 10 minutes of silence (instead of 60 seconds), so
+a long think between calls does not fail the card as "disconnected".
 
 ### Element comments through MCP
 
