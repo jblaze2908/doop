@@ -15,8 +15,10 @@ export interface FrameFont {
    which see every message posted in, so bytes from any other origin (above
    all this one, with its cookies) must never be handed to a frame. */
 const FETCHABLE = /^https:\/\/fonts\.gstatic\.com\//
-/* latin and latin-ext, which nearly every design renders; other subsets stay
-   lazy url sources, as their unicode-range made them under @font-face */
+/* latin and latin-ext (₹ and other currency signs, Central European letters):
+   lazy-in-frame would mean one partitioned network fetch per frame. Each frame
+   holds its own copy of the data: urls (~5 MB of heap at 24 frames). Other
+   subsets stay lazy url sources, as their unicode-range made them under @font-face */
 const EAGER = /(^|,)\s*U\+(0000-00FF|0100-)/i
 
 const dataUrls = new Map<string, Promise<string | null>>()
