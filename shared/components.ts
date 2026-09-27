@@ -6,7 +6,7 @@
  * (serialize() only ever sees the light DOM).
  */
 
-import { spliceHead, spliceTheme } from './theme.ts'
+import { spliceHead, themeOptedOut } from './theme.ts'
 
 export interface ComponentProp {
   name: string
@@ -302,7 +302,7 @@ export const COMPONENT_RUNTIME = `var doopComponents = (function () {
     themeSheet.replaceSync(css || '')
   }
 
-  /* server renders: the theme <style> precedes this script in <head> */
+  /* server renders: the theme style element precedes this script */
   function boot(list) {
     var st = document.querySelector('style[data-doop-theme]')
     setTheme(st ? st.textContent : '')
@@ -311,6 +311,9 @@ export const COMPONENT_RUNTIME = `var doopComponents = (function () {
 
   return { set: set, refresh: function () { refresh(document) }, setTheme: setTheme, boot: boot }
 })()`
+
+if (/<(head|html|!doctype)\b/i.test(COMPONENT_RUNTIME))
+  throw new Error('COMPONENT_RUNTIME must not contain <head>, <html> or <!doctype>')
 
 /** The server-render <script>: runtime plus definitions, JSON made safe
  *  inside a <script> element. */
@@ -326,5 +329,7 @@ export function componentScript(defs: readonly ComponentRuntimeDef[]): string {
 /** A frame document as server renders load it: theme first in <head>, then
  *  the component runtime, so instances upgrade as the parser creates them. */
 export function prepareFrameHtml(html: string, themeCss: string, defs: readonly ComponentRuntimeDef[]): string {
-  return spliceTheme(spliceHead(html, componentScript(defs)), themeCss)
+  /* one insertion: a second scan would find anchors inside the markup just added */
+  const theme = themeCss && !themeOptedOut(html) ? `<style data-doop-theme>${themeCss}</style>` : ''
+  return spliceHead(html, theme + componentScript(defs))
 }
