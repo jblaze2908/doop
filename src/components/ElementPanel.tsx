@@ -1,8 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Frame } from '../../shared/types'
 import { useStore } from '../lib/store'
-import { inspectElement, onFrameReady, styleElement, type ElementInfo, type StylePatch } from '../lib/frameBridge'
-import { ancestorsOf, buildLayerTree, elementHtml, findLayer, layerName } from '../lib/layers'
+import {
+  inspectElement,
+  onFrameReady,
+  setElementAttrs,
+  setElementClasses,
+  styleElement,
+  type ElementInfo,
+  type StylePatch,
+} from '../lib/frameBridge'
+import { ancestorsOf, buildLayerTree, elementHtml, elementPath, findLayer, layerName } from '../lib/layers'
 import { replaceLayerHtml } from '../lib/layerEdits'
 import {
   borderSummary,
@@ -15,6 +23,10 @@ import {
 } from '../lib/cssValues'
 import { cn } from '@/lib/utils'
 import { LayerKindIcon } from './LayerKindIcon'
+import { ClassEditor, ComponentProps, SwapToComponent, TokenValue } from './ElementSystem'
+import { themeClassNames, tokensOf } from '../lib/designTokens'
+import { liveComponents, type ComponentDef } from '../../shared/components'
+import type { ThemeToken } from '../../shared/theme'
 import {
   Panel,
   PanelBody,
@@ -102,6 +114,47 @@ export function ElementPanel({ frame, selector, className }: { frame: Frame; sel
       .catch(console.error)
   }
 
+  const theme = useStore((s) => s.canvas?.theme)
+  const componentDefs = useStore((s) => s.canvas?.components)
+  const system = useMemo<DesignSystem>(
+    () => ({
+      colors: tokensOf(theme, ['color']),
+      sizes: tokensOf(theme, ['size']),
+      fonts: tokensOf(theme, ['font']),
+      classes: themeClassNames(theme?.css ?? ''),
+      components: liveComponents(componentDefs),
+    }),
+    [theme, componentDefs],
+  )
+
+  function setClasses(classes: string[]) {
+    setElementClasses(frame.id, selector, classes)
+      .then((next) => next && setInfo(next))
+      .catch(console.error)
+  }
+
+  function setAttr(name: string, value: string | null) {
+    setElementAttrs(frame.id, selector, { [name]: value })
+      .then((next) => next && setInfo(next))
+      .catch(console.error)
+  }
+
+  /* the element becomes an instance: its children turn into slot content,
+     and the selection follows it to its new (tag-based) selector */
+  function swapTo(name: string) {
+    const live = useStore.getState().canvas?.frames.find((f) => f.id === frame.id) ?? frame
+    const outer = elementHtml(live.html, selector)
+    if (!outer || !info) return
+    const tpl = document.createElement('template')
+    tpl.innerHTML = outer
+    const inner = tpl.content.firstElementChild?.innerHTML ?? ''
+    if (!replaceLayerHtml(live, selector, `<${name}>${inner}</${name}>`)) return
+    const next = useStore.getState().canvas?.frames.find((f) => f.id === frame.id)
+    const doc = new DOMParser().parseFromString(next?.html ?? '', 'text/html')
+    const host = doc.querySelector(parentNode?.selector ?? 'body')?.children[info.index - 1]
+    if (host) useStore.getState().setSelectedElement({ frameId: frame.id, selector: elementPath(host) })
+  }
+
   function selectTab(next: Tab) {
     setTab(next)
     try {
@@ -153,7 +206,20 @@ export function ElementPanel({ frame, selector, className }: { frame: Frame; sel
           )}
         </div>
         <PanelTabPanel value="design">
-          <PanelBody>{info ? <DesignTab info={info} apply={apply} /> : <Waiting />}</PanelBody>
+          <PanelBody>
+            {info ? (
+              <DesignTab
+                info={info}
+                apply={apply}
+                system={system}
+                onClasses={setClasses}
+                onAttr={setAttr}
+                onSwap={swapTo}
+              />
+            ) : (
+              <Waiting />
+            )}
+          </PanelBody>
         </PanelTabPanel>
         <PanelTabPanel value="html">
           <HtmlTab key={selector} frame={frame} selector={selector} />
@@ -201,7 +267,50 @@ function parentLayout(info: ElementInfo): string {
   return p.display
 }
 
-function DesignTab({ info, apply }: { info: ElementInfo; apply: (styles: StylePatch) => void }) {
+interface DesignSystem {
+  colors: ThemeToken[]
+  sizes: ThemeToken[]
+  fonts: ThemeToken[]
+  classes: string[]
+  components: ComponentDef[]
+}
+
+const ALIGN_ITEMS = ['stretch', 'flex-start', 'center', 'flex-end', 'baseline']
+const JUSTIFY = ['flex-start', 'center', 'flex-end', 'space-between', 'space-around', 'space-evenly']
+
+function optionsFor(values: string[], current: string) {
+  const all = values.includes(current) ? values : [current, ...values]
+  return all.map((v) => ({ value: v, label: v === 'normal' ? 'normal' : v.replace('flex-', '') }))
+}
+
+function DesignTab({
+  info,
+  apply,
+  system,
+  onClasses,
+  onAttr,
+  onSwap,
+}: {
+  info: ElementInfo
+  apply: (styles: StylePatch) => void
+  system: DesignSystem
+  onClasses: (classes: string[]) => void
+  onAttr: (name: string, value: string | null) => void
+  onSwap: (name: string) => void
+}) {
+  const instanceOf = info.component ? system.components.find((c) => c.name === info.component) : undefined
+  const isFlex = info.display === 'flex' || info.display === 'inline-flex'
+  const isGrid = info.display === 'grid' || info.display === 'inline-grid'
+  const token = (prop: string, tokens: ThemeToken[], literal: string | null, field: React.ReactNode) => (
+    <TokenValue
+      inline={info.inline[prop]}
+      tokens={tokens}
+      onPick={(ref) => apply({ [prop]: ref })}
+      onDetach={() => apply({ [prop]: literal })}
+    >
+      {field}
+    </TokenValue>
+  )
   const visible = info.visibility !== 'hidden'
   const fill = rgbToHex(info.backgroundColor)
   const borderColor = rgbToHex(info.borderColor)
@@ -214,6 +323,12 @@ function DesignTab({ info, apply }: { info: ElementInfo; apply: (styles: StylePa
   }
   return (
     <>
+      {instanceOf ? (
+        <ComponentProps def={instanceOf} attributes={info.attributes} onChange={onAttr} />
+      ) : (
+        info.tag !== 'body' && <SwapToComponent components={system.components} onSwap={onSwap} />
+      )}
+      <ClassEditor classes={info.classes} suggestions={system.classes} onChange={onClasses} />
       <PropertySection title="Position">
         <PropertyRow label="Type">
           <SelectField
@@ -272,17 +387,57 @@ function DesignTab({ info, apply }: { info: ElementInfo; apply: (styles: StylePa
           />
         </PropertyRow>
         <PropertyRow label="Gap">
-          <NumberField
-            value={info.rowGap ?? 0}
-            unit={gapMixed ? 'row' : 'px'}
-            onCommit={(v) => apply({ gap: `${v}px` })}
-          />
-          <TextField
-            className="flex-[0_0_78px]"
-            value={compactBox(info.padding)}
-            unit="pad"
-            onCommit={(v) => apply({ padding: shorthandValue(v) })}
-          />
+          {token(
+            'gap',
+            system.sizes,
+            info.rowGap === null ? null : `${info.rowGap}px`,
+            <NumberField
+              value={info.rowGap ?? 0}
+              unit={gapMixed ? 'row' : 'px'}
+              onCommit={(v) => apply({ gap: `${v}px` })}
+            />,
+          )}
+        </PropertyRow>
+        {(isFlex || isGrid) && (
+          <PropertyRow label="Align">
+            <SelectField
+              value={info.alignItems}
+              options={optionsFor(ALIGN_ITEMS, info.alignItems)}
+              onChange={(v) => apply({ 'align-items': v })}
+            />
+            <SelectField
+              value={info.justifyContent}
+              options={optionsFor(JUSTIFY, info.justifyContent)}
+              onChange={(v) => apply({ 'justify-content': v })}
+            />
+          </PropertyRow>
+        )}
+        {isFlex && (
+          <PropertyRow label="Wrap">
+            <ToggleField
+              value={info.flexWrap !== 'nowrap'}
+              labels={['Wrap', 'No wrap']}
+              onChange={(on) => apply({ 'flex-wrap': on ? 'wrap' : null })}
+            />
+          </PropertyRow>
+        )}
+      </PropertySection>
+      <PropertySection title="Spacing">
+        <PropertyRow label="Padding">
+          {token(
+            'padding',
+            system.sizes,
+            shorthandValue(compactBox(info.padding)),
+            <TextField value={compactBox(info.padding)} onCommit={(v) => apply({ padding: shorthandValue(v) })} />,
+          )}
+        </PropertyRow>
+        <PropertyRow label="Margin">
+          {token(
+            'margin',
+            system.sizes,
+            shorthandValue(compactBox(info.margin)),
+            <TextField value={compactBox(info.margin)} onCommit={(v) => apply({ margin: shorthandValue(v) })} />,
+          )}
         </PropertyRow>
       </PropertySection>
       <PropertySection title="Styles">
@@ -311,15 +466,25 @@ function DesignTab({ info, apply }: { info: ElementInfo; apply: (styles: StylePa
           />
         </PropertyRow>
         <PropertyRow label="Fill">
-          <ColorField value={fill} onCommit={(v) => apply({ 'background-color': v ?? 'transparent' })} />
+          {token(
+            'background-color',
+            system.colors,
+            fill,
+            <ColorField value={fill} onCommit={(v) => apply({ 'background-color': v ?? 'transparent' })} />,
+          )}
         </PropertyRow>
         <PropertyRow label="Border">
-          <ColorField
-            value={borderColor}
-            onCommit={(v) =>
-              apply({ 'border-color': v, ...(v && info.borderStyle === 'none' ? { 'border-style': 'solid' } : {}) })
-            }
-          />
+          {token(
+            'border-color',
+            system.colors,
+            borderColor,
+            <ColorField
+              value={borderColor}
+              onCommit={(v) =>
+                apply({ 'border-color': v, ...(v && info.borderStyle === 'none' ? { 'border-style': 'solid' } : {}) })
+              }
+            />,
+          )}
           <NumberField
             className="flex-[0_0_78px]"
             value={border.width}
@@ -333,13 +498,23 @@ function DesignTab({ info, apply }: { info: ElementInfo; apply: (styles: StylePa
           />
         </PropertyRow>
         <PropertyRow label="Radius">
-          <NumberField value={info.borderRadius} unit="px" onCommit={(v) => apply({ 'border-radius': `${v}px` })} />
+          {token(
+            'border-radius',
+            system.sizes,
+            info.borderRadius === null ? null : `${info.borderRadius}px`,
+            <NumberField value={info.borderRadius} unit="px" onCommit={(v) => apply({ 'border-radius': `${v}px` })} />,
+          )}
         </PropertyRow>
       </PropertySection>
       {info.hasText && (
         <PropertySection title="Text">
           <PropertyRow label="Size">
-            <NumberField value={info.fontSize} unit="px" onCommit={(v) => apply({ 'font-size': `${v}px` })} />
+            {token(
+              'font-size',
+              system.sizes,
+              info.fontSize === null ? null : `${info.fontSize}px`,
+              <NumberField value={info.fontSize} unit="px" onCommit={(v) => apply({ 'font-size': `${v}px` })} />,
+            )}
             <SelectField
               className="flex-[0_0_66px]"
               value={WEIGHTS.includes(info.fontWeight) ? info.fontWeight : '400'}
@@ -348,7 +523,33 @@ function DesignTab({ info, apply }: { info: ElementInfo; apply: (styles: StylePa
             />
           </PropertyRow>
           <PropertyRow label="Color">
-            <ColorField value={rgbToHex(info.color)} onCommit={(v) => apply({ color: v })} />
+            {token(
+              'color',
+              system.colors,
+              rgbToHex(info.color),
+              <ColorField value={rgbToHex(info.color)} onCommit={(v) => apply({ color: v })} />,
+            )}
+          </PropertyRow>
+          <PropertyRow label="Font">
+            {token(
+              'font-family',
+              system.fonts,
+              info.fontFamily,
+              <StaticField className="truncate">{info.fontFamily.split(',')[0]?.replace(/["']/g, '')}</StaticField>,
+            )}
+          </PropertyRow>
+          <PropertyRow label="Leading">
+            <TextField
+              value={info.inline['line-height'] ?? info.lineHeight}
+              onCommit={(v) => apply({ 'line-height': lengthValue(v) })}
+            />
+            <TextField
+              className="flex-[0_0_78px]"
+              value={info.inline['letter-spacing'] ?? (info.letterSpacing === 'normal' ? '' : info.letterSpacing)}
+              placeholder="0"
+              unit="ls"
+              onCommit={(v) => apply({ 'letter-spacing': lengthValue(v) })}
+            />
           </PropertyRow>
           <PropertyRow label="Align">
             <SelectField

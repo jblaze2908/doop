@@ -30,6 +30,17 @@ let busy = false
    write never lands before (and gets overwritten by) the original */
 let inflight: Promise<unknown> = Promise.resolve()
 
+/* An html undo replaces the whole document. If a collaborator (or an agent)
+   changed the frame since, applying it would silently erase their work, so
+   the step is refused and the person told instead. */
+class HistoryConflict extends Error {}
+const conflictListeners = new Set<(message: string) => void>()
+
+export function onHistoryConflict(fn: (message: string) => void): () => void {
+  conflictListeners.add(fn)
+  return () => conflictListeners.delete(fn)
+}
+
 export function trackSave(p: Promise<unknown>) {
   inflight = inflight.then(() => p.catch(() => undefined))
 }
@@ -160,6 +171,10 @@ async function apply(e: Entry, direction: 'undo' | 'redo'): Promise<Entry | null
   const forward = direction === 'redo'
   if (e.type === 'update') {
     const patch = forward ? e.after : e.before
+    if (patch.html !== undefined) {
+      const live = useStore.getState().canvas?.frames.find((f) => f.id === e.frameId)?.html
+      if (live !== undefined && live !== (forward ? e.before : e.after).html) throw new HistoryConflict()
+    }
     useStore.getState().patchFrameLocal(e.frameId, patch)
     try {
       await api.updateFrame(e.frameId, patch)
@@ -194,6 +209,11 @@ async function step(direction: 'undo' | 'redo') {
     }
   } catch (err) {
     /* the frame is gone or the canvas moved on — drop the entry */
+    if (err instanceof HistoryConflict) {
+      const message = `Can’t ${direction} — someone else changed this frame since`
+      for (const fn of conflictListeners) fn(message)
+      return
+    }
     console.error(`${direction} failed`, err)
   } finally {
     busy = false

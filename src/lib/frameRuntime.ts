@@ -460,13 +460,47 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
       fontWeight: cs.fontWeight,
       fontFamily: cs.fontFamily,
       textAlign: cs.textAlign,
+      margin: [px(cs.marginTop), px(cs.marginRight), px(cs.marginBottom), px(cs.marginLeft)],
+      alignItems: cs.alignItems,
+      justifyContent: cs.justifyContent,
+      flexWrap: cs.flexWrap,
+      lineHeight: cs.lineHeight,
+      letterSpacing: cs.letterSpacing,
+      attributes: plainAttributes(el),
+      /* a linked component instance: its props are attributes, its look is the definition */
+      component: el.shadowRoot && customElements.get(el.localName) ? el.localName : null,
     }
   }
 
+  /* attributes a person may edit as props — not styling, ids or our markers */
+  function plainAttributes(el) {
+    var out = {}
+    for (var i = 0; i < el.attributes.length; i++) {
+      var n = el.attributes[i].name
+      if (n === 'style' || n === 'class' || n === 'id' || n === 'contenteditable' || n.indexOf('data-v-') === 0) continue
+      out[n] = el.attributes[i].value
+    }
+    return out
+  }
+
   var styleTimer = null
+  /* a slider fires many of these a second — one save once it settles. While
+     one is pending, incoming renders are skipped: morphing now would wipe the
+     unsaved change, and the parent re-sends the frame after the save. */
+  function scheduleSave() {
+    if (styleTimer) clearTimeout(styleTimer)
+    styleTimer = setTimeout(function () {
+      styleTimer = null
+      postEdited()
+    }, 250)
+  }
+
+  function findEl(selector) {
+    try { return selector ? document.querySelector(selector) : null } catch (e) { return null }
+  }
+
   function applyStyle(selector, styles) {
-    var el = null
-    try { el = selector ? document.querySelector(selector) : null } catch (e) { /* bad selector */ }
+    var el = findEl(selector)
     if (!el) return false
     for (var k in styles) {
       if (!Object.prototype.hasOwnProperty.call(styles, k)) continue
@@ -474,9 +508,38 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
       else el.style.setProperty(k, String(styles[k]))
     }
     if (!el.getAttribute('style')) el.removeAttribute('style')
-    /* a slider fires many of these a second — one save once it settles */
-    if (styleTimer) clearTimeout(styleTimer)
-    styleTimer = setTimeout(postEdited, 250)
+    scheduleSave()
+    return true
+  }
+
+  function applyClasses(selector, classes) {
+    var el = findEl(selector)
+    if (!el || el === document.documentElement) return false
+    var clean = []
+    for (var i = 0; i < classes.length; i++) {
+      var c = String(classes[i]).trim()
+      if (c && !/[^A-Za-z0-9_-]/.test(c) && clean.indexOf(c) < 0) clean.push(c)
+    }
+    if (clean.length) el.setAttribute('class', clean.join(' '))
+    else el.removeAttribute('class')
+    scheduleSave()
+    return true
+  }
+
+  /* props of component instances and plain attributes; never event handlers,
+     styling or ids, which have their own editors */
+  function applyAttrs(selector, attrs) {
+    var el = findEl(selector)
+    if (!el || el === document.documentElement) return false
+    for (var k in attrs) {
+      if (!Object.prototype.hasOwnProperty.call(attrs, k)) continue
+      var n = String(k).toLowerCase()
+      if (!/^[a-z][a-z0-9-]*$/.test(n) || n.indexOf('on') === 0 || n === 'style' || n === 'class' || n === 'id') continue
+      if (attrs[k] === null) el.removeAttribute(n)
+      else el.setAttribute(n, String(attrs[k]))
+    }
+    doopComponents.refresh()
+    scheduleSave()
     return true
   }
 
@@ -495,7 +558,15 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
     }
     if (d.type === 'doop:theme' && typeof d.css === 'string') setTheme(d.css)
     if (d.type === 'doop:components' && Array.isArray(d.defs)) doopComponents.set(d.defs)
-    if (d.type === 'doop:html' && typeof d.html === 'string' && !editing) render(d.html)
+    if (d.type === 'doop:classes' && Array.isArray(d.classes)) {
+      var classed = applyClasses(d.selector, d.classes)
+      parent.postMessage({ type: 'doop:classes-result', reqId: d.reqId, ok: classed, info: classed ? inspect(d.selector) : null }, '*')
+    }
+    if (d.type === 'doop:attrs' && d.attrs && typeof d.attrs === 'object') {
+      var attred = applyAttrs(d.selector, d.attrs)
+      parent.postMessage({ type: 'doop:attrs-result', reqId: d.reqId, ok: attred, info: attred ? inspect(d.selector) : null }, '*')
+    }
+    if (d.type === 'doop:html' && typeof d.html === 'string' && !editing && !styleTimer) render(d.html)
     if (d.type === 'doop:edit') setEdit(!!d.on)
     if (d.type === 'doop:probe') {
       parent.postMessage({ type: 'doop:probe-result', reqId: d.reqId, hit: probe(d.x, d.y) }, '*')

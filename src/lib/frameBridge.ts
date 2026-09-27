@@ -42,6 +42,17 @@ export interface ElementInfo {
   fontWeight: string
   fontFamily: string
   textAlign: string
+  /** top, right, bottom, left */
+  margin: [number | null, number | null, number | null, number | null]
+  alignItems: string
+  justifyContent: string
+  flexWrap: string
+  lineHeight: string
+  letterSpacing: string
+  /** attributes other than style, class and id — a component instance's props */
+  attributes: Record<string, string>
+  /** tag of the linked component this element is an instance of */
+  component: string | null
 }
 
 /** Inline style changes: a null or empty value removes the property. */
@@ -136,4 +147,23 @@ export async function inspectElement(frameId: string, selector: string): Promise
  *  element's fresh properties. */
 export async function styleElement(frameId: string, selector: string, styles: StylePatch): Promise<ElementInfo | null> {
   return infoOf(await requestFrame(frameId, 'doop:style', { selector, styles }))
+}
+
+/** Replace the element's class list; saved like a style edit. */
+export async function setElementClasses(
+  frameId: string,
+  selector: string,
+  classes: string[],
+): Promise<ElementInfo | null> {
+  return infoOf(await requestFrame(frameId, 'doop:classes', { selector, classes }))
+}
+
+/** Set (string) or remove (null) attributes — component props. Event
+ *  handlers, style, class and id are refused by the runtime. */
+export async function setElementAttrs(
+  frameId: string,
+  selector: string,
+  attrs: Record<string, string | null>,
+): Promise<ElementInfo | null> {
+  return infoOf(await requestFrame(frameId, 'doop:attrs', { selector, attrs }))
 }

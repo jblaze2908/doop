@@ -37,7 +37,7 @@ import {
   pasteFrameCentered,
   pasteImagesCentered,
 } from '../lib/frameClipboard'
-import { clearHistory, recordCreate, redo, undo } from '../lib/history'
+import { clearHistory, onHistoryConflict, recordCreate, redo, undo } from '../lib/history'
 import { deleteSelection } from '../lib/layerEdits'
 import { authClient } from '../lib/auth'
 import { posthog } from '../lib/posthog'
@@ -220,6 +220,14 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
     setToast(msg)
     window.setTimeout(() => setToast(null), 2000)
   }
+  useEffect(
+    () =>
+      onHistoryConflict((msg) => {
+        setToast(msg)
+        window.setTimeout(() => setToast(null), 3000)
+      }),
+    [],
+  )
 
   /* a pending Memory suggestion gets its own toast beside the side panel;
      clicking it jumps to the Memory tab, ✕ mutes it for this session */
