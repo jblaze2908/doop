@@ -13,19 +13,14 @@ import { setTabsUser } from './lib/desktop'
 import { isDesktopShell } from './lib/shell'
 
 /* Every page is its own chunk: a visitor opening one canvas downloads the
-   canvas page, not the admin, automations and gallery code too. */
+   canvas page, not the dashboard and settings code too. */
 const Home = lazy(() => import('./pages/Home').then((m) => ({ default: m.Home })))
-const Community = lazy(() => import('./pages/Community').then((m) => ({ default: m.Community })))
 const Settings = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })))
 const loadCanvasPage = () => import('./pages/CanvasPage')
 const CanvasPage = lazy(() => loadCanvasPage().then((m) => ({ default: m.CanvasPage })))
 const AuthPage = lazy(() => import('./pages/AuthPage').then((m) => ({ default: m.AuthPage })))
 const DesktopHandoff = lazy(() => import('./pages/DesktopHandoff').then((m) => ({ default: m.DesktopHandoff })))
 const DesktopSignIn = lazy(() => import('./pages/DesktopSignIn').then((m) => ({ default: m.DesktopSignIn })))
-const Admin = lazy(() => import('./pages/Admin').then((m) => ({ default: m.Admin })))
-const Automations = lazy(() => import('./pages/Automations').then((m) => ({ default: m.Automations })))
-const AutomationEditor = lazy(() => import('./pages/AutomationEditor').then((m) => ({ default: m.AutomationEditor })))
-const Integrations = lazy(() => import('./pages/Integrations').then((m) => ({ default: m.Integrations })))
 const Workspace = lazy(() => import('./pages/Workspace').then((m) => ({ default: m.Workspace })))
 
 /* the canvas is where almost every visit goes next: fetch it while idle */
@@ -56,20 +51,6 @@ function Routes() {
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
-
-  /* Reaching /admin mid "view as" — usually the Back button, since /admin
-     stays in history when impersonation starts — can only mean "return to
-     being the admin": the borrowed session has no admin access, so rendering
-     the page would show its not-found screen. End the impersonation and
-     arrive as the admin instead. */
-  const returningToAdmin = !!me?.impersonating && path.startsWith('/admin')
-  useEffect(() => {
-    if (!returningToAdmin) return
-    adminApi
-      .stopImpersonating()
-      .then(() => location.assign('/admin'))
-      .catch(() => location.assign('/'))
-  }, [returningToAdmin])
 
   /* The session is the auth boundary: this covers both successful login and
      restoring an existing session after a page refresh. */
@@ -146,31 +127,15 @@ function Routes() {
       </>
     )
 
-  /* /admin waits for /api/me: before it answers we can't tell an admin from
-     a borrowed "view as" session, and rendering Admin in the latter flashes
-     its not-found screen. Also blank while the effect above swaps the
-     session back and reloads. */
-  if (path.startsWith('/admin') && (!me || returningToAdmin)) return <div className="auth-page" />
-
   const canvasId = path.match(/^\/c\/([^/]+)/)?.[1]
   const page = canvasId ? (
     <CanvasPage canvasId={canvasId} key={canvasId} />
   ) : path === DESKTOP_HANDOFF_PATH ? (
     <DesktopHandoff />
-  ) : path.startsWith('/admin') ? (
-    <Admin />
   ) : path.startsWith('/settings') ? (
     <Settings />
-  ) : path.startsWith('/community') ? (
-    <Community />
-  ) : path.startsWith('/integrations') ? (
-    <Integrations />
   ) : path.match(/^\/w\/([^/]+)/) ? (
     <Workspace workspaceId={path.match(/^\/w\/([^/]+)/)![1]!} key={path} />
-  ) : path.match(/^\/automations\/([^/]+)/) ? (
-    <AutomationEditor automationId={path.match(/^\/automations\/([^/]+)/)![1]!} key={path} />
-  ) : path.startsWith('/automations') ? (
-    <Automations />
   ) : (
     <Home />
   )
@@ -213,10 +178,8 @@ function ImpersonationBanner({ name }: { name: string }) {
           setLeaving(true)
           /* the cookie swaps back to the admin's own session; reload rather
              than reconcile every piece of per-user state in memory */
-          adminApi
-            .stopImpersonating()
-            .then(() => location.assign('/admin'))
-            .catch(() => location.assign('/'))
+          const home = () => location.assign('/')
+          adminApi.stopImpersonating().then(home, home)
         }}
       >
         {leaving ? 'Leaving…' : 'Stop viewing'}

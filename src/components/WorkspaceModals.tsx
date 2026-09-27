@@ -8,11 +8,10 @@ import { posthog } from '../lib/posthog'
 import { Button } from './ui/button'
 import { Callout } from './ui/callout'
 import { CheckIcon, XIcon } from './ui/icons'
-import { Input } from './ui/input'
+import { Input, Sel } from './ui/input'
 import { Modal, ModalActions, ModalEyebrow, ModalLede, ModalTitle } from './ui/modal'
 import { Segmented, SegmentedItem } from './ui/segmented'
 import { Skeleton } from './ui/skeleton'
-import { Sel } from './AutomateShell'
 import { cn } from '@/lib/utils'
 
 /**

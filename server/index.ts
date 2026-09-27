@@ -12,12 +12,8 @@ import { store } from './store.ts'
 import { getImage } from './previews.ts'
 import * as actions from './actions.ts'
 import { exportFrameCode } from './exportCode.ts'
-import { canAccessCanvas, canManageCanvas, hasDurableCanvasAccess, isAdmin } from './access.ts'
+import { canAccessCanvas, canManageCanvas, hasDurableCanvasAccess } from './access.ts'
 import { auth, initAuth, syncAdmins, getUserName, PUBLIC_ORIGIN, loginProvidersConfig } from './auth.ts'
-import { adminRouter } from './admin.ts'
-import { communityRouter, parseListing, publishableFrames } from './community.ts'
-import { automationsRouter, startScheduler } from './automations.ts'
-import { integrationsRouter } from './integrations.ts'
 import * as workspaces from './workspaces.ts'
 import * as billing from './billing.ts'
 import * as demo from './demo.ts'
@@ -36,8 +32,6 @@ import {
 import * as ingest from './ingest.ts'
 import * as backgrounds from './backgrounds.ts'
 import * as storage from './storage.ts'
-import * as github from './github.ts'
-import * as githubApp from './githubApp.ts'
 import { seed } from './seed.ts'
 import * as allowance from './allowance.ts'
 import * as modelAccounts from './modelAccounts.ts'
@@ -580,7 +574,7 @@ declare global {
   namespace Express {
     interface Request {
       user?: SessionUser
-      /** admin's user id when this session is a "view as" — see /api/admin */
+      /** admin's user id when this session is a "view as" (better-auth impersonation) */
       impersonatedBy?: string
     }
   }
@@ -611,7 +605,6 @@ app.get('/api/me', async (req, res) => {
     id,
     name,
     email,
-    admin: isAdmin(req.user),
     /* 'team' while a member of a live paid workspace — the account menu's plan line */
     plan: workspaces.planFor(id),
     /* the SPA cannot infer this: impersonation swaps the session cookie
@@ -652,10 +645,6 @@ function requireFrame(req: express.Request, res: express.Response, frameId: stri
 }
 
 app.use('/api/local-agent', localAgentRouter)
-app.use('/api/admin', adminRouter)
-app.use('/api/community', communityRouter)
-app.use('/api/automations', automationsRouter)
-app.use('/api/integrations', integrationsRouter)
 app.use('/api/workspaces', workspaces.workspacesRouter)
 app.use('/api/billing', billing.billingRouter)
 
@@ -838,27 +827,6 @@ app.get('/api/canvases/:id', (req, res) => {
   if (c) res.json(c)
 })
 
-/* Community gallery listing — the owner's call alone, like link access.
-   PUT both lists and re-describes; DELETE takes it down. */
-app.put('/api/canvases/:id/publish', (req, res) => {
-  const c = requireCanvas(req, res, req.params.id)
-  if (!c) return
-  if (c.ownerId !== req.user!.id) return res.status(403).json({ error: 'only the owner can publish a canvas' })
-  if (!publishableFrames(c).length) return res.status(400).json({ error: 'add a frame before publishing' })
-  const listing = parseListing(req.body)
-  if (typeof listing === 'string') return res.status(400).json({ error: listing })
-  const published = store.publishCanvas(c.id, listing)!
-  res.json({ publishedAt: published.publishedAt, description: published.description, category: published.category })
-})
-
-app.delete('/api/canvases/:id/publish', (req, res) => {
-  const c = requireCanvas(req, res, req.params.id)
-  if (!c) return
-  if (c.ownerId !== req.user!.id) return res.status(403).json({ error: 'only the owner can unpublish a canvas' })
-  store.unpublishCanvas(c.id)
-  res.json({ ok: true })
-})
-
 /* Move a canvas into a workspace (its owner, who must be a member, while it
    may grow) or back out to its owner's personal space (the owner, or a
    workspace admin). Moving is an access change, not an edit: every member
@@ -1029,196 +997,6 @@ app.delete('/api/canvases/:id/sync-keys/:keyId', async (req, res) => {
   if (!(await ingest.deleteSyncKey(req.params.id, req.params.keyId)))
     return res.status(404).json({ error: 'sync key not found' })
   res.json({ ok: true })
-})
-
-/* ---- GitHub import source: connect a repo, enumerate its screens, land the
-   selected ones as frames. Same durable-access rule as sync keys — the
-   stored PAT is a standing credential, so link-edit visitors must not be
-   able to create or exercise a connection. Tokens never leave the server. */
-
-app.get('/api/canvases/:id/github', async (req, res) => {
-  const c = requireDurableCanvas(req, res, req.params.id)
-  if (!c) return
-  const connections = await github.listConnections(c.id)
-  res.json(
-    connections.map((conn) => ({ ...github.connectionInfo(conn), frames: github.importedFrameCount(c, conn.id) })),
-  )
-})
-
-app.post('/api/canvases/:id/github', async (req, res) => {
-  const c = requireDurableCanvas(req, res, req.params.id)
-  if (!c) return
-  try {
-    /* app mode: a signed pass from the install round-trip stands in for the
-       token, binding the GitHub App installation to this canvas */
-    let installationId: string | undefined
-    if (typeof req.body?.pass === 'string') {
-      const verified = githubApp.verifyInstallPass(req.body.pass, c.id)
-      if (!verified) return res.status(400).json({ error: 'the GitHub install handoff expired — connect again' })
-      installationId = verified.installationId
-    }
-    const conn = await github.createConnection({
-      canvasId: c.id,
-      repo: String(req.body?.repo ?? ''),
-      token: typeof req.body?.token === 'string' ? req.body.token : undefined,
-      installationId,
-      branch: typeof req.body?.branch === 'string' ? req.body.branch : undefined,
-      createdBy: req.user!.id,
-    })
-    res.json({ ...github.connectionInfo(conn), frames: 0 })
-  } catch (e) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'could not connect the repository' })
-  }
-})
-
-/* ---- GitHub App install flow: click Connect on the canvas, pick repos on
-   GitHub's install screen, land back on the canvas with a repo picker. The
-   signed state/pass pair keeps guessable installation ids from being bound
-   to canvases that never started an install (server/githubApp.ts). */
-
-app.get('/api/github/app', (req, res) => {
-  res.json({ enabled: githubApp.appEnabled(), slug: githubApp.appSlug() })
-})
-
-app.post('/api/canvases/:id/github/app/start', (req, res) => {
-  const c = requireDurableCanvas(req, res, req.params.id)
-  if (!c) return
-  if (!githubApp.appEnabled()) return res.status(400).json({ error: 'the GitHub App is not configured' })
-  res.json({ url: githubApp.installUrl(githubApp.signInstallState(c.id, req.user!.id)) })
-})
-
-/* GitHub's post-install redirect (the app's callback URL, with "request
-   user authorization during installation" on). Verifies the state minted at
-   start AND that the OAuth code's user actually owns the installation —
-   installation ids are guessable, and without the ownership proof a valid
-   state could bind someone else's installation. Then swaps state for a pass
-   and returns to the canvas, where the import modal shows the repo picker. */
-app.get('/api/github/app/setup', async (req, res) => {
-  const rawState = String(req.query.state ?? '')
-  const code = String(req.query.code ?? '')
-  /* failures land back on the canvas with a visible reason — a silent
-     homepage redirect reads as "nothing happened" */
-  const fail = (canvasId: string, reason: string) =>
-    res.redirect(`/c/${encodeURIComponent(canvasId)}?ghError=${encodeURIComponent(reason)}`)
-  const succeed = (canvasId: string, installationId: string) =>
-    res.redirect(
-      `/c/${encodeURIComponent(canvasId)}?ghInstall=${encodeURIComponent(githubApp.signInstallPass(canvasId, installationId))}`,
-    )
-
-  /* return leg of the already-installed bounce: the authorize round-trip
-     produced the code the configure screen didn't */
-  const oauth = githubApp.verifyOauthState(rawState)
-  if (oauth) {
-    try {
-      if (await githubApp.verifyInstallationOwner(code, oauth.installationId))
-        return succeed(oauth.canvasId, oauth.installationId)
-    } catch {
-      /* fall through to the error redirect */
-    }
-    return fail(oauth.canvasId, 'GitHub couldn’t confirm you own that installation — try connecting again')
-  }
-
-  const state = githubApp.verifyInstallState(rawState)
-  if (!state) return res.redirect('/')
-  const installationId = String(req.query.installation_id ?? '')
-  if (!/^\d+$/.test(installationId))
-    return fail(state.canvasId, 'GitHub sent no installation back — try connecting again')
-
-  /* app already installed on that account: GitHub showed the configure
-     screen and returned WITHOUT an OAuth code — bounce through authorize
-     (instant for an already-authorized user) purely to get one */
-  if (!code) return res.redirect(githubApp.oauthBounceUrl(githubApp.signOauthState(state.canvasId, installationId)))
-
-  try {
-    if (await githubApp.verifyInstallationOwner(code, installationId)) return succeed(state.canvasId, installationId)
-  } catch {
-    /* fall through to the error redirect */
-  }
-  return fail(state.canvasId, 'GitHub couldn’t confirm you own that installation — try connecting again')
-})
-
-app.get('/api/canvases/:id/github/app/repos', async (req, res) => {
-  const c = requireDurableCanvas(req, res, req.params.id)
-  if (!c) return
-  const verified = githubApp.verifyInstallPass(String(req.query.pass ?? ''), c.id)
-  if (!verified) return res.status(400).json({ error: 'the GitHub install handoff expired — connect again' })
-  try {
-    res.json(await githubApp.listInstallationRepos(verified.installationId))
-  } catch (e) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'could not list the installation’s repositories' })
-  }
-})
-
-app.delete('/api/canvases/:id/github/:connId', async (req, res) => {
-  if (!requireDurableCanvas(req, res, req.params.id)) return
-  if (!(await github.deleteConnection(req.params.id, req.params.connId)))
-    return res.status(404).json({ error: 'connection not found' })
-  res.json({ ok: true })
-})
-
-app.post('/api/canvases/:id/github/:connId/analyze', async (req, res) => {
-  const c = requireDurableCanvas(req, res, req.params.id)
-  if (!c) return
-  const conn = await github.getConnection(c.id, req.params.connId)
-  if (!conn) return res.status(404).json({ error: 'connection not found' })
-  try {
-    res.json(await github.analyzeConnection(conn))
-  } catch (e) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'repository analysis failed' })
-  }
-})
-
-/* one import at a time per repo connection — see the route */
-const connectionLocks = new Map<string, Promise<unknown>>()
-async function withConnectionLock<T>(connectionId: string, fn: () => Promise<T>): Promise<T> {
-  const previous = connectionLocks.get(connectionId) ?? Promise.resolve()
-  const run = previous.then(fn, fn)
-  const tail = run.catch(() => {})
-  connectionLocks.set(connectionId, tail)
-  try {
-    return await run
-  } finally {
-    if (connectionLocks.get(connectionId) === tail) connectionLocks.delete(connectionId)
-  }
-}
-
-app.post('/api/canvases/:id/github/:connId/import', async (req, res) => {
-  const c = requireDurableCanvas(req, res, req.params.id)
-  if (!c) return
-  const conn = await github.getConnection(c.id, req.params.connId)
-  if (!conn) return res.status(404).json({ error: 'connection not found' })
-  if (!takeImportSlot(req.user!.id)) return res.status(429).json({ error: 'too many imports — wait a minute' })
-  /* design-system-only import is the headline flow now — screens optional */
-  const designSystem = req.body?.design_system !== false
-  const rawScreens = Array.isArray(req.body?.screens) ? (req.body.screens as unknown[]) : []
-  if (!rawScreens.length && !designSystem)
-    return res.status(400).json({ error: 'pick components or screens, or enable the design-system extraction' })
-  try {
-    /* the selection is resolved against a manifest computed right now — see
-       matchSelection for why the client never dictates paths */
-    const { screens, rejected } = rawScreens.length
-      ? github.matchSelection((await github.analyzeConnection(conn)).screens, rawScreens)
-      : { screens: [], rejected: [] }
-    const input = { connectionId: conn.id, repo: conn.repo, screens, designSystem }
-    /* plan → gate → queue runs one import at a time per connection, so two
-       overlapping imports of the same screens cannot both pass the plan and
-       both pay while only one queues */
-    const outcome = await withConnectionLock(conn.id, async () => {
-      /* nothing new to queue (all rejected, or already on the board) costs nothing */
-      if (!actions.planRepoCards(c.id, input).length) return { cards: [] as string[] }
-      /* the import is the Doop Agent's work, card by card — same gate as a card
-         typed on the board: a free task, or the requester's own model account */
-      const gate = await allowance.consumeResidentTask(req.user!.id)
-      if (!gate.ok) return { limit: gate }
-      const cards = actions.addRepoCards(c.id, input, req.user!.name, req.user!.id)
-      return { cards: cards.map((card) => card.id) }
-    })
-    if (outcome.limit)
-      return res.status(403).json({ error: 'resident_limit', used: outcome.limit.used, limit: outcome.limit.limit })
-    res.json({ cards: outcome.cards, rejected })
-  } catch (e) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'import failed' })
-  }
 })
 
 /* upsert a named design doc; empty markdown deletes it (same permission
@@ -1958,6 +1736,4 @@ server.listen(PORT, () => {
       ? '⟡ image generation  on — each user’s connected ChatGPT/OpenAI account, else this server’s OPENAI_API_KEY'
       : '⟡ image generation  on for users with a connected ChatGPT/OpenAI account only (set OPENAI_API_KEY to cover everyone else)',
   )
-  /* automations fire from here: one tick a minute over the due rows */
-  startScheduler()
 })

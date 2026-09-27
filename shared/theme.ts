@@ -208,7 +208,7 @@ export function themeOptedOut(html: string): boolean {
   return /<html\b[^>]*\bdata-doop-theme\s*=\s*["']?off\b/i.test(html)
 }
 
-/** Mark a frame as opted out. Imports and synced/GitHub screens ship their own
+/** Mark a frame as opted out. Imports and synced screens ship their own
  *  complete CSS; theme resets and class names would leak into them. */
 export function withoutTheme(html: string): string {
   if (themeOptedOut(html)) return html

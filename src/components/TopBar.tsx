@@ -7,9 +7,8 @@ import { Tooltip } from './ui/tooltip'
 import { cn } from '@/lib/utils'
 
 /**
- * The top bar of a full-screen working surface — the canvas screen and the
- * automation editor share it, so a name field, a view switch and an action
- * cluster look and behave the same on both. Three tiers: desktop is one row
+ * The top bar of the full-screen canvas surface: a name field, a view switch
+ * and an action cluster. Three tiers: desktop is one row
  * with the full action set, tablet folds text actions into a ••• sheet,
  * phone wraps to two rows with the name on top.
  */

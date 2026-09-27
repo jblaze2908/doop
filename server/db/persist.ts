@@ -6,7 +6,6 @@ import { db } from './index.ts'
 import * as t from './schema.ts'
 import { extractAssetIds } from '../assets.ts'
 import { roleByAgentName } from '../../shared/agents.ts'
-import { isCommunityCategory } from '../../shared/types.ts'
 import { isCanvasTheme, type CanvasTheme } from '../../shared/theme.ts'
 import type { ComponentDef } from '../../shared/components.ts'
 import type {
@@ -20,8 +19,6 @@ import type {
   GuidelineDoc,
   MemoryProposal,
   MemoryReference,
-  RepoCardKind,
-  RepoCardPayload,
   TaskFeedback,
 } from '../../shared/types.ts'
 
@@ -43,10 +40,6 @@ function canvasColumns(c: Canvas) {
     name: c.name,
     ownerId: c.ownerId ?? null,
     linkAccess: c.linkAccess ?? null,
-    publishedAt: c.publishedAt ?? null,
-    description: c.description ?? null,
-    category: c.category ?? null,
-    copyCount: c.copyCount ?? 0,
     workspaceId: c.workspaceId ?? null,
     updatedAt: c.updatedAt,
   }
@@ -429,17 +422,6 @@ function scopeField(scope: string | null): Pick<AgentTask, 'scope'> {
   }
 }
 
-/** A structured card's kind + payload, or nothing when the row is a prompt
- *  card or its payload no longer parses (the card then reads as a plain one). */
-function repoCardFields(kind: string | null, payload: string | null): Pick<AgentTask, 'kind' | 'payload'> {
-  if (!kind || !payload) return {}
-  try {
-    return { kind: kind as RepoCardKind, payload: JSON.parse(payload) as RepoCardPayload }
-  } catch {
-    return {}
-  }
-}
-
 /* Task rows are written as whole snapshots and never awaited by callers, so
    two quick edits could otherwise race on the pool and leave the older one
    in the table. Writes to the same task queue behind each other instead. */
@@ -464,8 +446,6 @@ export function saveTask(canvasId: string, task: AgentTask) {
     pipeline: task.pipeline?.join(',') ?? null,
     stage: task.stage ?? null,
     attachments: task.attachments?.join(',') ?? null,
-    kind: task.kind ?? null,
-    payload: task.payload ? JSON.stringify(task.payload) : null,
     scope: task.scope ? JSON.stringify(task.scope) : null,
     frameIds: task.frameIds?.join(',') ?? null,
   }
@@ -653,10 +633,6 @@ export async function hydrate(): Promise<Hydrated> {
     name: c.name,
     ownerId: c.ownerId ?? undefined,
     linkAccess: c.linkAccess === 'edit' ? 'edit' : undefined,
-    ...(c.publishedAt != null ? { publishedAt: c.publishedAt } : {}),
-    ...(c.description ? { description: c.description } : {}),
-    ...(isCommunityCategory(c.category) ? { category: c.category } : {}),
-    ...(c.copyCount ? { copyCount: c.copyCount } : {}),
     ...(c.workspaceId ? { workspaceId: c.workspaceId } : {}),
     ...(isCanvasTheme(c.theme) ? { theme: c.theme } : {}),
     createdAt: c.createdAt,
@@ -751,7 +727,6 @@ export async function hydrate(): Promise<Hydrated> {
       ...(row.pipeline ? { pipeline: row.pipeline.split(',').filter(Boolean) } : {}),
       ...(row.stage != null ? { stage: row.stage } : {}),
       ...(row.attachments ? { attachments: row.attachments.split(',').filter(Boolean) } : {}),
-      ...repoCardFields(row.kind, row.payload),
       ...scopeField(row.scope),
       ...(row.frameIds ? { frameIds: row.frameIds.split(',').filter(Boolean) } : {}),
     })

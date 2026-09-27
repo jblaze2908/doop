@@ -12,9 +12,6 @@ import { CreateWorkspaceModal, MoveCanvasModal, UpgradeModal } from '../componen
 import {
   AccountMenu,
   ConnectCard,
-  IconAutomations,
-  IconCommunity,
-  IconIntegrations,
   IconGrid,
   IconList,
   IconLock,
@@ -293,8 +290,6 @@ export function Home() {
             on={scope === 'shared'}
             go={() => setScope('shared')}
           />
-          <NavItem icon={<IconAutomations />} label="Automations" on={false} go={() => navigate('/automations')} />
-          <NavItem icon={<IconIntegrations />} label="Integrations" on={false} go={() => navigate('/integrations')} />
         </nav>
 
         <DashSectionLabel>Workspaces</DashSectionLabel>
@@ -323,11 +318,6 @@ export function Home() {
             on={false}
             go={() => setCreatingWorkspace(true)}
           />
-        </nav>
-
-        <DashSectionLabel>Explore</DashSectionLabel>
-        <nav className="flex flex-col gap-0.5">
-          <NavItem icon={<IconCommunity />} label="Community" on={false} go={() => navigate('/community')} />
         </nav>
 
         {agents.length > 0 && (
@@ -513,9 +503,6 @@ export function Home() {
                 <TabsTrigger value="shared">Shared · {counts.shared}</TabsTrigger>
               </TabsList>
             </Tabs>
-            <Button variant="ghost" className="h-10 flex-none gap-1.5" onClick={() => navigate('/community')}>
-              <IconCommunity /> Community
-            </Button>
           </div>
 
           {empty ? (
@@ -812,7 +799,7 @@ function Meta({ canvas: c, onClaim, workspace }: { canvas: CanvasMeta; onClaim: 
   )
 }
 
-export function NavItem({
+function NavItem({
   icon,
   label,
   count,

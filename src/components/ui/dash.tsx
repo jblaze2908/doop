@@ -3,7 +3,7 @@ import * as React from 'react'
 import { cn } from '@/lib/utils'
 
 /* The signed-in shell: a fixed rail on the left, a dot-grid working area on
-   the right. Home, Settings and Admin all wear it, so the rail's width, the
+   the right. Home, Settings and Workspace all wear it, so the rail's width, the
    header's height and the phone breakpoint live here once. Below md the rail
    is hidden and each page surfaces its navigation in the header instead. */
 

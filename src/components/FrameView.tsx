@@ -24,9 +24,8 @@ import { cn } from '@/lib/utils'
 import { Button } from './ui/button'
 import { Textarea } from './ui/textarea'
 import { Tooltip } from './ui/tooltip'
-import { GithubIcon, SyncIcon } from './ui/icons'
+import { SyncIcon } from './ui/icons'
 import { isSyncedFrame } from '../lib/sync'
-import { isGithubFrame, isGithubPlaceholder } from '../lib/github'
 import { AgentIcon } from './AgentIcon'
 import { RoleMark } from './RoleMark'
 
@@ -663,26 +662,6 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
               <Tooltip label="Synced from a live app" side="top" align="start">
                 <span className="flex shrink-0 items-center text-brand">
                   <SyncIcon width={11} height={11} />
-                </span>
-              </Tooltip>
-            )}
-            {isGithubFrame(frame.html) && (
-              <Tooltip
-                label={
-                  isGithubPlaceholder(frame.html)
-                    ? 'Found in the repo — awaiting capture'
-                    : 'Imported from a GitHub repo'
-                }
-                side="top"
-                align="start"
-              >
-                <span
-                  className={cn(
-                    'flex shrink-0 items-center',
-                    isGithubPlaceholder(frame.html) ? 'text-ink-faint' : 'text-brand',
-                  )}
-                >
-                  <GithubIcon width={11} height={11} />
                 </span>
               </Tooltip>
             )}

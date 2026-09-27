@@ -12,10 +12,8 @@ import {
   Building,
   CreditCard,
   Lock,
-  Clock,
   Attachment,
   Brain,
-  Compass,
   Computer,
   Download,
   Group,
@@ -24,7 +22,6 @@ import {
   Menu,
   NavArrowLeft,
   Settings,
-  Shield,
   User,
   ViewGrid,
   ArrowUp,
@@ -34,7 +31,6 @@ import {
   Copy,
   DesignNib,
   FrameAltEmpty,
-  Github,
   Import,
   MediaImage,
   MoreHoriz,
@@ -75,7 +71,6 @@ export const TrashIcon = icon(Trash)
 export const CheckIcon = icon(Check)
 export const ChevronRightIcon = icon(NavArrowRight)
 export const ChevronDownIcon = icon(NavArrowDown)
-export const GithubIcon = icon(Github)
 export const SyncIcon = icon(RefreshDouble)
 export const ImportIcon = icon(Import)
 export const PulseIcon = icon(Activity)
@@ -101,10 +96,7 @@ export const GridIcon = icon(ViewGrid)
 export const ListIcon = icon(Menu)
 export const UserIcon = icon(User)
 export const UsersIcon = icon(Group)
-export const CompassIcon = icon(Compass)
-export const ClockIcon = icon(Clock)
 export const GearIcon = icon(Settings)
-export const ShieldIcon = icon(Shield)
 export const HelpIcon = icon(HelpCircle)
 export const LogOutIcon = icon(LogOut)
 export const AttachmentIcon = icon(Attachment)

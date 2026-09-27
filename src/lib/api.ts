@@ -6,8 +6,6 @@ import type {
   Canvas,
   CanvasMeta,
   CardScope,
-  CommunityCategory,
-  CommunityItem,
   Frame,
   WorkspaceDetail,
   WorkspaceInvite,
@@ -15,7 +13,6 @@ import type {
   WorkspaceRole,
   WorkspaceSummary,
 } from '../../shared/types'
-import type { Automation, AutomationRun, Schedule, Step } from '../../shared/automations'
 import type { BillingInterval, Plan } from '../../shared/billing'
 
 export type HomeActivity = ActivityItem & { canvasId: string; canvasName: string }
@@ -53,51 +50,6 @@ export interface SyncFlow {
     label: string | null
   }[]
   edges: { fromFrameId: string; toFrameId: string; count: number; lastAt: number }[]
-}
-
-/** A GitHub repo connected as an import source. The server keeps the token;
- *  clients only ever see connection metadata. */
-export interface GithubConnectionInfo {
-  id: string
-  canvasId: string
-  repo: string
-  branch: string
-  createdAt: number
-  lastSyncedAt: number | null
-  /** how the connection authenticates: the GitHub App, or a pasted token */
-  via: 'app' | 'token'
-  /** frames on the canvas imported through this connection */
-  frames: number
-}
-
-export interface InstallationRepo {
-  fullName: string
-  private: boolean
-}
-
-export interface RepoScreen {
-  kind: 'page' | 'story' | 'component' | 'static'
-  route: string
-  sourcePath: string
-  title: string
-  dynamic: boolean
-  /** where the pixels come from: repo HTML, or an outline placeholder */
-  source: 'static' | 'placeholder'
-}
-
-export interface RepoManifest {
-  connection: Omit<GithubConnectionInfo, 'frames'>
-  framework: string | null
-  screens: RepoScreen[]
-  truncated: boolean
-}
-
-/** An import queues board cards — nothing lands on the canvas until the
- *  Doop Agent finishes each one. `rejected` lists selections the server no
- *  longer finds in the repo manifest. */
-export interface GithubImportResult {
-  cards: string[]
-  rejected: string[]
 }
 
 export interface DiscoveredPage {
@@ -161,26 +113,6 @@ export interface WebsiteImportResult {
   failures: { url: string; error: string }[]
 }
 
-/** What the server accepts when creating or patching an automation. */
-export interface AutomationInput {
-  name?: string
-  enabled?: boolean
-  schedule?: Schedule
-  steps?: Step[]
-}
-
-/** The Integrations page: per-provider connection state. A provider the
- *  server has no app credentials for reports `enabled: false`. */
-export interface IntegrationsStatus {
-  meta: {
-    enabled: boolean
-    connected: boolean
-    accountName?: string
-    accounts?: { id: string; name: string }[]
-    connectedAt?: number
-    expiresAt?: number | null
-  }
-}
 import { getIdentity } from './identity'
 
 export interface WorkspacesResponse {
@@ -270,15 +202,6 @@ export const api = {
   /* owner-only: what the share link grants people who aren't invited */
   setLinkAccess: (id: string, linkAccess: 'edit' | 'none') =>
     req('/api/canvases/' + id, { method: 'PATCH', body: JSON.stringify({ linkAccess }) }),
-  /* community gallery: owner-only listing, open browsing and copying */
-  publishCanvas: (id: string, listing: { description: string; category: CommunityCategory }) =>
-    req<Pick<Canvas, 'publishedAt' | 'description' | 'category'>>(`/api/canvases/${id}/publish`, {
-      method: 'PUT',
-      body: JSON.stringify(listing),
-    }),
-  unpublishCanvas: (id: string) => req(`/api/canvases/${id}/publish`, { method: 'DELETE' }),
-  listCommunity: () => req<CommunityItem[]>('/api/community'),
-  copyCommunityCanvas: (id: string) => req<Canvas>(`/api/community/${id}/copy`, { method: 'POST' }),
   /* collaborators: the owner plus invited members */
   listMembers: (canvasId: string) => req<CanvasMember[]>(`/api/canvases/${canvasId}/members`),
   inviteMember: (canvasId: string, email: string) =>
@@ -292,24 +215,6 @@ export const api = {
   deleteSyncKey: (canvasId: string, keyId: string) =>
     req(`/api/canvases/${canvasId}/sync-keys/${keyId}`, { method: 'DELETE' }),
   syncFlow: (canvasId: string) => req<SyncFlow>(`/api/canvases/${canvasId}/sync-flow`),
-  /* GitHub repos connected as import sources */
-  listGithubConnections: (canvasId: string) => req<GithubConnectionInfo[]>(`/api/canvases/${canvasId}/github`),
-  connectGithub: (canvasId: string, input: { repo: string; token?: string; pass?: string; branch?: string }) =>
-    req<GithubConnectionInfo>(`/api/canvases/${canvasId}/github`, { method: 'POST', body: JSON.stringify(input) }),
-  githubAppInfo: () => req<{ enabled: boolean; slug: string }>('/api/github/app'),
-  startGithubInstall: (canvasId: string) =>
-    req<{ url: string }>(`/api/canvases/${canvasId}/github/app/start`, { method: 'POST' }),
-  listInstallationRepos: (canvasId: string, pass: string) =>
-    req<InstallationRepo[]>(`/api/canvases/${canvasId}/github/app/repos?pass=${encodeURIComponent(pass)}`),
-  deleteGithubConnection: (canvasId: string, connId: string) =>
-    req(`/api/canvases/${canvasId}/github/${connId}`, { method: 'DELETE' }),
-  analyzeGithub: (canvasId: string, connId: string) =>
-    req<RepoManifest>(`/api/canvases/${canvasId}/github/${connId}/analyze`, { method: 'POST' }),
-  importGithubScreens: (canvasId: string, connId: string, screens: RepoScreen[], designSystem = true) =>
-    req<GithubImportResult>(`/api/canvases/${canvasId}/github/${connId}/import`, {
-      method: 'POST',
-      body: JSON.stringify({ screens, design_system: designSystem }),
-    }),
   guidelineHistory: (canvasId: string, name: string) =>
     req<{ markdown: string; savedAt: number; savedBy: string }[]>(
       `/api/canvases/${canvasId}/guidelines/${encodeURIComponent(name)}/history`,
@@ -414,17 +319,6 @@ export const api = {
   resolveComment: (commentId: string) => req(`/api/comments/${commentId}/resolve`, { method: 'POST' }),
   retryComment: (commentId: string) => req(`/api/comments/${commentId}/retry`, { method: 'POST' }),
   retryTaskFeedback: (feedbackId: string) => req(`/api/feedback/${feedbackId}/retry`, { method: 'POST' }),
-  /* automations: scheduled pulls and agent tasks */
-  listAutomations: () => req<Automation[]>('/api/automations'),
-  getAutomation: (id: string) => req<Automation>(`/api/automations/${id}`),
-  createAutomation: (input: AutomationInput) =>
-    req<Automation>('/api/automations', { method: 'POST', body: JSON.stringify(input) }),
-  updateAutomation: (id: string, input: AutomationInput) =>
-    req<Automation>(`/api/automations/${id}`, { method: 'PATCH', body: JSON.stringify(input) }),
-  deleteAutomation: (id: string) => req(`/api/automations/${id}`, { method: 'DELETE' }),
-  runAutomation: (id: string) => req<AutomationRun>(`/api/automations/${id}/run`, { method: 'POST' }),
-  listRuns: (id: string, before?: number) =>
-    req<AutomationRun[]>(`/api/automations/${id}/runs${before ? `?before=${before}` : ''}`),
   /* workspaces: the shared, per-seat paid space for a team */
   listWorkspaces: () => req<WorkspacesResponse>('/api/workspaces'),
   createWorkspace: (name: string) =>
@@ -457,44 +351,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ sessionId }),
     }),
-  /* integrations: per-user connections to outside services */
-  integrations: () => req<IntegrationsStatus>('/api/integrations'),
-  startMetaConnect: () => req<{ url: string }>('/api/integrations/meta/start', { method: 'POST' }),
-  disconnectMeta: () => req<IntegrationsStatus>('/api/integrations/meta', { method: 'DELETE' }),
 }
 
-export interface AdminCanvas extends CanvasMeta {
-  linkAccess: 'edit' | 'none'
-  memberCount: number
-  owner?: { id: string; name: string; email: string }
-}
-
-export interface AdminUser {
-  id: string
-  name: string
-  email: string
-  role: string | null
-  banned: boolean | null
-  createdAt: number
-  canvasCount: number
-}
-
-/** Instance-admin surface. Every route 404s for non-admins, so a failure here
- *  is indistinguishable from the feature not existing — which is the point. */
+/** better-auth's admin endpoint, not ours: ending a "view as" session swaps
+ *  the cookie back, so the caller reloads rather than reconcile state. */
 export const adminApi = {
-  canvases: () => req<{ total: number; canvases: AdminCanvas[] }>('/api/admin/canvases'),
-  stats: () => req<{ users: number; canvases: number; frames: number }>('/api/admin/stats'),
-  users: () => req<AdminUser[]>('/api/admin/users'),
-
-  /* better-auth's own endpoints, not ours: they swap the session cookie, so
-     every caller reloads afterwards rather than trying to reconcile state. */
-  impersonate: (userId: string) =>
-    req('/api/auth/admin/impersonate-user', { method: 'POST', body: JSON.stringify({ userId }) }),
   stopImpersonating: () => req('/api/auth/admin/stop-impersonating', { method: 'POST' }),
-
-  /* also better-auth's: banning revokes the user's sessions and blocks
-     sign-in; the server refuses their MCP tokens separately */
-  ban: (userId: string, banReason?: string) =>
-    req('/api/auth/admin/ban-user', { method: 'POST', body: JSON.stringify({ userId, banReason }) }),
-  unban: (userId: string) => req('/api/auth/admin/unban-user', { method: 'POST', body: JSON.stringify({ userId }) }),
 }

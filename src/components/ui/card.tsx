@@ -9,7 +9,7 @@ const cardVariants = cva('min-w-0 bg-surface', {
       /* a resting surface: squircle corners, no drawn border — the edge is
          the half-pixel ring inside the elevation shadow */
       default: 'rounded-[10px] corner-squircle shadow-elevation-1',
-      /* settings/admin sections: a flat panel that groups rows */
+      /* settings sections: a flat panel that groups rows */
       flat: 'rounded-[10px] border border-line',
       /* clickable tiles (canvas cards): the shadow deepens on hover — the
          lift is under the card, nothing is redrawn */

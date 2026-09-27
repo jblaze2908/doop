@@ -10,7 +10,6 @@ import {
   primaryKey,
   jsonb,
 } from 'drizzle-orm/pg-core'
-import type { Schedule, Step } from '../../shared/automations.ts'
 import type { CanvasTheme } from '../../shared/theme.ts'
 import type { ComponentProp } from '../../shared/components.ts'
 
@@ -28,14 +27,10 @@ export const canvases = pgTable('canvases', {
   ownerId: text('owner_id'),
   /** 'edit' | 'none'; null = 'none' (private — link sharing is opt-in) */
   linkAccess: text('link_access'),
-  /** set when the owner has listed this canvas in the community gallery;
-   *  null = private to its collaborators. Publishing grants read-only
-   *  previews and copies, never access to the canvas itself. */
+  /** unused since the community gallery was removed; kept until a migration drops them */
   publishedAt: bigint('published_at', { mode: 'number' }),
-  /** gallery blurb and category — meaningful only while published */
   description: text('description'),
   category: text('category'),
-  /** how many times the gallery has copied this canvas — the "trending" signal */
   copyCount: integer('copy_count').notNull().default(0),
   /** the shared workspace this canvas lives in; null = the owner's personal
    *  space. Every workspace member can open a workspace canvas. */
@@ -200,15 +195,8 @@ export const syncEdges = pgTable(
   (t) => [primaryKey({ columns: [t.keyId, t.fromPage, t.toPage] })],
 )
 
-/** A GitHub repo connected to a canvas as an import source. Two credential
- *  modes: a GitHub App installation (`installationId` set, short-lived
- *  tokens minted per call — the preferred flow) or a fine-grained PAT
- *  (`token` set — the paste-a-token fallback). Either way credentials stay
- *  server-side; API responses carry connection metadata only. Revocation =
- *  row deletion (plus uninstalling the app / revoking the PAT on GitHub).
- *  Frames imported through a connection carry a marker meta in their HTML
- *  (see server/github.ts), same provenance pattern as design-sync frames —
- *  no frame column. */
+/** Unused since the GitHub import was removed; kept until a migration drops
+ *  it. Rows may still hold PATs — treat them as secrets. */
 export const githubConnections = pgTable(
   'github_connections',
   {
@@ -521,11 +509,8 @@ export const backgrounds = pgTable('backgrounds', {
   createdAt: bigint('created_at', { mode: 'number' }).notNull(),
 })
 
-/** A user's connection to an outside service (Meta today). One row per
- *  user and provider; the token never leaves the server — API responses
- *  carry the account list and display fields only. Revocation = row
- *  deletion. Automations reference the provider, not the row, so a
- *  reconnect picks the same automations back up. */
+/** Unused since the Meta integration was removed; kept until a migration
+ *  drops it. Rows still hold access tokens — treat them as secrets. */
 export const integrations = pgTable(
   'integrations',
   {
@@ -546,10 +531,7 @@ export const integrations = pgTable(
   (t) => [uniqueIndex('integrations_user_provider_idx').on(t.userId, t.provider)],
 )
 
-/** A scheduled workflow: `schedule` says when, `steps` say what (see
- *  shared/automations.ts). Owned by a user; every step names a canvas the
- *  owner must be able to reach. Cold path — read by the scheduler tick and
- *  the Automations pages, no in-memory mirror. */
+/** Unused since automations were removed; kept until a migration drops it. */
 export const automations = pgTable(
   'automations',
   {
@@ -557,8 +539,8 @@ export const automations = pgTable(
     ownerId: text('owner_id').notNull(),
     name: text('name').notNull(),
     enabled: boolean('enabled').notNull().default(true),
-    schedule: jsonb('schedule').$type<Schedule>().notNull(),
-    steps: jsonb('steps').$type<Step[]>().notNull(),
+    schedule: jsonb('schedule').$type<unknown>().notNull(),
+    steps: jsonb('steps').$type<unknown[]>().notNull(),
     /** when the scheduler fires it next; null while disabled or incomplete */
     nextRunAt: bigint('next_run_at', { mode: 'number' }),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
@@ -567,7 +549,7 @@ export const automations = pgTable(
   (t) => [index('automations_owner_idx').on(t.ownerId), index('automations_next_run_idx').on(t.nextRunAt)],
 )
 
-/** One execution of an automation, kept as a slim log line. */
+/** Unused since automations were removed; kept until a migration drops it. */
 export const automationRuns = pgTable(
   'automation_runs',
   {

@@ -98,3 +98,25 @@ describe('addQueuedCard', () => {
     expect(junk?.scope).toBeUndefined()
   })
 })
+
+describe('trimTaskLog', () => {
+  it('drops the oldest finished tasks first and never an open card', () => {
+    const now = Date.now()
+    const list = Array.from({ length: 130 }, (_, i) => ({
+      id: `t${i}`,
+      agentName: i % 3 === 0 ? '' : 'Claude',
+      color: '#000',
+      status: `task ${i}`,
+      startedAt: now - i,
+      /* every third task is an open queued card; the rest are finished */
+      ...(i % 3 === 0 ? { queuedBy: 'kevin' } : { endedAt: now }),
+    }))
+    const trimmed = actions.trimTaskLog(list)
+    expect(trimmed).toHaveLength(100)
+    expect(trimmed.filter((t) => t.queuedBy && !t.endedAt)).toHaveLength(44)
+    /* newest first is preserved; the finished tasks that survive are the newest ones */
+    expect(trimmed[0]!.id).toBe('t0')
+    expect(trimmed.some((t) => t.id === 't128')).toBe(false)
+    expect(trimmed.some((t) => t.id === 't1')).toBe(true)
+  })
+})

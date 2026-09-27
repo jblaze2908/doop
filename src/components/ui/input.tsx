@@ -46,4 +46,36 @@ const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<'input'> &
   },
 )
 
-export { Input }
+/** The bordered "value ▾" select. A native select underneath keeps the
+ *  keyboard; the visible part is styled. */
+function Sel({ className, children, ...props }: React.ComponentProps<'select'>) {
+  return (
+    <span className={cn('relative inline-flex min-w-0', className)}>
+      <select
+        className={cn(
+          fieldVariants({ variant: 'default', inputSize: 'sm' }),
+          'h-[34px] w-full cursor-pointer appearance-none truncate rounded-lg pl-[11px] pr-8 text-[13.5px] font-semibold tracking-[-0.01em]',
+        )}
+        {...props}
+      >
+        {children}
+      </select>
+      <svg
+        className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint"
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+      >
+        <path d="m6 9 6 6 6-6" />
+      </svg>
+    </span>
+  )
+}
+
+export { Input, Sel }

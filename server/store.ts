@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid'
 import * as persist from './db/persist.ts'
-import type { Canvas, CommunityCategory, Frame, GuidelineDoc, MemoryReference } from '../shared/types.ts'
+import type { Canvas, Frame, GuidelineDoc, MemoryReference } from '../shared/types.ts'
 import type { CanvasTheme } from '../shared/theme.ts'
 import type { ComponentDef } from '../shared/components.ts'
 
@@ -20,15 +20,14 @@ class Store {
     }
   }
 
-  /** The dashboard row for one canvas. `viewerId` decides only whether the
-   *  canvas is marked as shared-with-me; pass undefined for views that have
-   *  no viewer-relative meaning (the admin index). */
-  private toMeta(c: Canvas, viewerId?: string) {
+  /** The dashboard row for one canvas, marked as shared-with-me unless the
+   *  viewer owns it. */
+  private toMeta(c: Canvas, viewerId: string) {
     return {
       id: c.id,
       name: c.name,
       ownerId: c.ownerId,
-      shared: viewerId !== undefined ? c.ownerId !== viewerId || undefined : undefined,
+      shared: c.ownerId !== viewerId || undefined,
       ...(c.workspaceId ? { workspaceId: c.workspaceId } : {}),
       createdAt: c.createdAt,
       updatedAt: c.updatedAt,
@@ -57,23 +56,6 @@ class Store {
       .map((c) => this.toMeta(c, userId))
   }
 
-  /** Every canvas on the instance, for the admin index only. Access is the
-   *  caller's problem — the only caller is server/admin.ts, behind isAdmin.
-   *  A deliberately separate method rather than a flag on listCanvases: a
-   *  boolean parameter is the kind of thing that eventually gets passed
-   *  `true` from a route that shouldn't. */
-  listAllCanvases(limit = 200) {
-    const all = [...this.canvases.values()].sort((a, b) => b.updatedAt - a.updatedAt)
-    return {
-      total: all.length,
-      canvases: all.slice(0, limit).map((c) => ({
-        ...this.toMeta(c),
-        linkAccess: c.linkAccess ?? 'none',
-        memberCount: c.memberIds?.length ?? 0,
-      })),
-    }
-  }
-
   createCanvas(name: string, ownerId?: string, workspaceId?: string): Canvas {
     const now = Date.now()
     const canvas: Canvas = { id: nanoid(10), name, ownerId, createdAt: now, updatedAt: now, frames: [] }
@@ -83,25 +65,22 @@ class Store {
     return canvas
   }
 
-  /** Copy reusable design content into a new private canvas. Collaboration,
-   * activity, tasks, external connections and the gallery listing belong to
-   * the source only. `name` defaults to "<source> copy"; `dropDemo` leaves
-   * product-made onboarding frames behind (a gallery copy is the design,
-   * not the welcome tour that happened to sit next to it); `workspaceId`
-   * files the copy in a workspace (the caller checks membership). */
+  /** Copy reusable design content into a new private canvas named
+   * "<source> copy". Collaboration, activity, tasks and external connections
+   * belong to the source only; `workspaceId` files the copy in a workspace
+   * (the caller checks membership). */
   async duplicateCanvas(
     id: string,
     ownerId: string,
     by: string,
-    options: { name?: string; dropDemo?: boolean; workspaceId?: string } = {},
+    options: { workspaceId?: string } = {},
   ): Promise<Canvas | undefined> {
     const source = this.canvases.get(id)
     if (!source) return undefined
     const now = Date.now()
     const canvasId = nanoid(10)
-    const sourceFrames = options.dropDemo ? source.frames.filter((frame) => !frame.demo) : source.frames
-    const frameIds = new Map(sourceFrames.map((frame) => [frame.id, nanoid(10)]))
-    const frames = sourceFrames.map((frame) => ({
+    const frameIds = new Map(source.frames.map((frame) => [frame.id, nanoid(10)]))
+    const frames = source.frames.map((frame) => ({
       ...frame,
       id: frameIds.get(frame.id)!,
       canvasId,
@@ -119,7 +98,7 @@ class Store {
     }))
     const canvas: Canvas = {
       id: canvasId,
-      name: options.name ?? `${source.name} copy`,
+      name: `${source.name} copy`,
       ownerId,
       createdAt: now,
       updatedAt: now,
@@ -201,49 +180,6 @@ class Store {
         persist.saveCanvas(c)
       }
     }
-  }
-
-  /* ---- community gallery ---- */
-
-  /** List (or re-describe) a canvas in the gallery. Keeps the original
-   *  publish date on edits so "newest" stays honest. Not a design edit, so
-   *  updatedAt is left alone. */
-  publishCanvas(id: string, listing: { description: string; category: CommunityCategory }): Canvas | undefined {
-    const c = this.canvases.get(id)
-    if (!c) return undefined
-    c.publishedAt ??= Date.now()
-    c.category = listing.category
-    if (listing.description) c.description = listing.description
-    else delete c.description
-    persist.saveCanvas(c)
-    return c
-  }
-
-  unpublishCanvas(id: string): Canvas | undefined {
-    const c = this.canvases.get(id)
-    if (!c) return undefined
-    delete c.publishedAt
-    delete c.description
-    delete c.category
-    persist.saveCanvas(c)
-    return c
-  }
-
-  /** Every published canvas, newest listing first. Access is deliberately
-   *  not a question here: publishing is the owner's opt-in, and the gallery
-   *  exposes previews and copies, never the canvas itself. */
-  listPublished(): Canvas[] {
-    return [...this.canvases.values()]
-      .filter((c) => c.publishedAt !== undefined)
-      .sort((a, b) => b.publishedAt! - a.publishedAt!)
-  }
-
-  /** A gallery copy went out — the trending signal. */
-  recordCommunityCopy(id: string) {
-    const c = this.canvases.get(id)
-    if (!c) return
-    c.copyCount = (c.copyCount ?? 0) + 1
-    persist.saveCanvas(c)
   }
 
   /** Invite a user to collaborate. Idempotent; the owner is never listed. */

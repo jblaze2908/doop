@@ -37,44 +37,11 @@ export interface CanvasMeta {
   agents?: { name: string; owner?: string; lastAt?: number }[]
 }
 
-/** The dashboard/gallery preview render (`/i/<id>.jpg?preview`) clips a
+/** The dashboard preview render (`/i/<id>.jpg?preview`) clips a
  *  frame at this many frame pixels of height — a tall page's thumbnail is
  *  its top section, not the whole page. Anything sizing a tile around that
  *  image must assume this cap, not the frame's real height. */
 export const PREVIEW_MAX_HEIGHT = 1200
-
-/* ---- community gallery ---- */
-
-export const COMMUNITY_CATEGORIES = ['website', 'app', 'dashboard', 'mobile', 'marketing', 'other'] as const
-export type CommunityCategory = (typeof COMMUNITY_CATEGORIES)[number]
-
-export function isCommunityCategory(value: unknown): value is CommunityCategory {
-  return typeof value === 'string' && (COMMUNITY_CATEGORIES as readonly string[]).includes(value)
-}
-
-export const COMMUNITY_CATEGORY_LABELS: Record<CommunityCategory, string> = {
-  website: 'Websites',
-  app: 'Web apps',
-  dashboard: 'Dashboards',
-  mobile: 'Mobile',
-  marketing: 'Marketing',
-  other: 'Other',
-}
-
-/** One gallery card: what the community sees of a published canvas.
- *  Frames are listed by id and size only — previews render through the
- *  public /i/ image pipeline, the HTML never leaves the owner's canvas. */
-export interface CommunityItem {
-  id: string
-  name: string
-  description?: string
-  category: CommunityCategory
-  authorName: string
-  publishedAt: number
-  updatedAt: number
-  copyCount: number
-  frames: { id: string; name: string; width: number; height: number }[]
-}
 
 export interface Canvas {
   id: string
@@ -90,16 +57,6 @@ export interface Canvas {
    *  can open it, on top of the owner and invited members. Unset = the
    *  owner's personal space. */
   workspaceId?: string
-  /** set while the owner lists this canvas in the community gallery. The
-   *  gallery shows previews and hands out copies — it never opens the
-   *  canvas itself, so publishing does not change who can edit it. */
-  publishedAt?: number
-  /** gallery blurb; meaningful only while published */
-  description?: string
-  /** gallery shelf; meaningful only while published */
-  category?: CommunityCategory
-  /** copies handed out by the gallery — its "trending" signal */
-  copyCount?: number
   createdAt: number
   updatedAt: number
   frames: Frame[]
@@ -315,39 +272,12 @@ export interface AgentTask {
   /** board cards: the frame (and optionally the element inside it) the human
    *  had selected when they asked — the agent edits that in place */
   scope?: CardScope
-  /** structured board cards the resident runner dispatches on, instead of
-   *  handing the title to the chat agent. Absent on prompt cards. */
-  kind?: RepoCardKind
-  payload?: RepoCardPayload
 }
 
 export interface CardScope {
   frameId: string
   /** element selector inside the frame (frameRuntime cssPath); absent = whole frame */
   selector?: string
-}
-
-export type RepoCardKind = 'sketch' | 'design-system'
-
-/** A screen of a connected GitHub repository, as the import manifest lists it. */
-export interface RepoScreenRef {
-  kind: 'page' | 'story' | 'component' | 'static'
-  route: string
-  sourcePath: string
-  title: string
-  /** where the pixels come from: repo HTML, or the agent's sketch of the code */
-  source: 'static' | 'placeholder'
-}
-
-/** What a repo card carries: enough to run it from any process, later. The
- *  connection is looked up by id at run time, so no credential is ever here. */
-export interface RepoCardPayload {
-  connectionId: string
-  repo: string
-  /** one import = one click; groups the cards it queued on the board */
-  importId: string
-  /** the screen to sketch — absent on a design-system card */
-  screen?: RepoScreenRef
 }
 
 /** Human feedback left on an agent task: an open request on the canvas that ANY

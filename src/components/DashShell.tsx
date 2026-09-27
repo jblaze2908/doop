@@ -21,17 +21,13 @@ import {
   BuildingIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  ClockIcon,
   CreditCardIcon,
   LockIcon,
-  CompassIcon,
   GearIcon,
   GridIcon,
   HelpIcon,
   ListIcon,
   LogOutIcon,
-  PulseIcon,
-  ShieldIcon,
   SparkIcon,
   UserIcon,
   UsersIcon,
@@ -93,11 +89,6 @@ export function AccountMenu() {
         <DropdownMenuItem onSelect={() => navigate('/settings')}>
           <IconGear /> Settings
         </DropdownMenuItem>
-        {me?.admin && (
-          <DropdownMenuItem onSelect={() => navigate('/admin')}>
-            <IconShield /> Admin
-          </DropdownMenuItem>
-        )}
         <DropdownMenuItem asChild>
           <a href="https://doop.design/docs" target="_blank" rel="noopener noreferrer">
             <IconHelp /> Help &amp; docs
@@ -168,19 +159,12 @@ export const IconGrid = () => <GridIcon {...rail} />
 export const IconList = () => <ListIcon {...rail} />
 export const IconUser = () => <UserIcon {...rail} />
 export const IconShare = () => <UsersIcon {...rail} />
-/** the gallery: a compass — designs to steer by */
-export const IconCommunity = () => <CompassIcon {...rail} />
-/** a clock — things that happen on a schedule */
-export const IconAutomations = () => <ClockIcon {...rail} />
-/** a pulse line — a live connection */
-export const IconIntegrations = () => <PulseIcon {...rail} />
 export const IconSpark = () => <SparkIcon {...rail} />
 /** a shared workspace — the org's building */
 export const IconWorkspace = () => <BuildingIcon {...rail} />
 export const IconBilling = () => <CreditCardIcon {...rail} />
 export const IconLock = () => <LockIcon width={12} height={12} aria-hidden />
 export const IconGear = () => <GearIcon {...rail} />
-export const IconShield = () => <ShieldIcon {...rail} />
 export const IconHelp = () => <HelpIcon {...rail} />
 export const IconOut = () => <LogOutIcon {...rail} />
 export const IconBack = () => <ChevronLeftIcon width={14} height={14} aria-hidden />
