@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import type { AgentTask } from '../../shared/types'
 import { useStore } from '../lib/store'
+import { useShallow } from 'zustand/react/shallow'
 import { api } from '../lib/api'
 import { timeAgo } from '../lib/time'
 import { cn } from '@/lib/utils'
@@ -200,7 +201,7 @@ function TaskGroup({ list }: { list: AgentTask[] }) {
    from "sending to agent…" to "seen" once that delivery happens. */
 function TaskRow({ task }: { task: AgentTask }) {
   const canvasId = useStore((s) => s.canvas?.id)
-  const feedback = useStore((s) => s.feedback.filter((f) => f.taskId === task.id))
+  const feedback = useStore(useShallow((s) => s.feedback.filter((f) => f.taskId === task.id)))
   const [replying, setReplying] = useState(false)
   const [draft, setDraft] = useState('')
 

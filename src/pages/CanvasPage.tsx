@@ -1,5 +1,7 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { useStore } from '../lib/store'
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
+import { frameById, useStore } from '../lib/store'
+import type { Frame } from '../../shared/types'
+import { useShallow } from 'zustand/react/shallow'
 import { connect, disconnect, sendWs } from '../lib/ws'
 import {
   api,
@@ -96,9 +98,7 @@ const importNoteCls = 'mt-2.5 text-[11.5px] leading-[1.4] text-ink-faint'
 const errorNoteCls = 'mt-2.5 text-[13px] text-accent-ink'
 
 export function CanvasPage({ canvasId }: { canvasId: string }) {
-  const canvas = useStore((s) => s.canvas)
   const connected = useStore((s) => s.connected)
-  const presences = useStore((s) => s.presences)
   const selectedId = useStore((s) => s.selectedId)
   const select = useStore((s) => s.select)
   const isMobile = useIsMobile()
@@ -132,9 +132,10 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
      The store's canvas briefly lags a navigation (the previous page's data
      until this one's ws init lands), so only sync when it's really ours —
      otherwise closing a tab re-adds it from its own stale state. */
+  const liveName = useStore((s) => (s.canvas?.id === canvasId ? s.canvas.name : undefined))
   useEffect(() => {
-    if (canvas?.id === canvasId) ensureTab(canvas.id, canvas.name)
-  }, [canvas, canvasId])
+    if (liveName !== undefined) ensureTab(canvasId, liveName)
+  }, [liveName, canvasId])
 
   useEffect(() => {
     connect(canvasId)
@@ -257,7 +258,7 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
   }, [latestDecision])
 
   async function addFrame() {
-    const n = (canvas?.frames.length ?? 0) + 1
+    const n = (useStore.getState().canvas?.frames.length ?? 0) + 1
     const frame = await api.createFrame(canvasId, { name: `Frame ${n}`, html: STARTER_HTML })
     posthog.capture('frame_created')
     recordCreate(frame)
@@ -265,12 +266,12 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
   }
 
   const me = getIdentity()
-  const others = useMemo(
-    () => Object.values(presences).filter((p) => p.clientId !== me.clientId),
-    [presences, me.clientId],
-  )
+  const others = useStore(useShallow((s) => Object.values(s.presences).filter((p) => p.clientId !== me.clientId)))
 
-  const selectedFrame = canvas?.frames.find((f) => f.id === selectedId) ?? null
+  /* existence only: the panels subscribe to the frame itself (SelectedFrame) */
+  const hasSelectedFrame = useStore((s) => !!frameById(s, s.selectedId))
+  /* the share modal is the one consumer of the whole canvas; only while open */
+  const shareCanvas = useStore((s) => (showShare ? s.canvas : null))
   /* the panel only shows when a frame-name click (or deep link) opened it —
      selecting a frame by clicking its surface must not slide it in */
   const inspectorOpen = useStore((s) => s.inspectorOpen)
@@ -282,7 +283,8 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
      has it open; it follows the element selection until it is closed */
   const selectedElement = useStore((s) => s.selectedElement)
   const elementPanelOpen = useStore((s) => s.elementPanelOpen)
-  const panelElement = elementPanelOpen && selectedElement?.frameId === selectedFrame?.id ? selectedElement : null
+  const panelElement =
+    elementPanelOpen && hasSelectedFrame && selectedElement?.frameId === selectedId ? selectedElement : null
   /* both right-hand property panels sit beside the Activity panel when it is
      open, beside the collapsed side rail otherwise */
   const propertiesPanelCls = showActivity ? 'right-[324px]' : 'right-[72px]'
@@ -489,19 +491,23 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
               <Onboarding />
             </Suspense>
             {!isMobile && (layersOpen ? <LayersPanel onAddFrame={addFrame} /> : <LayersRailToggle />)}
-            {!isMobile && selectedFrame && panelElement && !deferPanel && (
+            {!isMobile && hasSelectedFrame && panelElement && !deferPanel && (
               <Suspense fallback={null}>
-                <ElementPanel
-                  key={`${selectedFrame.id}|${panelElement.selector}`}
-                  frame={selectedFrame}
-                  selector={panelElement.selector}
-                  className={propertiesPanelCls}
-                />
+                <SelectedFrame>
+                  {(frame) => (
+                    <ElementPanel
+                      key={`${frame.id}|${panelElement.selector}`}
+                      frame={frame}
+                      selector={panelElement.selector}
+                      className={propertiesPanelCls}
+                    />
+                  )}
+                </SelectedFrame>
               </Suspense>
             )}
-            {!isMobile && selectedFrame && inspectorOpen && !panelElement && !deferPanel && (
+            {!isMobile && hasSelectedFrame && inspectorOpen && !panelElement && !deferPanel && (
               <Suspense fallback={null}>
-                <Inspector frame={selectedFrame} className={propertiesPanelCls} />
+                <SelectedFrame>{(frame) => <Inspector frame={frame} className={propertiesPanelCls} />}</SelectedFrame>
               </Suspense>
             )}
             {!isMobile && !showActivity && <SideRail onOpen={() => setShowActivity(true)} />}
@@ -565,7 +571,7 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
             </SheetContent>
           </Sheet>
           <Sheet
-            open={!!selectedFrame && inspectorOpen && !deferPanel}
+            open={hasSelectedFrame && inspectorOpen && !deferPanel}
             onOpenChange={(open) => {
               if (!open) select(null)
             }}
@@ -576,9 +582,9 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
               className="max-h-[calc(100svh-56px)] gap-0 rounded-t-2xl border-line bg-surface p-0 shadow-pop data-[side=bottom]:h-[min(78svh,680px)]"
             >
               <SheetTitle className="sr-only">Frame inspector</SheetTitle>
-              {selectedFrame && (
+              {hasSelectedFrame && (
                 <Suspense fallback={null}>
-                  <Inspector frame={selectedFrame} surface="inline" />
+                  <SelectedFrame>{(frame) => <Inspector frame={frame} surface="inline" />}</SelectedFrame>
                 </Suspense>
               )}
             </SheetContent>
@@ -607,11 +613,11 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
           <PresentMode frameId={selectedId} onClose={() => setPresenting(false)} />
         </Suspense>
       )}
-      {showShare && canvas && (
+      {shareCanvas && (
         <Suspense fallback={null}>
           <ShareModal
-            key={canvas.id}
-            canvas={canvas}
+            key={shareCanvas.id}
+            canvas={shareCanvas}
             onChange={(patch) => {
               const current = useStore.getState().canvas
               if (current?.id === canvasId) useStore.getState().setCanvas({ ...current, ...patch })
@@ -1585,16 +1591,24 @@ function GithubSection({
   )
 }
 
+/* The selected frame, subscribed here rather than in CanvasPage, so its edits
+   and drags re-render the property panel, not the whole page. */
+function SelectedFrame({ children }: { children: (frame: Frame) => ReactNode }) {
+  const frame = useStore((s) => frameById(s, s.selectedId))
+  return frame ? children(frame) : null
+}
+
 /* The canvas title doubles as its rename field. */
 function CanvasName() {
-  const canvas = useStore((s) => s.canvas)
+  const id = useStore((s) => s.canvas?.id)
+  const name = useStore((s) => s.canvas?.name)
   return (
     <TopBarTitle
-      loading={!canvas}
-      value={canvas?.name ?? ''}
+      loading={id === undefined}
+      value={name ?? ''}
       onCommit={(name) => {
-        if (!canvas) return
-        api.renameCanvas(canvas.id, name).catch(console.error)
+        if (!id) return
+        api.renameCanvas(id, name).catch(console.error)
         useStore.getState().renameCanvasLocal(name)
       }}
     />

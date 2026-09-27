@@ -1,10 +1,11 @@
 import { useStore } from '../lib/store'
+import { useShallow } from 'zustand/react/shallow'
 import { AgentIcon } from './AgentIcon'
 import { cn } from '@/lib/utils'
 
 /** Floating strip of live "what I'm working on" statuses (agents post via set_status). */
 export function WorkingNow() {
-  const working = useStore((s) => Object.values(s.presences).filter((p) => p.status))
+  const working = useStore(useShallow((s) => Object.values(s.presences).filter((p) => p.status)))
   const layersOpen = useStore((s) => s.layersOpen)
   if (working.length === 0) return null
   return (

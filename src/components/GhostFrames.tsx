@@ -1,4 +1,5 @@
 import { useStore } from '../lib/store'
+import { useShallow } from 'zustand/react/shallow'
 import { AgentIcon } from './AgentIcon'
 
 /**
@@ -10,21 +11,24 @@ import { AgentIcon } from './AgentIcon'
  * and the ghost yields the moment the agent touches a real frame.
  */
 export function GhostFrames() {
-  const canvas = useStore((s) => s.canvas)
-  const presences = useStore((s) => s.presences)
-  const tasks = useStore((s) => s.tasks)
-  if (!canvas) return null
-  const working = Object.values(presences).filter(
-    (p) =>
-      p.kind === 'agent' &&
-      p.status &&
-      !p.activeFrameId &&
-      tasks.some((t) => t.queuedBy && t.agentName === p.name && !t.endedAt && !t.failedAt),
+  /* derived selectors, so frame drags and edits don't re-render this */
+  const working = useStore(
+    useShallow((s) =>
+      Object.values(s.presences).filter(
+        (p) =>
+          p.kind === 'agent' &&
+          p.status &&
+          !p.activeFrameId &&
+          s.tasks.some((t) => t.queuedBy && t.agentName === p.name && !t.endedAt && !t.failedAt),
+      ),
+    ),
   )
-  if (working.length === 0) return null
   /* mirror store.createFrame's auto-placement: right of the right-most frame */
-  const rightmost = canvas.frames.reduce((mx, f) => Math.max(mx, f.x + f.width), 0)
-  const baseX = canvas.frames.length ? rightmost + 80 : 120
+  const baseX = useStore((s) => {
+    const frames = s.canvas?.frames ?? []
+    return frames.length ? frames.reduce((mx, f) => Math.max(mx, f.x + f.width), 0) + 80 : 120
+  })
+  if (working.length === 0) return null
   return (
     <>
       {working.map((p, i) => (

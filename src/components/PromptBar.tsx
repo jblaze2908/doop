@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useStore } from '../lib/store'
+import { frameById, frameIdsOf, sameFrameButPosition, useStore } from '../lib/store'
+import { useShallow } from 'zustand/react/shallow'
+import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { api } from '../lib/api'
 import { posthog } from '../lib/posthog'
 import { uploadImageFrames } from '../lib/frameClipboard'
@@ -63,8 +65,12 @@ interface Attachment {
 }
 
 export function PromptBar({ canvasId }: { canvasId: string }) {
-  const frames = useStore((s) => s.canvas?.frames)
-  const selectedId = useStore((s) => s.selectedId)
+  /* the scoped frame only: a subscription to all frames re-rendered this on every drag tick */
+  const scopeFrame = useStoreWithEqualityFn(
+    useStore,
+    (s) => frameById(s, s.selectedElement?.frameId ?? s.selectedId),
+    sameFrameButPosition,
+  )
   const selectedElement = useStore((s) => s.selectedElement)
   const { allowance, refresh } = useAllowance()
   /* the selection is the prompt's scope until the chip is dismissed — × or
@@ -72,7 +78,7 @@ export function PromptBar({ canvasId }: { canvasId: string }) {
      so a new selection brings the chip back. */
   const [dismissed, setDismissed] = useState<string | null>(null)
   const chip = useMemo<ScopeChip | null>(() => {
-    const frame = frames?.find((f) => f.id === (selectedElement?.frameId ?? selectedId))
+    const frame = scopeFrame
     if (!frame) return null
     const scope: CardScope = selectedElement
       ? { frameId: frame.id, selector: selectedElement.selector }
@@ -85,7 +91,7 @@ export function PromptBar({ canvasId }: { canvasId: string }) {
       label: node ? layerName(node) : (selectedElement.selector.split(' > ').at(-1) ?? 'element'),
       kind: node?.kind ?? 'box',
     }
-  }, [frames, selectedId, selectedElement, dismissed])
+  }, [scopeFrame, selectedElement, dismissed])
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [busy, setBusy] = useState(false)
@@ -98,19 +104,20 @@ export function PromptBar({ canvasId }: { canvasId: string }) {
      camera flight — the deliverable must stream in on-screen, never somewhere
      off-canvas the user has to go find */
   const awaiting = useRef<{ known: Set<string>; until: number } | null>(null)
+  const frameIds = useStore(useShallow(frameIdsOf))
   useEffect(() => {
     const a = awaiting.current
-    if (!a || !frames) return
+    if (!a) return
     if (Date.now() > a.until) {
       awaiting.current = null
       return
     }
-    const arrived = frames.find((f) => !a.known.has(f.id))
+    const arrived = frameIds.find((id) => !a.known.has(id))
     if (arrived) {
       awaiting.current = null
-      useStore.getState().requestFlyTo(arrived.id)
+      useStore.getState().requestFlyTo(arrived)
     }
-  }, [frames])
+  }, [frameIds])
 
   /* previews are object URLs — release whatever is still held on unmount
      (via a ref: an empty-deps cleanup would close over the first render) */

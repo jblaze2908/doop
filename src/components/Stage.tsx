@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { useStore } from '../lib/store'
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
+import { frameById, frameIdsOf, sameFrameButPosition, useStore } from '../lib/store'
+import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { sendWs } from '../lib/ws'
 import { throttle } from '../lib/throttle'
 import { FrameView } from './FrameView'
@@ -28,13 +30,20 @@ const sendViewport = throttle(
   50,
 )
 
+/* One frame, subscribed by id: a change to one frame renders only its slot. */
+const FrameSlot = memo(function FrameSlot({ id, raster }: { id: string; raster: number }) {
+  const frame = useStoreWithEqualityFn(useStore, (s) => frameById(s, id), sameFrameButPosition)
+  return frame ? <FrameView frame={frame} raster={raster} /> : null
+})
+
 export function Stage({ onAddFrame }: { onAddFrame: () => void }) {
   const ref = useRef<HTMLDivElement>(null)
   const worldRef = useRef<HTMLDivElement>(null)
   const gridRef = useRef<HTMLDivElement>(null)
   const zoomLabelRef = useRef<HTMLSpanElement>(null)
   const setViewport = useStore((s) => s.setViewport)
-  const canvas = useStore((s) => s.canvas)
+  const canvasId = useStore((s) => s.canvas?.id)
+  const frameIds = useStore(useShallow(frameIdsOf))
   const select = useStore((s) => s.select)
   const panMode = useStore((s) => s.panMode)
   const [panning, setPanning] = useState(false)
@@ -115,10 +124,10 @@ export function Stage({ onAddFrame }: { onAddFrame: () => void }) {
       const el = ref.current
       const s = useStore.getState()
       if (!el || !s.following) return
-      const leader = s.presences[s.following]
+      const leaderView = s.peerViewports[s.following]
       const cursor = s.cursors[s.following]
       const stage = { width: el.clientWidth, height: el.clientHeight }
-      if (leader?.viewport) target = cameraToFollow(leader.viewport, stage)
+      if (leaderView) target = cameraToFollow(leaderView, stage)
       else if (cursor) target = cameraOnCursor(cursor, stage, s.viewport.zoom)
       else return
       if (!raf) raf = requestAnimationFrame(step)
@@ -130,7 +139,8 @@ export function Stage({ onAddFrame }: { onAddFrame: () => void }) {
       }
       const started = s.following !== prev.following
       const moved =
-        s.presences[s.following] !== prev.presences[s.following] || s.cursors[s.following] !== prev.cursors[s.following]
+        s.peerViewports[s.following] !== prev.peerViewports[s.following] ||
+        s.cursors[s.following] !== prev.cursors[s.following]
       if (started || moved) retarget()
     })
     /* the stage growing or shrinking changes what we can see: followers of
@@ -255,13 +265,13 @@ export function Stage({ onAddFrame }: { onAddFrame: () => void }) {
 
   /* zoom-to-fit once the canvas arrives — unless the URL deep-links a frame */
   useEffect(() => {
-    if (!canvas || fitted.current) return
+    if (!canvasId || fitted.current) return
     fitted.current = true
     const focusId = new URLSearchParams(location.search).get('frame')
-    const target = focusId ? canvas.frames.find((f) => f.id === focusId) : null
+    const target = frameById(useStore.getState(), focusId)
     if (target) focusFrame(target)
     else fit()
-  }, [canvas, fit, focusFrame])
+  }, [canvasId, fit, focusFrame])
 
   /* wheel: pan / pinch-zoom — needs a non-passive listener. Trackpads fire
      wheel events faster than the display refreshes, so deltas accumulate and
@@ -585,8 +595,8 @@ export function Stage({ onAddFrame }: { onAddFrame: () => void }) {
             {/* `world` is likewise a behaviour hook: pan hit-testing checks
             classList.contains('world') to tell background from frame */}
             <div className="world absolute left-0 top-0 origin-top-left will-change-transform" ref={worldRef}>
-              {canvas?.frames.map((f) => (
-                <FrameView key={f.id} frame={f} raster={raster} />
+              {frameIds.map((id) => (
+                <FrameSlot key={id} id={id} raster={raster} />
               ))}
               <GhostFrames />
               <FlowOverlay />
@@ -631,11 +641,11 @@ export function Stage({ onAddFrame }: { onAddFrame: () => void }) {
           <ToolbarButton onClick={fit}>Fit</ToolbarButton>
         </Toolbar>
 
-        {canvas && (
+        {canvasId && (
           <ContextMenuContent>
             <ContextMenuItem
               disabled={!hasFrameClip()}
-              onSelect={() => pasteFrameAtScreen(canvas.id, bgAt.current.x, bgAt.current.y)}
+              onSelect={() => pasteFrameAtScreen(canvasId, bgAt.current.x, bgAt.current.y)}
             >
               Paste
               <MenuHint>{MOD_KEY}V</MenuHint>

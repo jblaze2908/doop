@@ -10,6 +10,8 @@ import {
 } from 'react'
 import type { Frame } from '../../shared/types'
 import { useStore } from '../lib/store'
+import { useShallow } from 'zustand/react/shallow'
+import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { getIdentity } from '../lib/identity'
 import { deleteFramesTracked } from '../lib/history'
 import {
@@ -129,11 +131,27 @@ function visibleRows(frames: Frame[], query: string, expanded: Set<string>): Vis
   return rows
 }
 
+const NO_FRAMES: Frame[] = []
+const GEOMETRY = new Set(['x', 'y', 'width', 'height', 'updatedAt'])
+
+/* The rail shows names and element trees, never positions: a move or resize
+   (20 Hz during a drag) must not re-render every row. */
+function sameLayers(a: Frame[], b: Frame[]) {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  return a.every((f, i) => {
+    const g = b[i]!
+    if (f === g) return true
+    for (const k in f) if (!GEOMETRY.has(k) && f[k as keyof Frame] !== g[k as keyof Frame]) return false
+    return true
+  })
+}
+
 /** The Layers rail: every frame on the canvas, opening into the element tree
  *  of its HTML. Selection runs both ways — a row selects the element in the
  *  frame, a click in the frame highlights its row. */
 export function LayersPanel({ onAddFrame }: { onAddFrame: () => void }) {
-  const frames = useStore((s) => s.canvas?.frames ?? [])
+  const frames = useStoreWithEqualityFn(useStore, (s) => s.canvas?.frames ?? NO_FRAMES, sameLayers)
   const selectedId = useStore((s) => s.selectedId)
   const selectedElement = useStore((s) => s.selectedElement)
   const setLayersOpen = useStore((s) => s.setLayersOpen)
@@ -475,10 +493,13 @@ function FrameRow({
 }) {
   const { frame } = row
   const stream = useStore((s) => s.streams[frame.id])
-  const presences = useStore((s) => s.presences)
   const me = getIdentity().clientId
-  const editors = Object.values(presences).filter(
-    (p) => p.activeFrameId === frame.id && p.clientId !== me && p.name !== stream?.name,
+  const editors = useStore(
+    useShallow((s) =>
+      Object.values(s.presences).filter(
+        (p) => p.activeFrameId === frame.id && p.clientId !== me && p.name !== s.streams[frame.id]?.name,
+      ),
+    ),
   )
   /* Paste from this menu lands mid-stage rather than under the rail */
   const pasteAt = useRef({ x: 0, y: 0 })

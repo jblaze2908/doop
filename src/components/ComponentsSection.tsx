@@ -9,6 +9,7 @@ import {
   type ComponentDef,
 } from '../../shared/components'
 import { useStore } from '../lib/store'
+import type { Frame } from '../../shared/types'
 import { api, errorMessage } from '../lib/api'
 import { useComponentDefs, useThemeCss } from '../lib/theme'
 import { timeAgo } from '../lib/time'
@@ -35,11 +36,14 @@ function usageLabel(used: { count: number }[]): string {
   return `${n} instance${n === 1 ? '' : 's'} in ${used.length} frame${used.length === 1 ? '' : 's'}`
 }
 
+/* stable fallback: a fresh [] from a selector re-renders on every store update */
+const NO_FRAMES: Frame[] = []
+
 /** The Components section of the Memory panel: every linked component with a
  *  live preview and its usage count; a click opens the editor. */
 export function ComponentsSection({ canvasId }: { canvasId: string }) {
   const defs = useStore((s) => s.canvas?.components)
-  const frames = useStore((s) => s.canvas?.frames ?? [])
+  const frames = useStore((s) => s.canvas?.frames ?? NO_FRAMES)
   const [open, setOpen] = useState<string | null>(null)
   const live = liveComponents(defs)
 
@@ -105,7 +109,7 @@ function ComponentModal({
   def: ComponentDef | null
   onClose: () => void
 }) {
-  const frames = useStore((s) => s.canvas?.frames ?? [])
+  const frames = useStore((s) => s.canvas?.frames ?? NO_FRAMES)
   const [html, setHtml] = useState(def?.html ?? '')
   const [css, setCss] = useState(def?.css ?? '')
   const [description, setDescription] = useState(def?.description ?? '')

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useStore } from '../lib/store'
+import { frameById, useStore } from '../lib/store'
 import { api, type SyncFlow } from '../lib/api'
 import { isSyncedFrame } from '../lib/sync'
 
@@ -24,37 +24,37 @@ interface Connector {
 }
 
 export function FlowOverlay() {
-  const canvas = useStore((s) => s.canvas)
+  const canvasId = useStore((s) => s.canvas?.id)
   const selectedId = useStore((s) => s.selectedId)
   const [flow, setFlow] = useState<SyncFlow | null>(null)
 
-  const selected = canvas?.frames.find((f) => f.id === selectedId)
+  const selected = useStore((s) => frameById(s, s.selectedId))
   const selectedIsSynced = !!selected && isSyncedFrame(selected.html)
+  /* other frames' positions matter only while connectors are drawn */
+  const frames = useStore((s) => (selectedIsSynced && flow ? s.canvas?.frames : undefined))
 
   /* fetch lazily, on the first selection of a synced frame (and refresh on
      later selections — sync updates land while the canvas is open) */
   useEffect(() => {
-    if (!canvas || !selectedIsSynced) return
+    if (!canvasId || !selectedIsSynced) return
     let stale = false
     api
-      .syncFlow(canvas.id)
+      .syncFlow(canvasId)
       .then((f) => !stale && setFlow(f))
       .catch(() => !stale && setFlow(null))
     return () => {
       stale = true
     }
-    /* canvas.frames churn constantly (streams, cursors); refetch only on
-       canvas/selection change */
-  }, [canvas?.id, selectedId, selectedIsSynced]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [canvasId, selectedId, selectedIsSynced])
 
   const connectors = useMemo<Connector[]>(() => {
-    if (!canvas || !selected || !selectedIsSynced || !flow) return []
-    const frameById = new Map(canvas.frames.map((f) => [f.id, f]))
+    if (!frames || !selected || !selectedIsSynced || !flow) return []
+    const byId = new Map(frames.map((f) => [f.id, f]))
     const countFor = new Map(flow.edges.filter((e) => e.fromFrameId === selected.id).map((e) => [e.toFrameId, e.count]))
     const out: Connector[] = []
     for (const link of flow.links) {
       if (link.fromFrameId !== selected.id) continue
-      const target = frameById.get(link.toFrameId)
+      const target = byId.get(link.toFrameId)
       if (!target || target.id === selected.id) continue
       /* hotspot coordinates are in the snapshot's own pixels; clamp into the
          frame so a since-resized frame degrades gracefully */
@@ -78,7 +78,7 @@ export function FlowOverlay() {
       })
     }
     return out
-  }, [canvas, selected, selectedIsSynced, flow])
+  }, [frames, selected, selectedIsSynced, flow])
 
   if (!connectors.length) return null
 
@@ -86,7 +86,7 @@ export function FlowOverlay() {
   const pad = 80
   const xs = connectors.flatMap((c) => [c.box.x, c.box.x + c.box.w, c.mx])
   const ys = connectors.flatMap((c) => [c.box.y, c.box.y + c.box.h, c.my])
-  for (const f of canvas!.frames) {
+  for (const f of frames ?? []) {
     xs.push(f.x, f.x + f.width)
     ys.push(f.y, f.y + f.height)
   }

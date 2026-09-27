@@ -27,6 +27,9 @@ interface State {
   canvas: Canvas | null
   presences: Record<string, Presence>
   cursors: Record<string, { x: number; y: number }>
+  /** peers' cameras, apart from `presences`: they arrive at 20 Hz while a
+   *  peer pans, and only the follow loop reads them */
+  peerViewports: Record<string, PeerViewport>
   activity: ActivityItem[]
   /** agent task history (newest first) — every set_status becomes a task */
   tasks: AgentTask[]
@@ -159,6 +162,46 @@ interface State {
 
 const LAYERS_OPEN_KEY = 'doop:layers-open'
 
+/* Selector helpers, indexed once per frames array (every frame change makes a
+   new array), so a per-frame subscriber costs O(1) per store update. */
+const frameIndex = new WeakMap<Frame[], Map<string, Frame>>()
+const frameIdLists = new WeakMap<Frame[], string[]>()
+const NO_IDS: string[] = []
+
+export function frameById(s: Pick<State, 'canvas'>, id: string | null | undefined): Frame | undefined {
+  const frames = s.canvas?.frames
+  if (!frames || !id) return undefined
+  let index = frameIndex.get(frames)
+  if (!index) {
+    index = new Map(frames.map((f) => [f.id, f]))
+    frameIndex.set(frames, index)
+  }
+  return index.get(id)
+}
+
+/** Equal apart from x/y. A move is applied to the DOM by FrameView's own
+ *  subscription, so position-only changes must not re-render it. */
+export function sameFrameButPosition(a: Frame | undefined, b: Frame | undefined): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  for (const k in a) {
+    if (k !== 'x' && k !== 'y' && a[k as keyof Frame] !== b[k as keyof Frame]) return false
+  }
+  return Object.keys(a).length === Object.keys(b).length
+}
+
+/** frame ids in stacking order; pair with useShallow so moves and edits don't re-render */
+export function frameIdsOf(s: Pick<State, 'canvas'>): string[] {
+  const frames = s.canvas?.frames
+  if (!frames) return NO_IDS
+  let ids = frameIdLists.get(frames)
+  if (!ids) {
+    ids = frames.map((f) => f.id)
+    frameIdLists.set(frames, ids)
+  }
+  return ids
+}
+
 function readLayersOpen(): boolean {
   try {
     return localStorage.getItem(LAYERS_OPEN_KEY) !== '0'
@@ -171,6 +214,7 @@ export const useStore = create<State>((set, get) => ({
   canvas: null,
   presences: {},
   cursors: {},
+  peerViewports: {},
   activity: [],
   tasks: [],
   feedback: [],
@@ -205,25 +249,28 @@ export const useStore = create<State>((set, get) => ({
   setPresences: (list) =>
     set((s) => ({
       presences: Object.fromEntries(list.map((p) => [p.clientId, p])),
+      peerViewports: Object.fromEntries(list.flatMap((p) => (p.viewport ? [[p.clientId, p.viewport]] : []))),
       /* a fresh roster (new canvas, reconnect) without our leader ends the follow */
       ...(s.following && !list.some((p) => p.clientId === s.following) ? { following: null } : {}),
     })),
-  upsertPresence: (p) => set((s) => ({ presences: { ...s.presences, [p.clientId]: p } })),
+  upsertPresence: (p) =>
+    set((s) => ({
+      presences: { ...s.presences, [p.clientId]: p },
+      ...(p.viewport ? { peerViewports: { ...s.peerViewports, [p.clientId]: p.viewport } } : {}),
+    })),
   removePresence: (clientId) =>
     set((s) => {
       const presences = { ...s.presences }
       const cursors = { ...s.cursors }
+      const peerViewports = { ...s.peerViewports }
       delete presences[clientId]
       delete cursors[clientId]
+      delete peerViewports[clientId]
       /* the one we were following left: nothing to track any more */
-      return { presences, cursors, ...(s.following === clientId ? { following: null } : {}) }
+      return { presences, cursors, peerViewports, ...(s.following === clientId ? { following: null } : {}) }
     }),
   setPeerViewport: (clientId, viewport) =>
-    set((s) => {
-      const p = s.presences[clientId]
-      if (!p) return {}
-      return { presences: { ...s.presences, [clientId]: { ...p, viewport } } }
-    }),
+    set((s) => (s.presences[clientId] ? { peerViewports: { ...s.peerViewports, [clientId]: viewport } } : {})),
   setFollowing: (following) => set({ following }),
   setViewportFollowing: (viewport) => set({ viewport }),
   setCursor: (clientId, x, y) => set((s) => ({ cursors: { ...s.cursors, [clientId]: { x, y } } })),

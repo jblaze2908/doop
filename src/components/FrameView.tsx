@@ -1,7 +1,8 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ElementComment, Frame } from '../../shared/types'
 import { colorFor } from '../../shared/types'
-import { useStore } from '../lib/store'
+import { frameById, sameFrameButPosition, useStore } from '../lib/store'
+import { useShallow } from 'zustand/react/shallow'
 import { registerFrameWindow, unregisterFrameWindow } from '../lib/frameBridge'
 import { api } from '../lib/api'
 import { sendWs } from '../lib/ws'
@@ -95,10 +96,32 @@ interface HoverHit {
   rect: { x: number; y: number; width: number; height: number }
 }
 
+/* A move is not a render: x/y are written to the DOM by a store subscription
+   (below), so drags (local or a peer's, 20 Hz) skip React. Anything that needs
+   the position at event time reads it from the store, never from `frame`. */
+function sameButPosition(a: { frame: Frame; raster: number }, b: { frame: Frame; raster: number }) {
+  return a.raster === b.raster && sameFrameButPosition(a.frame, b.frame)
+}
+
 /* Counter-scaled overlays (labels, pins, popovers) get their scale from the
    `--zoom` CSS variable the Stage sets, so a viewport change never re-renders
    this component — memo holds as long as the frame and raster are unchanged. */
 export const FrameView = memo(function FrameView({ frame, raster }: { frame: Frame; raster: number }) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const place = (f: Frame | undefined) => {
+      const el = rootRef.current
+      if (!el || !f) return
+      el.style.left = `${f.x}px`
+      el.style.top = `${f.y}px`
+    }
+    place(frameById(useStore.getState(), frame.id))
+    return useStore.subscribe((s, prev) => {
+      if (s.canvas?.frames === prev.canvas?.frames) return
+      const f = frameById(s, frame.id)
+      if (f !== frameById(prev, frame.id)) place(f)
+    })
+  }, [frame.id])
   const selected = useStore((s) => s.selectedIds.includes(frame.id))
   /* space held: the shield stays up even in edit mode, so the press reaches
      the Stage and pans instead of vanishing into the editable iframe */
@@ -106,12 +129,12 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
   const select = useStore((s) => s.select)
   const flash = useStore((s) => s.flashes[frame.id])
   const stream = useStore((s) => s.streams[frame.id])
-  /* select the stable presences map, derive in render — a selector that
-     builds a fresh array re-renders every frame on EVERY store update
-     (zustand compares by identity), which defeats the memo above */
-  const presences = useStore((s) => s.presences)
+  /* shallow-compared, so a presence change elsewhere (or a peer's cursor)
+     leaves this frame's memo intact */
   const me = getIdentity().clientId
-  const editors = Object.values(presences).filter((p) => p.activeFrameId === frame.id && p.clientId !== me)
+  const editors = useStore(
+    useShallow((s) => Object.values(s.presences).filter((p) => p.activeFrameId === frame.id && p.clientId !== me)),
+  )
   const [dragging, setDragging] = useState(false)
   /* ⌥⇧-drag (Figma-style duplicate): the original stays behind, the copy
      rides the cursor — the doubled cursor shows from the moment ⌥⇧ is held */
@@ -165,7 +188,8 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
     clearHover()
     const start = { x: e.clientX, y: e.clientY }
     const off = { x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY }
-    const orig = { x: frame.x, y: frame.y, width: frame.width, height: frame.height }
+    const cur = frameById(useStore.getState(), frame.id) ?? frame
+    const orig = { x: cur.x, y: cur.y, width: cur.width, height: cur.height }
     /* the drag's baseline: finger position and frame rect the deltas are
        measured from. Starts at pointer-down, and re-anchors while a pinch
        owns the finger so the drag resumes from where the finger is (and at
@@ -591,10 +615,9 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
             stream &&
               "before:pointer-events-none before:absolute before:-inset-[3px] before:rounded-[9px] before:border-2 before:border-dashed before:border-[var(--editing-color,var(--brand))] before:content-[''] before:animate-[stream-pulse_1.1s_ease-in-out_infinite]",
           )}
+          ref={rootRef}
           style={
             {
-              left: frame.x,
-              top: frame.y,
               width: frame.width,
               height: frame.height,
               '--editing-color': stream?.color ?? remoteEditor?.color ?? flash?.color,
@@ -934,7 +957,7 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
       <FrameContextMenu frame={frame} at={menuAt} />
     </ContextMenu>
   )
-})
+}, sameButPosition)
 
 function CommentComposer({
   onSubmit,

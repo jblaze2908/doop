@@ -47,13 +47,17 @@ function slugify(title: string): string {
     .slice(0, 64)
 }
 
+/* stable fallbacks: a fresh [] from a selector re-renders on every store update */
+const NO_DOCS: GuidelineDoc[] = []
+const NO_REFS: MemoryReference[] = []
+
 /** The Memory tab in the side panel: the canvas's design brain. References
  *  (pinned exemplar frames), Rules (the style guides), Decisions (captured
  *  feedback) — plus pending distiller proposals to accept or dismiss. */
 export function MemoryPanel() {
   const canvasId = useStore((s) => s.canvas?.id)
-  const docs = useStore((s) => s.canvas?.guidelines ?? [])
-  const references = useStore((s) => s.canvas?.references ?? [])
+  const docs = useStore((s) => s.canvas?.guidelines ?? NO_DOCS)
+  const references = useStore((s) => s.canvas?.references ?? NO_REFS)
   const decisions = useStore((s) => s.decisions)
   const proposals = useStore((s) => s.proposals)
   const themeEmpty = useStore((s) => isThemeEmpty(s.canvas?.theme))
