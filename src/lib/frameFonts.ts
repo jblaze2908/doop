@@ -1,12 +1,14 @@
 import { themeFontFaces, type CanvasTheme, type ThemeFontFace } from '../../shared/theme'
 
-/** A theme font as a frame runtime registers it: bytes when the parent
- *  fetched them, otherwise a url the frame loads on demand. */
+/** A theme font as a frame runtime registers it: a data: url of bytes the
+ *  parent fetched, or the original url. Either way a url source, so the face
+ *  stays lazy like @font-face: decoded only once text needs it. (An
+ *  ArrayBuffer source is decoded synchronously on arrival, which made a warm
+ *  24-frame load ~150 ms slower.) */
 export interface FrameFont {
   family: string
   descriptors: ThemeFontFace['descriptors']
-  data?: ArrayBuffer
-  url?: string
+  url: string
 }
 
 /* Only Google's font host is fetched here: frame HTML runs its own scripts,
@@ -17,18 +19,28 @@ const FETCHABLE = /^https:\/\/fonts\.gstatic\.com\//
    lazy url sources, as their unicode-range made them under @font-face */
 const EAGER = /(^|,)\s*U\+(0000-00FF|0100-)/i
 
-const bytes = new Map<string, Promise<ArrayBuffer | null>>()
+const dataUrls = new Map<string, Promise<string | null>>()
 const perTheme = new WeakMap<CanvasTheme, Promise<FrameFont[]>>()
 
-function fetchFont(url: string): Promise<ArrayBuffer | null> {
-  let p = bytes.get(url)
+function fetchFont(url: string): Promise<string | null> {
+  let p = dataUrls.get(url)
   if (!p) {
     p = fetch(url, { credentials: 'omit', mode: 'cors' })
-      .then((r) => (r.ok ? r.arrayBuffer() : null))
+      .then((r) => (r.ok ? r.blob() : null))
+      .then((blob) => (blob ? toDataUrl(new Blob([blob], { type: 'font/woff2' })) : null))
       .catch(() => null)
-    bytes.set(url, p)
+    dataUrls.set(url, p)
   }
   return p
+}
+
+function toDataUrl(blob: Blob): Promise<string | null> {
+  return new Promise((resolve) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null)
+    reader.onerror = () => resolve(null)
+    reader.readAsDataURL(blob)
+  })
 }
 
 /** One fetch per font file for the whole canvas, through the page's normal
@@ -41,8 +53,8 @@ export function themeFonts(theme: CanvasTheme): Promise<FrameFont[]> {
     p = Promise.all(
       themeFontFaces(theme.fontFaces).map(async ({ family, url, descriptors }): Promise<FrameFont> => {
         const eager = FETCHABLE.test(url) && (!descriptors.unicodeRange || EAGER.test(descriptors.unicodeRange))
-        const data = eager ? await fetchFont(url) : null
-        return data ? { family, descriptors, data } : { family, descriptors, url }
+        const local = eager ? await fetchFont(url) : null
+        return { family, descriptors, url: local ?? url }
       }),
     )
     perTheme.set(theme, p)

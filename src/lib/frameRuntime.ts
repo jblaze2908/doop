@@ -115,9 +115,10 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
     shareTheme()
   }
 
-  /* Theme fonts arrive from the parent as bytes (one fetch for every frame:
-     this document's own requests have an opaque origin and a cache of their
-     own). FontFaces are document-wide, so component shadow roots get them too. */
+  /* Theme fonts arrive from the parent as data: urls (one fetch for every
+     frame: this document's own requests have an opaque origin and a cache of
+     their own). FontFaces are document-wide, so component shadow roots get
+     them too. */
   var themeFonts = []
   function setFonts(list) {
     for (var i = 0; i < themeFonts.length; i++) document.fonts.delete(themeFonts[i])
@@ -126,14 +127,25 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
     for (var j = 0; j < list.length; j++) {
       var f = list[j]
       if (!f || typeof f.family !== 'string') continue
-      var src = f.data instanceof ArrayBuffer ? f.data : typeof f.url === 'string' ? 'url(' + JSON.stringify(f.url) + ')' : null
-      if (!src) continue
+      if (typeof f.url !== 'string') continue
+      var src = 'url(' + JSON.stringify(f.url) + ')'
       try {
         var face = new FontFace(f.family, src, f.descriptors || {})
         face.loaded.catch(function () {})
         document.fonts.add(face)
         themeFonts.push(face)
       } catch (e) {}
+    }
+    /* text laid out before the faces arrived (a cold fetch) is not re-matched
+       on its own: ask for each family against this frame's text, which loads
+       only the subsets it uses */
+    var sample = ((document.body && document.body.textContent) || '').slice(0, 4000) || 'a'
+    var asked = {}
+    for (var k = 0; k < themeFonts.length; k++) {
+      var spec = (themeFonts[k].style === 'italic' ? 'italic ' : '') + '1em ' + JSON.stringify(themeFonts[k].family)
+      if (asked[spec]) continue
+      asked[spec] = true
+      document.fonts.load(spec, sample).catch(function () {})
     }
   }
 
