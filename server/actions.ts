@@ -5,6 +5,15 @@ import * as thumbs from './thumbs.ts'
 import { colorFor } from '../shared/types.ts'
 import { DEFAULT_ROLE_ID, mentionedRole, normalizePipeline, roleByAgentName, roleName } from '../shared/agents.ts'
 import { decodeEscapedHtml, looksEscapedHtml, repairEscapedHtml } from './escapedHtml.ts'
+import { resolveFonts } from './theme.ts'
+import {
+  mergeTokens,
+  normalizeFontSpecs,
+  normalizeThemeCss,
+  normalizeToken,
+  type CanvasTheme,
+  type ThemeTokenInput,
+} from '../shared/theme.ts'
 import type {
   Actor,
   ActorKind,
@@ -1358,6 +1367,66 @@ export function markGuidelinesSeen(canvasId: string, agentName: string) {
 
 export function hasSeenGuidelines(canvasId: string, agentName: string): boolean {
   return guidelinesSeen.has(`${canvasId}:${agentName}`)
+}
+
+/* same trade-off for the canvas theme: an agent that never saw it tends to
+   paste a whole design system into each frame */
+const themeSeen = new Set<string>()
+
+export function markThemeSeen(canvasId: string, agentName: string) {
+  themeSeen.add(`${canvasId}:${agentName}`)
+}
+
+export function hasSeenTheme(canvasId: string, agentName: string): boolean {
+  return themeSeen.has(`${canvasId}:${agentName}`)
+}
+
+/* ------------------------------------------------------------------ */
+/* Canvas theme: tokens, fonts and shared CSS every frame inherits.    */
+/* ------------------------------------------------------------------ */
+
+export interface ThemePatch {
+  tokens?: { list: ThemeTokenInput[]; mode: 'merge' | 'replace' }
+  css?: string
+  fonts?: string[]
+}
+
+/** Apply a partial theme write. Returns the new theme, undefined when the
+ *  canvas is missing; throws on invalid input with a caller-facing message.
+ *  Last write wins per field: everything is validated and the fonts fetched
+ *  BEFORE the current theme is read, so a slow font fetch never clobbers a
+ *  token write that landed while it was in flight. */
+export async function setTheme(canvasId: string, patch: ThemePatch, actor: Actor): Promise<CanvasTheme | undefined> {
+  if (!store.getCanvas(canvasId)) return undefined
+  patch.tokens?.list.forEach(normalizeToken)
+  const css = patch.css === undefined ? undefined : normalizeThemeCss(patch.css)
+  const fonts = patch.fonts && normalizeFontSpecs(patch.fonts)
+  const resolved = fonts && (await resolveFonts(fonts))
+
+  const c = store.getCanvas(canvasId)
+  if (!c) return undefined
+  const prev = c.theme
+  const unresolved = resolved ? resolved.unresolved : (prev?.unresolvedFonts ?? [])
+  const theme: CanvasTheme = {
+    tokens: patch.tokens ? mergeTokens(prev?.tokens ?? [], patch.tokens.list, patch.tokens.mode) : (prev?.tokens ?? []),
+    css: css ?? prev?.css ?? '',
+    fonts: fonts ?? prev?.fonts ?? [],
+    fontFaces: resolved ? resolved.fontFaces : (prev?.fontFaces ?? ''),
+    ...(unresolved.length ? { unresolvedFonts: unresolved } : {}),
+    version: (prev?.version ?? 0) + 1,
+    updatedAt: Date.now(),
+    updatedBy: actor.name,
+  }
+  store.setTheme(canvasId, theme)
+  broadcast(canvasId, { type: 'theme', theme, actor })
+  const changed = [
+    ...(patch.tokens ? [`${patch.tokens.list.length} token${patch.tokens.list.length === 1 ? '' : 's'}`] : []),
+    ...(css !== undefined ? ['its CSS'] : []),
+    ...(fonts ? ['its fonts'] : []),
+  ]
+  logActivity(canvasId, actor, `updated the canvas theme (${changed.join(', ') || 'no changes'})`)
+  touch(canvasId, actor)
+  return theme
 }
 
 /* ------------------------------------------------------------------ */

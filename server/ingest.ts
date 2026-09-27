@@ -6,6 +6,7 @@ import { syncEdges, syncKeys, syncLinks } from './db/schema.ts'
 import { store } from './store.ts'
 import * as actions from './actions.ts'
 import type { Frame } from '../shared/types.ts'
+import { withoutTheme } from '../shared/theme.ts'
 import { MAX_FRAME_HTML_BYTES } from './limits.ts'
 
 /**
@@ -140,7 +141,7 @@ export function wrapSnapshotHtml(html: string, marker: string, baseUrl: string |
   if (headMatch) out = out.replace(headMatch[0], headMatch[0] + inject)
   else out = inject + out
   if (!/^\s*<!doctype/i.test(out)) out = '<!doctype html>\n' + out
-  return out
+  return withoutTheme(out)
 }
 
 /* ------------------------------------------------------------------ */

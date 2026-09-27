@@ -23,6 +23,14 @@ import { createImportedWebpageFrame } from './webpageImport.ts'
 import { normalizeImportUrl } from './importer.ts'
 import { websiteAccessErrorMessage } from './websiteAccess.ts'
 import { mentionedRole } from '../shared/agents.ts'
+import {
+  isThemeEmpty,
+  MAX_THEME_CSS_CHARS,
+  MAX_THEME_FONTS,
+  MAX_THEME_TOKENS,
+  THEME_TOKEN_TYPES,
+  type CanvasTheme,
+} from '../shared/theme.ts'
 import * as allowance from './allowance.ts'
 
 const INSTRUCTIONS = `Doop is a shared multiplayer design canvas: humans and AI agents design together in real time. Canvases contain frames — artboards that render complete HTML documents live for everyone viewing.
@@ -39,6 +47,7 @@ You MUST call get_guide({ topic: "doop-instructions" }) once before using other 
 - Websites: when a request names an existing site or URL — a redesign of it, or "like acme.com" — call import_webpage FIRST so an editable HTML snapshot lands on the canvas. Leave that source frame unchanged and design in a separate frame. view_website is only for read-only inspection when the page should not be added. If Doop cannot capture the site, do not retry with view_website because it uses the same capture path. Use your own browser or web tool and work only from content you actually observe; if that is unavailable, ask the user for screenshots or an HTML export rather than inventing content.
 - Feedback: humans reply to your tasks; their notes arrive inside your tool results as HUMAN FEEDBACK blocks — address them before continuing.
 - Comments: call get_comments to read element-pinned comments and replies on a canvas, optionally filtered by frame; reply_to_comment answers a thread and resolve_comment closes it. Reading does not claim feedback or comments. A reply that @mentions a resident role is metered like a comment left in the browser.
+- Theme: a canvas can carry a theme — design tokens, Google Fonts and shared CSS injected into EVERY frame. get_canvas shows it; read it with get_theme and build frames from its classes and var(--…) tokens, never pasting it into a frame. Put a design system's shared CSS in the theme (set_theme_tokens / set_theme_css / set_theme_fonts), not in each frame.
 - Guidelines: canvases can carry named style guides (brand rules, style recipes). get_canvas lists them with one-line summaries — read the relevant ones with get_guidelines BEFORE designing and follow them.
 - Memory: canvases can also carry pinned style references — exemplar designs humans marked as "more like this". get_canvas lists them; read the relevant one with get_reference and match its look. When your human gives you design feedback in conversation and you address it, record it with save_decision so the canvas remembers their taste.`
 
@@ -53,6 +62,18 @@ function textWithNudge(data: unknown, nudge: string) {
       { type: 'text' as const, text: JSON.stringify(data, null, 2) },
       { type: 'text' as const, text: nudge },
     ],
+  }
+}
+
+const THEME_NOTE =
+  'This canvas has a theme: every frame inherits its tokens (var(--…)), fonts and CSS classes automatically. Read it with get_theme and build frames from it — never paste the theme into a frame.'
+
+function themeSummary(theme: CanvasTheme) {
+  return {
+    tokens: theme.tokens.length,
+    cssBytes: theme.css.length,
+    fonts: theme.fonts,
+    version: theme.version,
   }
 }
 
@@ -96,6 +117,10 @@ function withGuidelinesNudge<T extends { content: { type: 'text' | 'image'; [k: 
   actor?: Actor,
 ): T {
   if (!actor) return result
+  if (!isThemeEmpty(store.getCanvas(canvasId)?.theme) && !actions.hasSeenTheme(canvasId, actor.name)) {
+    actions.markThemeSeen(canvasId, actor.name) // one nudge is enough
+    result.content.push({ type: 'text' as const, text: THEME_NOTE })
+  }
   const docs = store.getGuidelines(canvasId)
   if (docs.length === 0 || actions.hasSeenGuidelines(canvasId, actor.name)) return result
   result.content.push({
@@ -333,6 +358,8 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
       /* design-synced canvases carry a flow map: real user navigation between
          the synced screens — context a redesign must respect */
       const flow = describeSyncFlow(await getSyncFlow(c), c.frames)
+      const theme = isThemeEmpty(c.theme) ? undefined : c.theme
+      if (theme && agent_name) actions.markThemeSeen(canvas_id, actorFrom(agent_name).name)
       const notes = [
         ...(flow.length
           ? [
@@ -349,6 +376,7 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
               'This canvas has pinned style references — exemplar designs humans marked as "more like this". Call get_reference on the relevant one and match its look (palette, type, spacing) in what you design.',
             ]
           : []),
+        ...(theme ? [THEME_NOTE] : []),
       ]
       return withFeedback(
         text({
@@ -371,6 +399,7 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
             htmlBytes: r.html.length,
             pinnedBy: r.pinnedBy,
           })),
+          ...(theme ? { theme: themeSummary(theme) } : {}),
           ...(flow.length ? { flow } : {}),
           ...(notes.length ? { note: notes.join(' ') } : {}),
         }),
@@ -479,6 +508,123 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
         return err(e instanceof Error ? e.message : 'invalid guideline doc')
       }
     },
+  )
+
+  server.registerTool(
+    'get_theme',
+    {
+      description:
+        'Read the canvas theme: design tokens (CSS custom properties on :root), Google Fonts and shared CSS that EVERY frame on the canvas inherits automatically. Frames use its classes and var(--…) tokens directly — never paste the theme into a frame.',
+      inputSchema: { canvas_id: z.string(), agent_name: agentName.optional() },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ canvas_id, agent_name }) => {
+      const c = canvasFor(canvas_id)
+      if (!c) return noCanvas(canvas_id)
+      arrive(canvas_id, agent_name)
+      if (agent_name) actions.markThemeSeen(canvas_id, actorFrom(agent_name).name)
+      const theme = c.theme
+      if (!theme || isThemeEmpty(theme))
+        return text({
+          theme: null,
+          note: 'No theme yet. Put a design system here (set_theme_tokens, set_theme_css, set_theme_fonts) so every frame shares one stylesheet.',
+        })
+      const described = theme.tokens.filter((t) => t.description)
+      return withFeedback(
+        text({
+          version: theme.version,
+          tokens: Object.fromEntries(theme.tokens.map((t) => [t.name, t.value])),
+          ...(described.length
+            ? { descriptions: Object.fromEntries(described.map((t) => [t.name, t.description])) }
+            : {}),
+          fonts: theme.fonts,
+          ...(theme.unresolvedFonts?.length ? { unresolvedFonts: theme.unresolvedFonts } : {}),
+          css: theme.css,
+        }),
+        canvas_id,
+        agent_name ? actorFrom(agent_name) : undefined,
+      )
+    },
+  )
+
+  const themeWrite = async (
+    canvas_id: string,
+    agent_name: string,
+    patch: actions.ThemePatch,
+    summarize: (theme: CanvasTheme) => Record<string, unknown>,
+  ) => {
+    if (!canvasFor(canvas_id)) return noCanvas(canvas_id)
+    const actor = actorFrom(agent_name)
+    actions.markThemeSeen(canvas_id, actor.name)
+    try {
+      const theme = await actions.setTheme(canvas_id, patch, actor)
+      if (!theme) return noCanvas(canvas_id)
+      return withFeedback(text({ ok: true, version: theme.version, ...summarize(theme) }), canvas_id, actor)
+    } catch (e) {
+      return err(e instanceof Error ? e.message : 'invalid theme')
+    }
+  }
+
+  server.registerTool(
+    'set_theme_tokens',
+    {
+      description: `Write design tokens into the canvas theme. Each token is a CSS custom property on :root that every frame inherits — use var(--name) in frames. mode "merge" (default) upserts by name and an empty value deletes that token; "replace" makes this list the whole token set. Max ${MAX_THEME_TOKENS} tokens.`,
+      inputSchema: {
+        canvas_id: z.string(),
+        tokens: z
+          .array(
+            z.object({
+              name: z.string().describe('Custom property name, e.g. "--color-ink" (lowercase a-z, 0-9, hyphens)'),
+              value: z
+                .string()
+                .describe('CSS value, e.g. "#17171b", "16px", "\'Inter\', sans-serif"; "" deletes in merge mode'),
+              type: z.enum(THEME_TOKEN_TYPES).optional().describe('inferred from the value when omitted'),
+              description: z.string().optional(),
+            }),
+          )
+          .max(MAX_THEME_TOKENS),
+        mode: z.enum(['merge', 'replace']).default('merge'),
+        agent_name: agentName,
+      },
+    },
+    async ({ canvas_id, tokens, mode, agent_name }) =>
+      themeWrite(canvas_id, agent_name, { tokens: { list: tokens, mode } }, (t) => ({ tokens: t.tokens.length })),
+  )
+
+  server.registerTool(
+    'set_theme_css',
+    {
+      description: `Replace the canvas theme's shared CSS (max ${MAX_THEME_CSS_CHARS.toLocaleString('en-US')} chars; empty string clears it). It is injected into EVERY frame ahead of the frame's own <style>, so frames only carry what is unique to them. Put the design system here: resets, type scale, component classes (.btn, .card …). Use var(--…) from set_theme_tokens; no @import (fonts go through set_theme_fonts).`,
+      inputSchema: {
+        canvas_id: z.string(),
+        css: z.string().max(MAX_THEME_CSS_CHARS),
+        agent_name: agentName,
+      },
+    },
+    async ({ canvas_id, css, agent_name }) =>
+      themeWrite(canvas_id, agent_name, { css }, (t) => ({ cssBytes: t.css.length })),
+  )
+
+  server.registerTool(
+    'set_theme_fonts',
+    {
+      description: `Set the canvas theme's Google Fonts (replaces the list; max ${MAX_THEME_FONTS} families). Every frame can then use them in font-family without its own <link>. Pass css2 family specs: "Geist", "Inter:wght@400;600;700", "Fraunces:ital,wght@0,400;1,400".`,
+      inputSchema: {
+        canvas_id: z.string(),
+        families: z.array(z.string()).max(MAX_THEME_FONTS),
+        agent_name: agentName,
+      },
+    },
+    async ({ canvas_id, families, agent_name }) =>
+      themeWrite(canvas_id, agent_name, { fonts: families }, (t) => ({
+        fonts: t.fonts,
+        ...(t.unresolvedFonts?.length
+          ? {
+              unresolved: t.unresolvedFonts,
+              note: "Doop could not fetch these from Google Fonts (a typo, or the server is offline). Check the names; if they are right, add a <link> for them in each frame's <head> instead.",
+            }
+          : {}),
+      })),
   )
 
   server.registerTool(

@@ -291,6 +291,22 @@ any public image URL. Source images in this order:
 Never inline images as data: URIs in frame HTML; they bloat every get_frame and
 edit round-trip.
 
+## Canvas theme — one stylesheet for every frame
+
+A canvas can carry a theme: design tokens (CSS custom properties on :root), Google
+Fonts and shared CSS. Doop injects it into EVERY frame, first in <head>, so a frame's
+own <style> still wins where it needs to. get_canvas reports it; get_theme reads it.
+
+- Designing on a themed canvas: use the theme's classes and var(--…) tokens directly.
+  Never paste the theme's CSS, :root tokens or font <link>s into a frame — frames carry
+  only what is unique to them.
+- Building a design system: put it in the theme, not in each frame. set_theme_tokens for
+  palette, type scale, spacing, radii and shadows; set_theme_fonts for Google Fonts
+  (css2 specs like "Inter:wght@400;600"); set_theme_css for resets and component classes.
+  A token change then restyles every frame at once.
+- A frame that must ignore the theme (an import, a page that ships its own full CSS)
+  opts out with <html data-doop-theme="off">.
+
 ## Style guides — read before designing
 
 Canvases can carry named style guides: markdown packs of brand and style rules

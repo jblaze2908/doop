@@ -6,5 +6,7 @@ lists every file in this folder.
 
 ## Active
 
+- [canvas-theme.md](canvas-theme.md) - Canvas theme: tokens, Google Fonts and shared CSS every
+  frame inherits; injection order, render-cache stamp, MCP/REST/WS surfaces.
 - [workspaces-billing.md](workspaces-billing.md) - Shared workspaces (org-level canvas access with
   roles) and the per-seat Team plan on Stripe: data model, entitlement rules, API, webhook flow.

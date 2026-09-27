@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid'
 import * as persist from './db/persist.ts'
 import type { Canvas, CommunityCategory, Frame, GuidelineDoc, MemoryReference } from '../shared/types.ts'
+import type { CanvasTheme } from '../shared/theme.ts'
 
 /**
  * In-memory canvas/frame state — the hot path for reads, reveals and
@@ -125,6 +126,7 @@ class Store {
       ...(options.workspaceId ? { workspaceId: options.workspaceId } : {}),
       ...(guidelines?.length ? { guidelines } : {}),
       ...(references?.length ? { references } : {}),
+      ...(source.theme ? { theme: { ...source.theme, updatedAt: now, updatedBy: by } } : {}),
     }
     await persist.saveCanvasCopy(canvas)
     this.canvases.set(canvas.id, canvas)
@@ -265,6 +267,18 @@ class Store {
     if (!c) return undefined
     c.name = name
     c.updatedAt = Date.now()
+    persist.saveCanvas(c)
+    return c
+  }
+
+  /** Replace the canvas theme wholesale — themes are never mutated in place,
+   *  so compileTheme can memoize per object. A theme change is a design edit. */
+  setTheme(canvasId: string, theme: CanvasTheme): Canvas | undefined {
+    const c = this.canvases.get(canvasId)
+    if (!c) return undefined
+    c.theme = theme
+    c.updatedAt = theme.updatedAt
+    persist.saveCanvasTheme(canvasId, theme)
     persist.saveCanvas(c)
     return c
   }

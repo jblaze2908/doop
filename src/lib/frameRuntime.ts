@@ -84,10 +84,39 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
     }
   }
 
+  /* ---- canvas theme ----
+     The parent posts the compiled theme. It rides as a <style> first in
+     <head>, where the server's screenshots splice it too: an adopted sheet
+     would cascade AFTER the frame's own styles, and the frame must win.
+     It is added to every parsed document before the morph, so the morph
+     leaves it in place, and serialize() drops it. */
+  var themeCss = ''
+
+  function themeOff(root) {
+    return root.getAttribute('data-doop-theme') === 'off'
+  }
+
+  function addTheme(doc) {
+    if (!themeCss || themeOff(doc.documentElement)) return
+    var st = doc.createElement('style')
+    st.setAttribute('data-doop-theme', '')
+    st.textContent = themeCss
+    doc.head.insertBefore(st, doc.head.firstChild)
+  }
+
+  function setTheme(css) {
+    if (css === themeCss) return
+    themeCss = css
+    var live = document.head.querySelector('style[data-doop-theme]')
+    if (live) live.parentNode.removeChild(live)
+    addTheme(document)
+  }
+
   function render(html) {
     var doc
     try {
       doc = new DOMParser().parseFromString(html, 'text/html')
+      addTheme(doc)
       syncAttrs(document.documentElement, doc.documentElement)
       /* the incoming html carries no root style, so the sync drops our
          crisp-render zoom — put it back before the page reflows */
@@ -196,6 +225,8 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
     if (boot && boot.parentNode) boot.parentNode.removeChild(boot)
     var es = root.querySelector('style[data-v-edit]')
     if (es && es.parentNode) es.parentNode.removeChild(es)
+    var themes = root.querySelectorAll('style[data-doop-theme]')
+    for (var t = 0; t < themes.length; t++) themes[t].parentNode.removeChild(themes[t])
     var ran = root.querySelectorAll('[data-v-ran]')
     for (var i = 0; i < ran.length; i++) ran[i].removeAttribute('data-v-ran')
     var marked = root.querySelectorAll('[data-v-active],[data-v-hover]')
@@ -452,6 +483,7 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
       var applied = applyStyle(d.selector, d.styles)
       parent.postMessage({ type: 'doop:style-result', reqId: d.reqId, ok: applied, info: applied ? inspect(d.selector) : null }, '*')
     }
+    if (d.type === 'doop:theme' && typeof d.css === 'string') setTheme(d.css)
     if (d.type === 'doop:html' && typeof d.html === 'string' && !editing) render(d.html)
     if (d.type === 'doop:edit') setEdit(!!d.on)
     if (d.type === 'doop:probe') {

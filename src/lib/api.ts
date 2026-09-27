@@ -1,3 +1,4 @@
+import type { CanvasTheme, ThemeTokenInput } from '../../shared/theme'
 import type { LocalAgentPreference, LocalAgentJob, LocalAgentResult } from '../../shared/localAgent'
 import type {
   ActivityItem,
@@ -318,6 +319,11 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ markdown, ...(title !== undefined ? { title } : {}) }),
     }),
+  /* the canvas theme: any subset of tokens (merge by default), css, fonts */
+  setTheme: (
+    canvasId: string,
+    patch: { tokens?: ThemeTokenInput[]; mode?: 'merge' | 'replace'; css?: string; fonts?: string[] },
+  ) => req<CanvasTheme>(`/api/canvases/${canvasId}/theme`, { method: 'PUT', body: JSON.stringify(patch) }),
   /* design memory */
   pinReference: (canvasId: string, frameId: string) =>
     req(`/api/canvases/${canvasId}/references`, { method: 'POST', body: JSON.stringify({ frameId }) }),

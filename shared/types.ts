@@ -1,4 +1,5 @@
 import type { BillingInterval, WorkspaceStatus } from './billing.ts'
+import type { CanvasTheme } from './theme.ts'
 
 export interface Frame {
   id: string
@@ -105,6 +106,8 @@ export interface Canvas {
   guidelines?: GuidelineDoc[]
   /** frames pinned to Memory as style exemplars — HTML snapshotted at pin time */
   references?: MemoryReference[]
+  /** design tokens, fonts and CSS every frame on the canvas inherits */
+  theme?: CanvasTheme
 }
 
 /* ---- workspaces ---- */
@@ -462,6 +465,8 @@ export type ServerMessage =
   | { type: 'canvas:renamed'; name: string; actor: Actor }
   /** a style-guide doc was written, moved (doc set) or deleted (doc null) */
   | { type: 'guidelines'; name: string; doc: GuidelineDoc | null; actor: Actor }
+  /** the canvas theme changed; carries the whole new theme */
+  | { type: 'theme'; theme: CanvasTheme; actor: Actor }
   /** a frame was pinned to (reference set) or unpinned from (null) Memory */
   | { type: 'reference'; id: string; reference: MemoryReference | null; actor: Actor }
   /** a design decision was captured into Memory */

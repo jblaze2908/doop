@@ -17,6 +17,7 @@ import { createImportedWebpageFrame, findImportedWebpageFrame } from './webpageI
 import { DESIGN_BRIEF, DESIGN_QUALITY } from './guide.ts'
 import { describeInspiration, INSPIRATION_USAGE_NOTE, searchInspiration } from './inspiration.ts'
 import type { AgentTask, Frame } from '../shared/types.ts'
+import { isThemeEmpty, type CanvasTheme } from '../shared/theme.ts'
 import { websiteAccessErrorMessage } from './websiteAccess.ts'
 import { executeGuardedBatch } from './guardedBatch.ts'
 import { runRepoCards } from './githubRecon.ts'
@@ -447,7 +448,7 @@ async function runAgent(canvasId: string, agentName: string, stalled: Set<string
          breakpoint: the role prefix stays cacheable across canvases, and the
          (rarely-changing) docs cache across the turns of a run */
       const guidelineDocs = store.getGuidelines(canvasId)
-      const guidelinesBlock = guidelineDocs.length
+      const guidelinesBlock: { text: string; cache: boolean }[] = guidelineDocs.length
         ? [
             {
               text:
@@ -457,6 +458,8 @@ async function runAgent(canvasId: string, agentName: string, stalled: Set<string
             },
           ]
         : []
+      const theme = store.getCanvas(canvasId)?.theme
+      if (theme && !isThemeEmpty(theme)) guidelinesBlock.push({ text: describeTheme(theme), cache: true })
       const maxTurns = REDESIGN_RE.test(workText) ? MAX_REDESIGN_TURNS : MAX_TURNS
       if (model.runHarness) {
         const result = await model.runHarness({
@@ -682,6 +685,20 @@ async function runAgent(canvasId: string, agentName: string, stalled: Set<string
     actions.setAgentStatus(canvasId, actor, '')
   }
   return 'ran'
+}
+
+/** The theme as the model reads it — tokens and CSS, not the resolved @font-face noise. */
+function describeTheme(theme: CanvasTheme): string {
+  const tokens = theme.tokens.map((t) => `  ${t.name}: ${t.value};${t.description ? ` /* ${t.description} */` : ''}`)
+  return [
+    '# Canvas theme',
+    'Every frame on this canvas inherits this stylesheet automatically, ahead of its own <style>. Build frames from its classes and var(--…) tokens; never paste it into a frame.',
+    tokens.length ? `Tokens:\n:root {\n${tokens.join('\n')}\n}` : '',
+    theme.fonts.length ? `Fonts (loaded for every frame): ${theme.fonts.join(', ')}` : '',
+    theme.css ? `Shared CSS:\n\`\`\`css\n${theme.css}\n\`\`\`` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
 }
 
 const TOOLS: Anthropic.Tool[] = [
@@ -978,6 +995,52 @@ const TOOLS: Anthropic.Tool[] = [
         },
       },
       required: ['name', 'markdown'],
+    },
+  },
+  {
+    name: 'get_theme',
+    description:
+      'Read the canvas theme: tokens (CSS custom properties on :root), Google Fonts and shared CSS that every frame inherits automatically. Use its classes and var(--…) tokens in frames; never paste it into a frame.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'set_theme_tokens',
+    description:
+      'Write design tokens into the canvas theme — CSS custom properties on :root that every frame inherits. mode "merge" (default) upserts by name and an empty value deletes; "replace" makes this list the whole set.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        tokens: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', description: 'e.g. "--color-ink"' },
+              value: { type: 'string', description: 'CSS value; "" deletes in merge mode' },
+              description: { type: 'string' },
+            },
+            required: ['name', 'value'],
+          },
+        },
+        mode: { type: 'string', enum: ['merge', 'replace'] },
+      },
+      required: ['tokens'],
+    },
+  },
+  {
+    name: 'set_theme_css',
+    description:
+      "Replace the canvas theme's shared CSS (empty string clears it). It is injected into every frame ahead of the frame's own <style>: put resets, the type scale and component classes here. No @import.",
+    input_schema: { type: 'object', properties: { css: { type: 'string' } }, required: ['css'] },
+  },
+  {
+    name: 'set_theme_fonts',
+    description:
+      'Set the canvas theme\'s Google Fonts (replaces the list) as css2 family specs, e.g. "Geist", "Inter:wght@400;600". Every frame can then use them without its own <link>.',
+    input_schema: {
+      type: 'object',
+      properties: { families: { type: 'array', items: { type: 'string' } } },
+      required: ['families'],
     },
   },
   {
@@ -1482,6 +1545,34 @@ async function execTool(
           doc
             ? `saved design guide "${actions.guidelineTitle(doc)}" (${doc.name}, ${doc.markdown.length} chars) — every actor on this canvas now inherits it`
             : `deleted design guide ${raw.name.trim().toLowerCase()}`,
+        )
+      }
+      case 'get_theme': {
+        const theme = store.getCanvas(canvasId)?.theme
+        return ok(!theme || isThemeEmpty(theme) ? 'this canvas has no theme yet' : describeTheme(theme))
+      }
+      case 'set_theme_tokens':
+      case 'set_theme_css':
+      case 'set_theme_fonts': {
+        const raw = block.input as { tokens?: unknown; mode?: string; css?: unknown; families?: unknown }
+        const patch: actions.ThemePatch =
+          block.name === 'set_theme_tokens'
+            ? {
+                tokens: {
+                  list: Array.isArray(raw.tokens) ? raw.tokens : [],
+                  mode: raw.mode === 'replace' ? 'replace' : 'merge',
+                },
+              }
+            : block.name === 'set_theme_css'
+              ? { css: typeof raw.css === 'string' ? raw.css : '' }
+              : { fonts: Array.isArray(raw.families) ? raw.families.map(String) : [] }
+        const theme = await actions.setTheme(canvasId, patch, actor)
+        if (!theme) return fail('canvas not found')
+        const unresolved = theme.unresolvedFonts?.length
+          ? ` — could not fetch ${theme.unresolvedFonts.join(', ')} from Google Fonts; check the names or <link> them per frame`
+          : ''
+        return ok(
+          `theme v${theme.version}: ${theme.tokens.length} tokens, ${theme.css.length} chars of CSS, fonts [${theme.fonts.join(', ')}]${unresolved} — every frame inherits it`,
         )
       }
       case 'screenshot_frame': {

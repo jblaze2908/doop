@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../lib/store'
 import { FRAME_BOOTSTRAP } from '../lib/frameRuntime'
+import { useThemeCss } from '../lib/theme'
 import { Button } from './ui/button'
 import { XIcon } from './ui/icons'
 
@@ -24,6 +25,12 @@ export function PresentMode({ frameId, onClose }: { frameId: string; onClose: ()
     window.addEventListener('message', onMsg)
     return () => window.removeEventListener('message', onMsg)
   }, [onClose])
+
+  const themeCss = useThemeCss()
+  useEffect(() => {
+    if (!ready) return
+    iframeRef.current?.contentWindow?.postMessage({ type: 'doop:theme', css: themeCss }, '*')
+  }, [ready, themeCss])
 
   const html = frame?.html ?? ''
   useEffect(() => {

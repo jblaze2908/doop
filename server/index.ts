@@ -1221,6 +1221,37 @@ app.put('/api/canvases/:id/guidelines/:name', (req, res) => {
   }
 })
 
+/* the canvas theme: same permission model as the design guides */
+app.get('/api/canvases/:id/theme', (req, res) => {
+  const c = requireCanvas(req, res, req.params.id)
+  if (!c) return
+  res.json(c.theme ?? null)
+})
+
+app.put('/api/canvases/:id/theme', async (req, res) => {
+  if (!requireCanvas(req, res, req.params.id)) return
+  const actor = actions.resolveActor({ name: req.user!.name, kind: 'user' })
+  const { tokens, mode, css, fonts } = req.body ?? {}
+  if (tokens !== undefined && !Array.isArray(tokens)) return res.status(400).json({ error: 'tokens must be an array' })
+  if (css !== undefined && typeof css !== 'string') return res.status(400).json({ error: 'css must be a string' })
+  if (fonts !== undefined && !Array.isArray(fonts)) return res.status(400).json({ error: 'fonts must be an array' })
+  try {
+    const theme = await actions.setTheme(
+      req.params.id,
+      {
+        ...(tokens ? { tokens: { list: tokens, mode: mode === 'replace' ? 'replace' : 'merge' } } : {}),
+        ...(css !== undefined ? { css } : {}),
+        ...(fonts ? { fonts: fonts.map(String) } : {}),
+      },
+      actor,
+    )
+    if (!theme) return res.status(404).json({ error: 'not found' })
+    res.json(theme)
+  } catch (e) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'invalid theme' })
+  }
+})
+
 /* design memory: pin/unpin reference frames, accept/dismiss rule proposals */
 app.post('/api/canvases/:id/references', (req, res) => {
   if (!requireCanvas(req, res, req.params.id)) return

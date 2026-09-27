@@ -12,6 +12,9 @@ import { ListHint, ListItem, ListMeta, ListRow, ListSection, ListSummary, ListTi
 import { MarkdownBlock, Modal, ModalActions, ModalLede, ModalSpacer, ModalTitle } from './ui/modal'
 import { ConfirmDialog } from './ui/alert-dialog'
 import { DoopMark } from './Logo'
+import { isThemeEmpty, spliceTheme } from '../../shared/theme'
+import { useThemeCss } from '../lib/theme'
+import { ThemeSection } from './ThemeSection'
 
 const MAX_GUIDELINE_CHARS = 24_000
 const MAX_TITLE_CHARS = 80
@@ -51,6 +54,7 @@ export function MemoryPanel() {
   const references = useStore((s) => s.canvas?.references ?? [])
   const decisions = useStore((s) => s.decisions)
   const proposals = useStore((s) => s.proposals)
+  const themeEmpty = useStore((s) => isThemeEmpty(s.canvas?.theme))
   /** slug of the open guide, '' = create a new one, null = closed */
   const [openGuide, setOpenGuide] = useState<string | null>(null)
   const [openRef, setOpenRef] = useState<string | null>(null)
@@ -58,7 +62,8 @@ export function MemoryPanel() {
   if (!canvasId) return null
 
   const pending = proposals.filter((p) => p.status === 'pending')
-  const empty = docs.length === 0 && references.length === 0 && decisions.length === 0 && pending.length === 0
+  const empty =
+    themeEmpty && docs.length === 0 && references.length === 0 && decisions.length === 0 && pending.length === 0
 
   return (
     <PanelBody className="flex flex-col py-2">
@@ -71,6 +76,9 @@ export function MemoryPanel() {
             <li className="text-[12px] leading-[1.5] text-ink-soft">
               <b>References</b> — pin a frame you love (the 🧠 on its corner). Agents copy its colors, type and layout
               when they design something new.
+            </li>
+            <li className="text-[12px] leading-[1.5] text-ink-soft">
+              <b>Theme</b> — tokens, fonts and CSS every frame inherits. Change a colour once and every frame follows.
             </li>
             <li className="text-[12px] leading-[1.5] text-ink-soft">
               <b>Rules</b> — style guides agents read before designing. Write them, or let them grow.
@@ -134,6 +142,8 @@ export function MemoryPanel() {
         ))
       )}
 
+      <ThemeSection canvasId={canvasId} />
+
       <ListSection>
         <span>Rules</span>
         <Button
@@ -192,6 +202,7 @@ export function MemoryPanel() {
 function RefThumb({ reference }: { reference: MemoryReference }) {
   const w = 264 // panel content width
   const scale = w / reference.width
+  const html = spliceTheme(reference.html, useThemeCss())
   return (
     <span
       className="block w-full overflow-hidden rounded-[8px] border border-line bg-white"
@@ -200,7 +211,7 @@ function RefThumb({ reference }: { reference: MemoryReference }) {
       <iframe
         className="pointer-events-none origin-top-left border-0"
         title={reference.title}
-        srcDoc={reference.html}
+        srcDoc={html}
         sandbox=""
         tabIndex={-1}
         style={{ width: reference.width, height: reference.height, transform: `scale(${scale})` }}
@@ -219,6 +230,7 @@ function RefModal({
   reference: MemoryReference | null
   onClose: () => void
 }) {
+  const themeCss = useThemeCss()
   if (!reference) {
     return (
       <Modal size="xl" onClose={onClose}>
@@ -234,6 +246,7 @@ function RefModal({
   }
   const w = Math.min(696, window.innerWidth - 110)
   const scale = Math.min(1, w / reference.width)
+  const html = spliceTheme(reference.html, themeCss)
   return (
     <Modal size="xl" onClose={onClose}>
       <>
@@ -254,7 +267,7 @@ function RefModal({
           <iframe
             className="pointer-events-none origin-top-left border-0"
             title={reference.title}
-            srcDoc={reference.html}
+            srcDoc={html}
             sandbox=""
             tabIndex={-1}
             style={{ width: reference.width, height: reference.height, transform: `scale(${scale})` }}

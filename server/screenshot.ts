@@ -2,6 +2,8 @@ import fs from 'node:fs'
 import puppeteer, { type Browser, type Page } from 'puppeteer-core'
 import type { Frame } from '../shared/types.ts'
 import { guardPublicPageRequests } from './publicUrl.ts'
+import { themeCssFor } from './theme.ts'
+import { spliceTheme } from '../shared/theme.ts'
 
 /**
  * Render a frame's HTML in headless Chrome so agents can *see* their work.
@@ -106,7 +108,9 @@ async function loadFramePage(frame: Frame): Promise<IsolatedPage> {
       deviceScaleFactor: 1,
     })
     try {
-      await page.setContent(frame.html || '<!doctype html><html><body></body></html>', {
+      /* the canvas theme, first in <head> exactly as the browser runtime puts it */
+      const html = spliceTheme(frame.html || '<!doctype html><html><body></body></html>', themeCssFor(frame))
+      await page.setContent(html, {
         waitUntil: 'load',
         timeout: 8000,
       })

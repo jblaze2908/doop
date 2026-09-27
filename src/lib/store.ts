@@ -14,6 +14,7 @@ import type {
   TaskFeedback,
 } from '../../shared/types'
 import type { SnapGuide } from './snap'
+import type { CanvasTheme } from '../../shared/theme'
 
 export interface Viewport {
   x: number
@@ -119,6 +120,7 @@ interface State {
   renameCanvasLocal(name: string): void
   /** upsert (doc set) or remove (doc null) a style guide on the open canvas */
   setGuidelineLocal(name: string, doc: GuidelineDoc | null): void
+  setThemeLocal(theme: CanvasTheme): void
   /** pin (reference set) or unpin (null) a Memory reference on the open canvas */
   setReferenceLocal(id: string, reference: MemoryReference | null): void
   setDecisions(decisions: DesignDecision[]): void
@@ -296,6 +298,7 @@ export const useStore = create<State>((set, get) => ({
       }
     }),
   renameCanvasLocal: (name) => set((s) => (s.canvas ? { canvas: { ...s.canvas, name } } : {})),
+  setThemeLocal: (theme) => set((s) => (s.canvas ? { canvas: { ...s.canvas, theme } } : {})),
   setGuidelineLocal: (name, doc) =>
     set((s) => {
       if (!s.canvas) return {}

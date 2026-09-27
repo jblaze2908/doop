@@ -157,6 +157,9 @@ function handle(msg: ServerMessage) {
     case 'guidelines':
       s.setGuidelineLocal(msg.name, msg.doc)
       break
+    case 'theme':
+      s.setThemeLocal(msg.theme)
+      break
     case 'reference':
       s.setReferenceLocal(msg.id, msg.reference)
       break

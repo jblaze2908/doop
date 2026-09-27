@@ -5,6 +5,7 @@ import { githubConnections } from './db/schema.ts'
 import { sanitizeSnapshotHtml } from './ingest.ts'
 import * as githubApp from './githubApp.ts'
 import type { Frame } from '../shared/types.ts'
+import { withoutTheme } from '../shared/theme.ts'
 
 /**
  * GitHub repo as an import source — a ONE-TIME, CODE-ONLY job: connect a
@@ -433,7 +434,7 @@ function injectHead(html: string, inject: string): string {
   const headMatch = html.match(/<head[^>]*>/i)
   let out = headMatch ? html.replace(headMatch[0], headMatch[0] + inject) : inject + html
   if (!/^\s*<!doctype/i.test(out)) out = '<!doctype html>\n' + out
-  return out
+  return withoutTheme(out)
 }
 
 /** Repo HTML → frame HTML: scrub, stamp marker + CSP, and point relative

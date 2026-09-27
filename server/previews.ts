@@ -1,5 +1,6 @@
 import type { Frame } from '../shared/types.ts'
 import * as thumbs from './thumbs.ts'
+import { renderStamp } from './theme.ts'
 
 /**
  * Everything behind GET /i/<frameId>.<ext> except HTTP: the in-process
@@ -19,7 +20,7 @@ import * as thumbs from './thumbs.ts'
  *    and downloads, and is only ever cached here.
  */
 
-const imgCache = new Map<string, { buf: Promise<Buffer>; updatedAt: number; at: number }>()
+const imgCache = new Map<string, { buf: Promise<Buffer>; stamp: string; at: number }>()
 const IMG_CACHE_MS = 5 * 60_000
 const IMG_CACHE_MAX = 200
 
@@ -49,9 +50,9 @@ export type ImageResult = { status: 'ok'; buf: Buffer } | { status: 'rate-limite
 export async function getImage(frame: Frame, req: ImageRequest): Promise<ImageResult> {
   const preview = req.preview && req.ext === 'jpg'
   const key = `${frame.id}:${req.ext}:${req.scale}:${req.ext === 'jpg' ? req.quality : ''}:${preview ? 'p' : ''}`
+  const stamp = renderStamp(frame)
   const cached = imgCache.get(key)
-  let pending =
-    cached && cached.updatedAt === frame.updatedAt && Date.now() - cached.at < IMG_CACHE_MS ? cached.buf : null
+  let pending = cached && cached.stamp === stamp && Date.now() - cached.at < IMG_CACHE_MS ? cached.buf : null
 
   /* previews first try the persisted thumbnail: survives redeploys, serves
      instantly even when stale (thumbs revalidates in the background), and
@@ -60,7 +61,7 @@ export async function getImage(frame: Frame, req: ImageRequest): Promise<ImageRe
     const stored = await thumbs.getStored(frame)
     if (stored) {
       pending = Promise.resolve(stored)
-      remember(key, pending, frame.updatedAt)
+      remember(key, pending, stamp)
     }
   }
 
@@ -72,14 +73,14 @@ export async function getImage(frame: Frame, req: ImageRequest): Promise<ImageRe
       : loadScreenshot().then(({ renderFrame }) =>
           renderFrame(frame, req.scale, { type: req.ext === 'jpg' ? 'jpeg' : 'png', quality: req.quality }),
         )
-    remember(key, pending, frame.updatedAt)
+    remember(key, pending, stamp)
   }
 
   return { status: 'ok', buf: await pending }
 }
 
-function remember(key: string, pending: Promise<Buffer>, updatedAt: number) {
-  imgCache.set(key, { buf: pending, updatedAt, at: Date.now() })
+function remember(key: string, pending: Promise<Buffer>, stamp: string) {
+  imgCache.set(key, { buf: pending, stamp, at: Date.now() })
   /* a failed render must not be served for IMG_CACHE_MS — drop it so the
      next request retries */
   pending.catch(() => {

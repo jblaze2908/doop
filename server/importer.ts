@@ -15,6 +15,7 @@ import {
 } from './publicUrl.ts'
 import { navigateWebsitePage, WebsiteCaptureUnavailableError } from './websiteAccess.ts'
 import { pruneUnusedCss } from './cssPrune.ts'
+import { withoutTheme } from '../shared/theme.ts'
 import {
   MAX_DISCOVERY_BYTES,
   MAX_FRAME_HTML_BYTES,
@@ -649,7 +650,7 @@ export async function importPage(rawUrl: string, options: { includePreview?: boo
     const headMatch = html.match(/<head[^>]*>/i)
     if (headMatch) html = html.replace(headMatch[0], headMatch[0] + inject)
     else html = inject + html
-    html = '<!doctype html>\n' + html
+    html = withoutTheme('<!doctype html>\n' + html)
 
     if (Buffer.byteLength(html) > MAX_FRAME_HTML_BYTES) {
       throw new WebsiteCaptureUnavailableError('The captured webpage is too large to import safely')

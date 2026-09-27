@@ -7,6 +7,7 @@ import * as t from './schema.ts'
 import { extractAssetIds } from '../assets.ts'
 import { roleByAgentName } from '../../shared/agents.ts'
 import { isCommunityCategory } from '../../shared/types.ts'
+import { isCanvasTheme, type CanvasTheme } from '../../shared/theme.ts'
 import type {
   ActivityItem,
   AgentTask,
@@ -33,7 +34,9 @@ function swallow(p: Promise<unknown>) {
   p.catch((err) => console.error('[db] write failed', err))
 }
 
-/** every mutable canvas column, so insert and upsert can't drift apart */
+/** every mutable canvas column, so insert and upsert can't drift apart.
+ *  Not the theme: saveCanvas runs on every frame edit, and the theme (up to
+ *  ~180 KB of jsonb) changes rarely — it has its own write below. */
 function canvasColumns(c: Canvas) {
   return {
     name: c.name,
@@ -57,11 +60,17 @@ export function saveCanvas(c: Canvas) {
   )
 }
 
+export function saveCanvasTheme(canvasId: string, theme: CanvasTheme) {
+  swallow(db.update(t.canvases).set({ theme }).where(eq(t.canvases.id, canvasId)))
+}
+
 /** Persist a newly duplicated canvas as one unit. Unlike ordinary live edits,
  * duplication must not report success until every copied row is durable. */
 export async function saveCanvasCopy(c: Canvas): Promise<void> {
   await db.transaction(async (tx) => {
-    await tx.insert(t.canvases).values({ id: c.id, ...canvasColumns(c), createdAt: c.createdAt })
+    await tx
+      .insert(t.canvases)
+      .values({ id: c.id, ...canvasColumns(c), theme: c.theme ?? null, createdAt: c.createdAt })
 
     if (c.frames.length) {
       await tx.insert(t.frames).values(
@@ -590,6 +599,7 @@ export async function hydrate(): Promise<Hydrated> {
     ...(isCommunityCategory(c.category) ? { category: c.category } : {}),
     ...(c.copyCount ? { copyCount: c.copyCount } : {}),
     ...(c.workspaceId ? { workspaceId: c.workspaceId } : {}),
+    ...(isCanvasTheme(c.theme) ? { theme: c.theme } : {}),
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
     frames: [],

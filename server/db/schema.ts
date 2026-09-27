@@ -11,6 +11,7 @@ import {
   jsonb,
 } from 'drizzle-orm/pg-core'
 import type { Schedule, Step } from '../../shared/automations.ts'
+import type { CanvasTheme } from '../../shared/theme.ts'
 
 /**
  * One Postgres-dialect schema for every environment: PGlite (embedded, file
@@ -38,6 +39,9 @@ export const canvases = pgTable('canvases', {
   /** the shared workspace this canvas lives in; null = the owner's personal
    *  space. Every workspace member can open a workspace canvas. */
   workspaceId: text('workspace_id'),
+  /** tokens, fonts and CSS every frame inherits; null = no theme. Written on
+   *  its own (saveCanvasTheme), never by the per-edit canvas upsert. */
+  theme: jsonb('theme').$type<CanvasTheme>(),
   createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
 })
