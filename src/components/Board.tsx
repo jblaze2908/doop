@@ -143,7 +143,7 @@ export function Board({ canvasId }: { canvasId: string }) {
                 />
                 <div className="mt-3 flex flex-wrap items-center gap-2.5">
                   <Button
-                    className="rounded-full border-transparent bg-ink px-3.5 py-1.5 text-xs font-bold text-white shadow-none hover:translate-x-0 hover:translate-y-0 hover:shadow-none"
+                    className="rounded-full border-transparent bg-ink px-3.5 py-1.5 text-xs font-bold text-on-ink shadow-none hover:translate-x-0 hover:translate-y-0 hover:shadow-none"
                     disabled={!draft.trim()}
                     onClick={submit}
                   >
@@ -201,7 +201,7 @@ export function Board({ canvasId }: { canvasId: string }) {
                   {t.status}
                 </h3>
                 <div className={metaCls}>
-                  <span className="font-[750] text-[#1e7a4c]">✓</span> {t.agentName || t.queuedBy}
+                  <span className="font-[750] text-ok">✓</span> {t.agentName || t.queuedBy}
                   {t.queuedBy && t.agentName && <span> · for {t.queuedBy}</span>}
                   <span> · {timeAgo(t.endedAt!)}</span>
                 </div>

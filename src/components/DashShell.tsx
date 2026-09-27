@@ -4,10 +4,12 @@ import { navigate } from '../App'
 import { posthog } from '../lib/posthog'
 import { useMe } from '../lib/me'
 import { isDesktopShell } from '../lib/shell'
+import { isColorScheme, setColorScheme, useColorScheme } from '../lib/colorScheme'
 import { AgentIcon } from './AgentIcon'
 import { ConnectModal } from './ConnectModal'
 import { CodeBlock } from './ui/code-block'
 import { Button } from './ui/button'
+import { Segmented, SegmentedItem } from './ui/segmented'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,13 +46,14 @@ export function initials(name?: string): string {
 export function AccountMenu() {
   const { data: session } = authClient.useSession()
   const me = useMe(session?.user.id)
+  const scheme = useColorScheme()
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
           variant="bare"
-          className="grid size-10 flex-none place-items-center rounded-[10px] bg-ink font-display text-[12.5px] font-bold text-white hover:bg-ink hover:text-white hover:opacity-90 sm:size-[34px]"
+          className="grid size-10 flex-none place-items-center rounded-[10px] bg-ink font-display text-[12.5px] font-bold text-on-ink hover:bg-ink hover:text-on-ink hover:opacity-90 sm:size-[34px]"
           aria-label="Account"
         >
           {initials(session?.user.name)}
@@ -77,6 +80,20 @@ export function AccountMenu() {
             <IconHelp /> Help &amp; docs
           </a>
         </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        {/* not a menu item, so picking a scheme previews it without closing the menu */}
+        <div className="flex items-center justify-between gap-3 px-2.5 py-1.5 text-[13px]">
+          Theme
+          <Segmented
+            aria-label="Theme"
+            value={scheme}
+            onValueChange={(value) => isColorScheme(value) && setColorScheme(value)}
+          >
+            <SegmentedItem value="system">Auto</SegmentedItem>
+            <SegmentedItem value="light">Light</SegmentedItem>
+            <SegmentedItem value="dark">Dark</SegmentedItem>
+          </Segmented>
+        </div>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           tone="danger"

@@ -150,7 +150,7 @@ function ComponentModal({
   }
 
   const field =
-    'mt-1.5 min-h-[20dvh] resize-y rounded-[12px] bg-white px-4 py-3 font-mono leading-[1.6] focus:ring-0 md:text-[12px]'
+    'mt-1.5 min-h-[20dvh] resize-y rounded-[12px] bg-surface px-4 py-3 font-mono leading-[1.6] focus:ring-0 md:text-[12px]'
   return (
     <Modal size="xl" onClose={() => !busy && onClose()}>
       <>

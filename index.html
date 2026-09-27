@@ -17,6 +17,14 @@
     <link rel="icon" href="/favicon.ico" sizes="32x32" />
     <link rel="icon" href="/favicon.png" type="image/png" sizes="96x96" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- the stored colour scheme, applied before first paint (src/lib/colorScheme.ts owns the rest) -->
+    <script>
+      try {
+        var s = localStorage.getItem('draft-color-scheme')
+        if (s === 'dark' || (s !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches))
+          document.documentElement.classList.add('dark')
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

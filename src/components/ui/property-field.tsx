@@ -166,7 +166,7 @@ export function ToggleField({
           aria-pressed={value === on}
           className={cn(
             'flex-1 text-[11px] text-ink-soft transition-colors hover:text-ink',
-            value === on && 'bg-ink font-semibold text-white hover:text-white',
+            value === on && 'bg-ink font-semibold text-on-ink hover:text-on-ink',
           )}
           onClick={() => value !== on && onChange(on)}
         >

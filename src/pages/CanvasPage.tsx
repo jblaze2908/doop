@@ -702,7 +702,7 @@ function ImportModal({
                 id="import-url"
                 variant="mono"
                 inputSize="lg"
-                className="bg-paper focus:border-ink focus:bg-white focus:ring-0"
+                className="bg-paper focus:border-ink focus:bg-surface focus:ring-0"
                 autoFocus
                 placeholder="https://example.com"
                 value={url}
@@ -998,7 +998,7 @@ function SyncKeysSection({ canvasId }: { canvasId: string }) {
           </div>
           <div className="relative">
             <Textarea
-              className="resize-none border-line-soft bg-black/[0.04] py-2 pl-2.5 pr-[84px] font-mono text-[11px] leading-normal text-ink-faint focus:border-line focus:text-ink focus:ring-0 md:text-[11px] [word-break:break-all]"
+              className="resize-none border-line-soft bg-ink/[0.04] py-2 pl-2.5 pr-[84px] font-mono text-[11px] leading-normal text-ink-faint focus:border-line focus:text-ink focus:ring-0 md:text-[11px] [word-break:break-all]"
               readOnly
               rows={4}
               value={snippetFor(k.secret)}

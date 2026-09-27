@@ -12,11 +12,14 @@ function initialsOf(name: string) {
     .toUpperCase()
 }
 
+/* the default tile is ink, which turns light in dark mode — its text follows */
+const INK_TILE = 'var(--ink)'
+
 /** Presence tile. Agents wear a squarer badge with a pulse ring and, where we
  *  know the brand, its own colours; people get a round initials disc. */
 function Avatar({
   name,
-  color = 'var(--ink)',
+  color = INK_TILE,
   kind = 'user',
   status,
   owner,
@@ -48,7 +51,7 @@ function Avatar({
       title={`${name}${kind === 'agent' ? (owner ? ` (${owner}'s agent)` : ' (agent)') : ''}${status ? ` — ${status}` : ''}`}
       {...props}
     >
-      <span className="grid place-items-center text-white">
+      <span className={cn('grid place-items-center', tile === INK_TILE ? 'text-on-ink' : 'text-white')}>
         {kind === 'agent' ? <AgentIcon name={name} size={15} color={brand?.fg ?? '#fff'} /> : initialsOf(name)}
       </span>
     </div>

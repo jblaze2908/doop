@@ -269,7 +269,7 @@ function ThemeCssModal({ canvasId, css, onClose }: { canvasId: string; css: stri
           Injected into every frame ahead of its own styles. Use the tokens as var(--…); fonts go in the Fonts row.
         </p>
         <Textarea
-          className="mt-3 min-h-[38dvh] resize-y rounded-[12px] bg-white px-4 py-3.5 font-mono leading-[1.65] focus:ring-0 sm:min-h-[46vh] md:text-[12.5px]"
+          className="mt-3 min-h-[38dvh] resize-y rounded-[12px] bg-surface px-4 py-3.5 font-mono leading-[1.65] focus:ring-0 sm:min-h-[46vh] md:text-[12.5px]"
           autoFocus
           placeholder={'.btn {\n  background: var(--color-ink);\n}'}
           value={draft}

@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import './lib/posthog'
+import './lib/colorScheme'
 import { App } from './App'
 import { initDesktopShell } from './lib/desktop'
 import { TooltipProvider } from './components/ui/tooltip'
