@@ -10,6 +10,8 @@ lists every file in this folder.
   frame inherits; injection order, render-cache stamp, MCP/REST/WS surfaces.
 - [element-inspector.md](element-inspector.md) - Element panel: token pickers, class chips, component
   props and swap, extra spacing/type controls, save-race and undo-conflict fixes.
+- [lean-reads.md](lean-reads.md) - Frame outline, section read and section replace for agents,
+  backed by an offset-preserving HTML parser.
 - [linked-components.md](linked-components.md) - Linked components: custom elements with shadow DOM
   templates shared by every frame; runtime, cascade trap, tombstones, surfaces.
 - [workspaces-billing.md](workspaces-billing.md) - Shared workspaces (org-level canvas access with

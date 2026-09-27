@@ -291,6 +291,22 @@ any public image URL. Source images in this order:
 Never inline images as data: URIs in frame HTML; they bloat every get_frame and
 edit round-trip.
 
+## Lean reads — outline, section, replace
+
+get_frame returns the whole document; on a big frame that is thousands of tokens per
+read. For a change to part of an existing frame:
+
+1. get_frame_outline — one line per element with an @path locator, e.g.
+   2.1 h1.t-display "Every rupee…". [N] marks children hidden by depth; pass from="@2"
+   to expand one.
+2. get_frame_section with an @path or a unique CSS selector — the exact source of that
+   element, nothing else.
+3. edit_frame_html for a find/replace inside it, or replace_frame_section to swap the
+   whole element.
+
+Paths shift when elements are inserted or removed before them, so re-outline after a
+structural edit instead of reusing old paths.
+
 ## Canvas theme — one stylesheet for every frame
 
 A canvas can carry a theme: design tokens (CSS custom properties on :root), Google

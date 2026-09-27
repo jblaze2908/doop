@@ -19,6 +19,7 @@ import { describeInspiration, INSPIRATION_USAGE_NOTE, searchInspiration } from '
 import type { AgentTask, Frame } from '../shared/types.ts'
 import { isThemeEmpty, type CanvasTheme } from '../shared/theme.ts'
 import { liveComponents, templateSlots, type ComponentDef } from '../shared/components.ts'
+import { outlineOf, outlinePath, parseHtml, replaceSource, resolveOne, sourceOf } from './htmlTree.ts'
 import { websiteAccessErrorMessage } from './websiteAccess.ts'
 import { executeGuardedBatch } from './guardedBatch.ts'
 import { runRepoCards } from './githubRecon.ts'
@@ -776,6 +777,40 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'get_frame_outline',
+    description:
+      "A compact outline of a frame's element tree: one line per element with an @path locator (e.g. @2.1), tag, #id, .classes and a text snippet. Much cheaper than get_frame_html when you only need to find or change one part.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        frame_id: { type: 'string' },
+        depth: { type: 'number', description: 'element levels to list, default 3' },
+        from: { type: 'string', description: '@path or CSS selector to outline from' },
+      },
+      required: ['frame_id'],
+    },
+  },
+  {
+    name: 'get_frame_section',
+    description:
+      'The exact source of ONE element (outerHTML as stored), located by an outline @path or a CSS selector that matches exactly one element.',
+    input_schema: {
+      type: 'object',
+      properties: { frame_id: { type: 'string' }, selector: { type: 'string' } },
+      required: ['frame_id', 'selector'],
+    },
+  },
+  {
+    name: 'replace_frame_section',
+    description:
+      'Replace ONE element (its whole outerHTML) with new HTML, located like get_frame_section; every other byte is kept. Empty html deletes it.',
+    input_schema: {
+      type: 'object',
+      properties: { frame_id: { type: 'string' }, selector: { type: 'string' }, html: { type: 'string' } },
+      required: ['frame_id', 'selector', 'html'],
+    },
+  },
+  {
     name: 'edit_frame_html',
     description:
       'Exact find/replace in a frame\'s HTML — the change morphs into the live render. Use for small, targeted changes. "find" must occur exactly once.',
@@ -1232,6 +1267,34 @@ async function execTool(
           `Frame HTML: ${f.html.length} characters. Returning chars ${offset}-${end}.${end < f.html.length ? ` Continue with offset=${end}, or use query for a targeted snippet.` : ''}\n\n${f.html.slice(offset, end)}`,
         )
       }
+      case 'get_frame_outline':
+      case 'get_frame_section':
+      case 'replace_frame_section': {
+        const f = store.getFrame(input.frame_id)
+        if (!f || f.canvasId !== canvasId) return fail('frame not found on this canvas')
+        const raw = block.input as { selector?: unknown; from?: unknown; depth?: unknown; html?: unknown }
+        const root = parseHtml(f.html)
+        if (block.name === 'get_frame_outline') {
+          const start = typeof raw.from === 'string' && raw.from ? resolveOne(root, raw.from) : undefined
+          const depth = typeof raw.depth === 'number' ? Math.min(12, Math.max(1, Math.round(raw.depth))) : 3
+          return ok(outlineOf(root, { depth, ...(start ? { from: start } : {}) }) || '(empty body)')
+        }
+        if (typeof raw.selector !== 'string') return fail('selector must be an @path or a CSS selector')
+        const el = resolveOne(root, raw.selector)
+        if (block.name === 'get_frame_section') return ok(sourceOf(f.html, el))
+        if (typeof raw.html !== 'string') return fail('html must be a string ("" deletes the element)')
+        if (el.implied) return fail(`<${el.tag}> is implied by the parser — replace one of its children`)
+        actions.updateFrame(input.frame_id, { html: replaceSource(f.html, el, raw.html) }, actor)
+        runState.mutatedFrames.add(input.frame_id)
+        runState.verifiedFrames.delete(input.frame_id)
+        let where = `<${el.tag}>`
+        try {
+          where = `@${outlinePath(el)} ${where}`
+        } catch {
+          /* head elements have no outline path */
+        }
+        return ok(`replaced ${where}`)
+      }
       case 'edit_frame_html': {
         const f = store.getFrame(input.frame_id)
         if (!f || f.canvasId !== canvasId) return fail('frame not found on this canvas')
@@ -1242,7 +1305,9 @@ async function execTool(
         if (count === 0) return fail('"find" text not found — call get_frame_html and copy the exact text')
         if (count > 1)
           return fail(`"find" text occurs ${count} times — include more surrounding context to make it unique`)
-        actions.updateFrame(input.frame_id, { html: f.html.replace(input.find, input.replace) }, actor)
+        const replacement = input.replace
+        /* a function replacement: a string one would expand $& / $1 */
+        actions.updateFrame(input.frame_id, { html: f.html.replace(input.find, () => replacement) }, actor)
         runState.mutatedFrames.add(input.frame_id)
         runState.verifiedFrames.delete(input.frame_id)
         return ok('applied')

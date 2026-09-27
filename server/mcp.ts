@@ -23,6 +23,7 @@ import { createImportedWebpageFrame } from './webpageImport.ts'
 import { normalizeImportUrl } from './importer.ts'
 import { websiteAccessErrorMessage } from './websiteAccess.ts'
 import { mentionedRole } from '../shared/agents.ts'
+import { outlineOf, outlinePath, parseHtml, replaceSource, resolveOne, sourceOf } from './htmlTree.ts'
 import {
   isThemeEmpty,
   MAX_THEME_CSS_CHARS,
@@ -51,6 +52,7 @@ You MUST call get_guide({ topic: "doop-instructions" }) once before using other 
 - Creating: create_frame, then stream the design with append_frame_html one complete section at a time (~1–4 KB chunks; start=true on the first, done=true on the last). Each chunk renders the moment it arrives — viewers watch you work.
 - Review: after every create or significant edit you MUST call get_frame_screenshot and fix what looks wrong before moving on.
 - Small edits: edit_frame_html (exact find/replace — the change morphs into the rendered frame in place). Full redesigns: set_frame_html or a new stream. Rename/move/resize: update_frame.
+- Lean reads: get_frame returns the whole document. To change part of an existing frame, call get_frame_outline (one line per element, with @path locators), read the part with get_frame_section, and change it with edit_frame_html or replace_frame_section — never re-read or resend a whole document for a local edit.
 - Images: real imagery makes designs. search_images finds stock photos (you SEE thumbnails and pick), search_icons finds 200k+ UI icons as hotlinkable SVGs, search_logos finds real company logos by brand name or domain — call it once per brand BEFORE writing any logo wall, integration row, press bar or testimonial, and never ship a placeholder tile, "LOGO" text or an invented wordmark in its place, list_backgrounds shows a page of curated hero/section/bento backgrounds (glows, grainy meshes, aurora, painterly scenes) as thumbnails — browse it when a section wants atmosphere rather than defaulting to a flat CSS gradient, judge by eye whether one fits the frame, and draw your own when none does, upload_asset stores your own file (remote file → source_url; local file → local_file=true, returns a curl command) and returns a permanent URL. generate_image makes a new image from a prompt (a full-bleed hero background in the frame's exact palette, illustration, a product render, brand-specific hero art that stock cannot supply) and stores it as a permanent asset — reach for it when search_images cannot deliver the exact visual, or when the human asks for a generated image; it costs the human money or quota, so one considered prompt beats five drafts. Never inline images as data: URIs.
 - Websites: when a request names an existing site or URL — a redesign of it, or "like acme.com" — call import_webpage FIRST so an editable HTML snapshot lands on the canvas. Leave that source frame unchanged and design in a separate frame. view_website is only for read-only inspection when the page should not be added. If Doop cannot capture the site, do not retry with view_website because it uses the same capture path. Use your own browser or web tool and work only from content you actually observe; if that is unavailable, ask the user for screenshots or an HTML export rather than inventing content.
 - Feedback: humans reply to your tasks; their notes arrive inside your tool results as HUMAN FEEDBACK blocks — address them before continuing.
@@ -1703,10 +1705,128 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
       if (count === 0) return err('old_str not found in the frame HTML. Call get_frame to see the current content.')
       if (count > 1)
         return err(`old_str occurs ${count} times — include more surrounding context so it matches exactly once.`)
-      const frame = actions.updateFrame(frame_id, { html: f.html.replace(old_str, new_str) }, actorFrom(agent_name))!
+      /* a function replacement: a string one would expand $& / $1 inside new_str */
+      const frame = actions.updateFrame(
+        frame_id,
+        { html: f.html.replace(old_str, () => new_str) },
+        actorFrom(agent_name),
+      )!
       return withStatusNudge(
         withFeedback(
           textWithNudge({ ok: true, frame: frameSummary(frame) }, REVIEW_NUDGE),
+          frame.canvasId,
+          actorFrom(agent_name),
+        ),
+        frame.canvasId,
+        actorFrom(agent_name),
+      )
+    },
+  )
+
+  server.registerTool(
+    'get_frame_outline',
+    {
+      description:
+        "A compact outline of a frame's element tree — one line per element with an @path locator (e.g. @2.1), tag, #id, .classes and a text snippet — instead of the whole document. Read one element with get_frame_section and change it with replace_frame_section. [N] marks children hidden by depth; pass from to expand one of them.",
+      inputSchema: {
+        frame_id: z.string(),
+        depth: z.number().int().min(1).max(12).optional().describe('element levels to list, default 3'),
+        from: z.string().optional().describe('@path or CSS selector of the element to outline from'),
+        agent_name: agentName.optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ frame_id, depth, from, agent_name }) => {
+      const f = frameFor(frame_id)
+      if (!f) return noFrame(frame_id)
+      arrive(f.canvasId, agent_name)
+      const root = parseHtml(f.html)
+      try {
+        const start = from ? resolveOne(root, from) : undefined
+        const outline = outlineOf(root, { depth: depth ?? 3, ...(start ? { from: start } : {}) })
+        const head = `${f.name} · ${Math.round(f.width)}×${Math.round(f.height)} · ${f.html.length.toLocaleString('en-US')} chars of HTML`
+        return withFeedback(
+          text(`${head}\n${outline || '(empty body)'}`),
+          f.canvasId,
+          agent_name ? actorFrom(agent_name) : undefined,
+        )
+      } catch (e) {
+        return err(e instanceof Error ? e.message : 'bad locator')
+      }
+    },
+  )
+
+  server.registerTool(
+    'get_frame_section',
+    {
+      description:
+        'The exact source of ONE element in a frame (its outerHTML as stored), located by an outline @path ("@2.1") or a CSS selector that matches exactly one element. Far cheaper than get_frame for reading the part you are about to change.',
+      inputSchema: {
+        frame_id: z.string(),
+        selector: z.string().describe('@path from get_frame_outline, or a CSS selector matching one element'),
+        agent_name: agentName.optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ frame_id, selector, agent_name }) => {
+      const f = frameFor(frame_id)
+      if (!f) return noFrame(frame_id)
+      arrive(f.canvasId, agent_name)
+      try {
+        const el = resolveOne(parseHtml(f.html), selector)
+        let at = ''
+        try {
+          at = `@${outlinePath(el)} `
+        } catch {
+          /* head elements have no outline path */
+        }
+        return withFeedback(
+          text(`${at}<${el.tag}>\n${sourceOf(f.html, el)}`),
+          f.canvasId,
+          agent_name ? actorFrom(agent_name) : undefined,
+        )
+      } catch (e) {
+        return err(e instanceof Error ? e.message : 'bad locator')
+      }
+    },
+  )
+
+  server.registerTool(
+    'replace_frame_section',
+    {
+      description:
+        'Replace ONE element of a frame (its whole outerHTML) with new HTML, located like get_frame_section. Every other byte of the document is kept, and the change morphs into the rendered frame in place. Use it for edits bigger than a find/replace but smaller than a rewrite; pass an empty html to delete the element.',
+      inputSchema: {
+        frame_id: z.string(),
+        selector: z.string().describe('@path from get_frame_outline, or a CSS selector matching one element'),
+        html: z.string().describe('Replacement outerHTML for that element ("" deletes it)'),
+        agent_name: agentName,
+      },
+    },
+    async ({ frame_id, selector, html, agent_name }) => {
+      const f = frameFor(frame_id)
+      if (!f) return noFrame(frame_id)
+      let next: string
+      let where: string
+      try {
+        const el = resolveOne(parseHtml(f.html), selector)
+        if (el.implied)
+          return err(`<${el.tag}> is implied by the parser, not written in the source — replace one of its children`)
+        where = `<${el.tag}>`
+        try {
+          where = `@${outlinePath(el)} ${where}`
+        } catch {
+          /* head elements have no outline path */
+        }
+        next = replaceSource(f.html, el, html)
+      } catch (e) {
+        return err(e instanceof Error ? e.message : 'bad locator')
+      }
+      const frame = actions.updateFrame(frame_id, { html: next }, actorFrom(agent_name))
+      if (!frame) return noFrame(frame_id)
+      return withStatusNudge(
+        withFeedback(
+          textWithNudge({ ok: true, replaced: where, htmlChars: frame.html.length }, REVIEW_NUDGE),
           frame.canvasId,
           actorFrom(agent_name),
         ),
