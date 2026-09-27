@@ -809,8 +809,19 @@ export function updateFrame(
       /* a human takes over: cancel any live stream or playback */
       finishStream(frameId, false)
       finishReveal(frameId)
+      broadcast(frame.canvasId, { type: 'frame:updated', frame, actor })
+    } else {
+      /* a drag's drop or a rename: every viewer already has the html */
+      const { html: _html, ...fields } = patch
+      broadcast(frame.canvasId, {
+        type: 'frame:patched',
+        frameId,
+        patch: fields,
+        updatedAt: frame.updatedAt,
+        updatedBy: frame.updatedBy,
+        actor,
+      })
     }
-    broadcast(frame.canvasId, { type: 'frame:updated', frame, actor })
     if (htmlChanged) {
       logActivity(frame.canvasId, actor, `updated the design of “${frame.name}”`, frame.id)
     } else if (patch.name !== undefined && patch.name !== prevName) {

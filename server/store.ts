@@ -397,11 +397,18 @@ class Store {
   ): Frame | undefined {
     const frame = this.getFrame(frameId)
     if (!frame) return undefined
+    /* updatedAt is the frame's part of the render stamp that thumbnail and
+       preview caches key on: a move or rename does not change the render */
+    const rerenders = (['html', 'width', 'height'] as const).some(
+      (k) => patch[k] !== undefined && patch[k] !== frame[k],
+    )
     Object.assign(frame, patch)
-    frame.updatedAt = Date.now()
-    frame.updatedBy = by
+    if (rerenders) {
+      frame.updatedAt = Date.now()
+      frame.updatedBy = by
+    }
     const c = this.canvases.get(frame.canvasId)!
-    c.updatedAt = frame.updatedAt
+    c.updatedAt = Date.now()
     persist.saveFrame(frame) // debounced: streaming appends land as one write per burst
     persist.saveCanvasSoon(c) // likewise: updatedAt moves on every chunk
     return frame

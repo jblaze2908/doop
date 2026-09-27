@@ -161,6 +161,10 @@ export function handle(msg: ServerMessage) {
       /* during a live stream the marching border replaces per-chunk flashes */
       if (msg.actor.clientId !== me && !s.streams[msg.frame.id]) s.flash(msg.frame.id, msg.actor.color)
       break
+    case 'frame:patched':
+      s.patchFrameLocal(msg.frameId, { ...msg.patch, updatedAt: msg.updatedAt, updatedBy: msg.updatedBy })
+      if (msg.actor.clientId !== me && !s.streams[msg.frameId]) s.flash(msg.frameId, msg.actor.color)
+      break
     case 'frame:streaming':
       s.setStream(msg.frameId, msg.active ? { name: msg.actor.name, color: msg.actor.color } : null)
       break
