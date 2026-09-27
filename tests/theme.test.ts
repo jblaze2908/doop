@@ -7,6 +7,7 @@ import {
   normalizeToken,
   sanitizeFontFaces,
   spliceTheme,
+  themeFontFaces,
   themeOptedOut,
   withoutTheme,
   type CanvasTheme,
@@ -175,5 +176,36 @@ describe('resolveFonts', () => {
       }),
     )
     expect(await resolveFonts(['Inter:wght@400'])).toEqual({ fontFaces: '', unresolved: ['Inter'] })
+  })
+})
+
+describe('themeFontFaces', () => {
+  const faces = `@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/geist/v5/latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131;
+}
+@font-face { font-family: "Mono"; src: url('https://fonts.gstatic.com/s/mono/a.woff2') format('woff2'); }
+@font-face { font-family: 'NoSource'; font-weight: 400; }`
+
+  it('reads family, first url and descriptors, and skips blocks without a source', () => {
+    expect(themeFontFaces(faces)).toEqual([
+      {
+        family: 'Geist',
+        url: 'https://fonts.gstatic.com/s/geist/v5/latin.woff2',
+        descriptors: { style: 'normal', weight: '100 900', display: 'swap', unicodeRange: 'U+0000-00FF, U+0131' },
+      },
+      { family: 'Mono', url: 'https://fonts.gstatic.com/s/mono/a.woff2', descriptors: {} },
+    ])
+  })
+
+  it('leaves the rules out of the live-frame stylesheet only', () => {
+    const theme = { tokens: [], css: 'p{}', fonts: [], fontFaces: faces, version: 1, updatedAt: 1, updatedBy: 'x' }
+    expect(compileTheme(theme)).toContain('@font-face')
+    expect(compileTheme(theme, false)).not.toContain('@font-face')
+    expect(compileTheme(theme, false)).toContain('p{}')
   })
 })

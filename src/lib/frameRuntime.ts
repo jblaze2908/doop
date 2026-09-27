@@ -115,6 +115,28 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
     shareTheme()
   }
 
+  /* Theme fonts arrive from the parent as bytes (one fetch for every frame:
+     this document's own requests have an opaque origin and a cache of their
+     own). FontFaces are document-wide, so component shadow roots get them too. */
+  var themeFonts = []
+  function setFonts(list) {
+    for (var i = 0; i < themeFonts.length; i++) document.fonts.delete(themeFonts[i])
+    themeFonts = []
+    if (themeOff(document.documentElement)) return
+    for (var j = 0; j < list.length; j++) {
+      var f = list[j]
+      if (!f || typeof f.family !== 'string') continue
+      var src = f.data instanceof ArrayBuffer ? f.data : typeof f.url === 'string' ? 'url(' + JSON.stringify(f.url) + ')' : null
+      if (!src) continue
+      try {
+        var face = new FontFace(f.family, src, f.descriptors || {})
+        face.loaded.catch(function () {})
+        document.fonts.add(face)
+        themeFonts.push(face)
+      } catch (e) {}
+    }
+  }
+
   /* component shadow roots see the theme only through their own sheet */
   function shareTheme() {
     doopComponents.setTheme(themeOff(document.documentElement) ? '' : themeCss)
@@ -557,6 +579,7 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
       parent.postMessage({ type: 'doop:style-result', reqId: d.reqId, ok: applied, info: applied ? inspect(d.selector) : null }, '*')
     }
     if (d.type === 'doop:theme' && typeof d.css === 'string') setTheme(d.css)
+    if (d.type === 'doop:fonts' && Array.isArray(d.fonts)) setFonts(d.fonts)
     if (d.type === 'doop:components' && Array.isArray(d.defs)) doopComponents.set(d.defs)
     if (d.type === 'doop:classes' && Array.isArray(d.classes)) {
       var classed = applyClasses(d.selector, d.classes)

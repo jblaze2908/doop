@@ -146,20 +146,61 @@ export function sanitizeFontFaces(css: string): string {
 }
 
 const compiled = new WeakMap<CanvasTheme, string>()
+const compiledNoFonts = new WeakMap<CanvasTheme, string>()
 
 /** The stylesheet every frame inherits: tokens on :root, font faces, then the
- *  shared CSS. Memoized per theme object — a theme is replaced, never mutated. */
-export function compileTheme(theme: CanvasTheme | undefined): string {
+ *  shared CSS. Memoized per theme object — a theme is replaced, never mutated.
+ *  `withFontFaces: false` is the live-frame variant: the parent registers the
+ *  faces itself (see themeFontFaces), so each iframe need not refetch them. */
+export function compileTheme(theme: CanvasTheme | undefined, withFontFaces = true): string {
   if (!theme) return ''
-  let css = compiled.get(theme)
+  const cache = withFontFaces ? compiled : compiledNoFonts
+  let css = cache.get(theme)
   if (css === undefined) {
     const root = theme.tokens.length
       ? `:root {\n${theme.tokens.map((t) => `  ${t.name}: ${t.value};`).join('\n')}\n}`
       : ''
-    css = [root, theme.fontFaces, theme.css].filter(Boolean).join('\n')
-    compiled.set(theme, css)
+    css = [root, withFontFaces ? theme.fontFaces : '', theme.css].filter(Boolean).join('\n')
+    cache.set(theme, css)
   }
   return css
+}
+
+export interface ThemeFontFace {
+  family: string
+  /** the first url() in src, unquoted */
+  url: string
+  descriptors: { style?: string; weight?: string; stretch?: string; unicodeRange?: string; display?: FontDisplay }
+}
+
+const DESCRIPTOR: Record<string, keyof ThemeFontFace['descriptors']> = {
+  'font-style': 'style',
+  'font-weight': 'weight',
+  'font-stretch': 'stretch',
+  'unicode-range': 'unicodeRange',
+  'font-display': 'display',
+}
+
+/** The theme's @font-face rules as FontFace constructor arguments. Blocks
+ *  without a url() source are skipped; they could not have loaded anyway. */
+export function themeFontFaces(fontFaces: string): ThemeFontFace[] {
+  const out: ThemeFontFace[] = []
+  for (const [, body = ''] of fontFaces.matchAll(/@font-face\s*\{([^{}]*)\}/g)) {
+    let family = ''
+    let url = ''
+    const descriptors: ThemeFontFace['descriptors'] = {}
+    for (const decl of body.split(';')) {
+      const i = decl.indexOf(':')
+      if (i < 0) continue
+      const prop = decl.slice(0, i).trim().toLowerCase()
+      const value = decl.slice(i + 1).trim()
+      if (prop === 'font-family') family = value.replace(/^['"]|['"]$/g, '')
+      else if (prop === 'src') url = /url\(\s*['"]?([^'")\s]+)['"]?\s*\)/.exec(value)?.[1] ?? ''
+      else if (DESCRIPTOR[prop]) (descriptors as Record<string, string>)[DESCRIPTOR[prop]!] = value
+    }
+    if (family && url) out.push({ family, url, descriptors })
+  }
+  return out
 }
 
 /** A frame opts out with `<html data-doop-theme="off">` (imports, frames that ship their own CSS). */

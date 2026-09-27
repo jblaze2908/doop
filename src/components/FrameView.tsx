@@ -9,7 +9,8 @@ import { sendWs } from '../lib/ws'
 import { throttle } from '../lib/throttle'
 import { getIdentity } from '../lib/identity'
 import { FRAME_BOOTSTRAP } from '../lib/frameRuntime'
-import { useComponentDefs, useThemeCss } from '../lib/theme'
+import { useComponentDefs, useFrameThemeCss } from '../lib/theme'
+import { themeFonts, type FrameFont } from '../lib/frameFonts'
 import { recordCreate, recordUpdate, recordUpdates, trackSave } from '../lib/history'
 import { snapFrame } from '../lib/snap'
 import { gesture } from '../lib/gesture'
@@ -322,11 +323,24 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
     return () => unregisterFrameWindow(frame.id, win)
   }, [runtimeReady, frame.id])
   /* declared before the html post so a fresh frame paints themed from the start */
-  const themeCss = useThemeCss()
+  const themeCss = useFrameThemeCss()
   useEffect(() => {
     if (!runtimeReady) return
     iframeRef.current?.contentWindow?.postMessage({ type: 'doop:theme', css: themeCss }, '*')
   }, [runtimeReady, themeCss])
+  const theme = useStore((s) => s.canvas?.theme)
+  useEffect(() => {
+    if (!runtimeReady) return
+    let live = true
+    const post = (fonts: FrameFont[]) => {
+      if (live) iframeRef.current?.contentWindow?.postMessage({ type: 'doop:fonts', fonts }, '*')
+    }
+    if (theme) void themeFonts(theme).then(post)
+    else post([])
+    return () => {
+      live = false
+    }
+  }, [runtimeReady, theme])
   const componentDefs = useComponentDefs()
   useEffect(() => {
     if (!runtimeReady) return

@@ -8,6 +8,15 @@ export function useThemeCss(): string {
   return compileTheme(useStore((s) => s.canvas?.theme))
 }
 
+/** The same, minus @font-face: live frames get the faces as bytes instead
+ *  (lib/frameFonts), fetched once by the page rather than once per iframe. */
+export function useFrameThemeCss(): string {
+  return compileTheme(
+    useStore((s) => s.canvas?.theme),
+    false,
+  )
+}
+
 /** The open canvas's component definitions as frame runtimes take them.
  *  runtimeDefs memoizes per definitions array, so this is stable until a
  *  definition changes. */
