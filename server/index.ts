@@ -145,21 +145,54 @@ interface Conn {
 }
 
 const conns = new Map<WebSocket, Conn>()
+/* canvasId -> its connections: a broadcast (every cursor tick, every stream
+   chunk) walks one room, not every socket on the server */
+const rooms = new Map<string, Set<Conn>>()
+const NO_CONNS: ReadonlySet<Conn> = new Set()
 
-function room(canvasId: string): Conn[] {
-  return [...conns.values()].filter((c) => c.canvasId === canvasId)
+function room(canvasId: string): ReadonlySet<Conn> {
+  return rooms.get(canvasId) ?? NO_CONNS
 }
 
+function addConn(conn: Conn) {
+  dropConn(conn.ws) // a socket re-joining another canvas leaves the first room
+  conns.set(conn.ws, conn)
+  let r = rooms.get(conn.canvasId)
+  if (!r) rooms.set(conn.canvasId, (r = new Set()))
+  r.add(conn)
+}
+
+function dropConn(ws: WebSocket): Conn | undefined {
+  const conn = conns.get(ws)
+  if (!conn) return undefined
+  conns.delete(ws)
+  const r = rooms.get(conn.canvasId)
+  r?.delete(conn)
+  if (r?.size === 0) rooms.delete(conn.canvasId)
+  return conn
+}
+
+/* Superseded by the next one within ~50 ms, so a viewer that is behind can
+   skip them; everything else must arrive, or the viewer resyncs. */
+const LOSSY = new Set<ServerMessage['type']>(['cursor', 'viewport', 'frame:drag'])
+const LOSSY_BACKLOG = 256 * 1024
+/* a socket this far behind is stalled: close it, and its reconnect gets a fresh init */
+const MAX_BACKLOG = 16 * 1024 * 1024
+
 function send(ws: WebSocket, msg: ServerMessage | string) {
-  if (ws.readyState === WebSocket.OPEN) ws.send(typeof msg === 'string' ? msg : JSON.stringify(msg))
+  if (ws.readyState !== WebSocket.OPEN) return
+  if (ws.bufferedAmount > MAX_BACKLOG) return ws.terminate()
+  ws.send(typeof msg === 'string' ? msg : JSON.stringify(msg))
 }
 
 /* serialized once per broadcast, not once per viewer: a stream chunk carries
    the frame, and a room can hold many viewers */
 function broadcast(canvasId: string, msg: ServerMessage, excludeClientId?: string) {
   let json: string | undefined
+  const lossy = LOSSY.has(msg.type)
   for (const c of room(canvasId)) {
     if (excludeClientId && c.presence.clientId === excludeClientId) continue
+    if (lossy && c.ws.bufferedAmount > LOSSY_BACKLOG) continue
     send(c.ws, (json ??= JSON.stringify(msg)))
   }
 }
@@ -230,8 +263,9 @@ setInterval(() => {
         actions.endAgentTasks(canvasId, p.name) // an agent that went silent is no longer "working on" anything
       }
     }
+    if (byName.size === 0) agentPresences.delete(canvasId)
   }
-}, 5000)
+}, 5000).unref()
 
 actions.wire(broadcast, agentTouch)
 
@@ -1741,9 +1775,45 @@ if (process.env.NODE_ENV === 'production') {
 /* ------------------------------------------------- websocket */
 
 const server = http.createServer(app)
-const wss = new WebSocketServer({ server, path: '/ws' })
+const wss = new WebSocketServer({
+  server,
+  path: '/ws',
+  /* clients only send joins, cursors, cameras and drags */
+  maxPayload: 64 * 1024,
+  /* compresses the init snapshot (every frame's HTML) and whole-frame
+     updates; no context takeover keeps zlib memory per socket bounded, and
+     the threshold leaves cursor ticks and stream deltas uncompressed */
+  perMessageDeflate: {
+    threshold: 4096,
+    serverNoContextTakeover: true,
+    clientNoContextTakeover: true,
+    zlibDeflateOptions: { level: 6, memLevel: 8 },
+  },
+})
+
+/* A socket whose peer vanished without a close (sleep, network drop) would
+   stay in its room forever, receiving every broadcast. */
+const alive = new WeakSet<WebSocket>()
+setInterval(() => {
+  for (const ws of wss.clients) {
+    if (!alive.has(ws)) {
+      ws.terminate()
+      continue
+    }
+    alive.delete(ws)
+    ws.ping()
+  }
+}, 30_000).unref()
+
+/* Clients throttle cursor/camera/drag to 20 Hz each; a flood beyond that is
+   amplified to every viewer in the room, so it is dropped here. */
+const LOSSY_PER_SECOND = 90
 
 wss.on('connection', (ws, upgradeReq) => {
+  alive.add(ws)
+  ws.on('pong', () => alive.add(ws))
+  let windowStart = 0
+  let windowCount = 0
   /* the session cookie rides the upgrade request; resolve it once */
   const sessionPromise = auth.api.getSession({ headers: fromNodeHeaders(upgradeReq.headers) }).catch(() => null)
 
@@ -1783,10 +1853,8 @@ wss.on('connection', (ws, upgradeReq) => {
         activeFrameId: null,
       }
       const silent = !!(session.session as { impersonatedBy?: string | null }).impersonatedBy
-      conns.set(ws, { ws, canvasId: msg.canvasId, presence, silent })
-      const others = room(msg.canvasId)
-        .filter((c) => c.ws !== ws && !c.silent)
-        .map((c) => c.presence)
+      addConn({ ws, canvasId: msg.canvasId, presence, silent })
+      const others = [...room(msg.canvasId)].filter((c) => c.ws !== ws && !c.silent).map((c) => c.presence)
       const agents = [...(agentPresences.get(msg.canvasId)?.values() ?? [])]
       send(ws, {
         type: 'init',
@@ -1819,6 +1887,14 @@ wss.on('connection', (ws, upgradeReq) => {
     if (!conn) return
     if (conn.silent) return // view-as connections receive updates but never emit
     const { canvasId, presence } = conn
+    if (msg.type === 'cursor' || msg.type === 'viewport' || msg.type === 'frame:drag') {
+      const now = Date.now()
+      if (now - windowStart >= 1000) {
+        windowStart = now
+        windowCount = 0
+      }
+      if (++windowCount > LOSSY_PER_SECOND) return
+    }
 
     switch (msg.type) {
       case 'cursor':
@@ -1857,9 +1933,8 @@ wss.on('connection', (ws, upgradeReq) => {
   })
 
   ws.on('close', () => {
-    const conn = conns.get(ws)
+    const conn = dropConn(ws)
     if (!conn) return
-    conns.delete(ws)
     if (conn.silent) return // never announced a join, so nothing to leave
     broadcast(conn.canvasId, { type: 'presence:leave', clientId: conn.presence.clientId })
   })
