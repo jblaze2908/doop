@@ -27,11 +27,6 @@ export const canvases = pgTable('canvases', {
   ownerId: text('owner_id'),
   /** 'edit' | 'none'; null = 'none' (private — link sharing is opt-in) */
   linkAccess: text('link_access'),
-  /** unused since the community gallery was removed; kept until a migration drops them */
-  publishedAt: bigint('published_at', { mode: 'number' }),
-  description: text('description'),
-  category: text('category'),
-  copyCount: integer('copy_count').notNull().default(0),
   /** the shared workspace this canvas lives in; null = the owner's personal
    *  space. Every workspace member can open a workspace canvas. */
   workspaceId: text('workspace_id'),
@@ -49,17 +44,6 @@ export const workspaces = pgTable('workspaces', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   ownerId: text('owner_id').notNull(),
-  /** status..billingEventAt: the Stripe subscription mirror, unused since
-   *  billing was removed; kept until a migration drops them */
-  status: text('status').notNull().default('inactive'),
-  plan: text('plan'),
-  interval: text('interval'),
-  seats: integer('seats').notNull().default(0),
-  stripeCustomerId: text('stripe_customer_id'),
-  stripeSubscriptionId: text('stripe_subscription_id'),
-  currentPeriodEnd: bigint('current_period_end', { mode: 'number' }),
-  cancelAtPeriodEnd: boolean('cancel_at_period_end').notNull().default(false),
-  billingEventAt: bigint('billing_event_at', { mode: 'number' }),
   createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
 })
@@ -184,27 +168,6 @@ export const syncEdges = pgTable(
   (t) => [primaryKey({ columns: [t.keyId, t.fromPage, t.toPage] })],
 )
 
-/** Unused since the GitHub import was removed; kept until a migration drops
- *  it. Rows may still hold PATs — treat them as secrets. */
-export const githubConnections = pgTable(
-  'github_connections',
-  {
-    id: text('id').primaryKey(),
-    canvasId: text('canvas_id').notNull(),
-    /** "owner/name" */
-    repo: text('repo').notNull(),
-    branch: text('branch').notNull(),
-    token: text('token'),
-    installationId: text('installation_id'),
-    /** live deployment of this repo; enables the capture lane */
-    deployUrl: text('deploy_url'),
-    createdBy: text('created_by').notNull(),
-    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
-    lastSyncedAt: bigint('last_synced_at', { mode: 'number' }),
-  },
-  (t) => [index('github_connections_canvas_idx').on(t.canvasId)],
-)
-
 export const tasks = pgTable(
   'tasks',
   {
@@ -221,15 +184,6 @@ export const tasks = pgTable(
     claimedAt: bigint('claimed_at', { mode: 'number' }),
     failedAt: bigint('failed_at', { mode: 'number' }),
     failureReason: text('failure_reason'),
-    /** pipeline..scope: built-in agent and GitHub card routing, unused since
-     *  those were removed; kept until a migration drops them */
-    pipeline: text('pipeline'),
-    stage: integer('stage'),
-    attachments: text('attachments'),
-    queuedByUserId: text('queued_by_user_id'),
-    kind: text('kind'),
-    payload: text('payload'),
-    scope: text('scope'),
     /** comma-joined ids of the frames edited while the task was open, most recent last */
     frameIds: text('frame_ids'),
   },
@@ -243,10 +197,7 @@ export const feedback = pgTable(
     taskId: text('task_id').notNull(),
     canvasId: text('canvas_id').notNull(),
     agentName: text('agent_name').notNull(),
-    /** unused since the built-in agent was removed (with from_user_id) */
-    targetAgent: text('target_agent'),
     fromName: text('from_name').notNull(),
-    fromUserId: text('from_user_id'),
     text: text('text').notNull(),
     at: bigint('at', { mode: 'number' }).notNull(),
     deliveredAt: bigint('delivered_at', { mode: 'number' }),
@@ -267,8 +218,6 @@ export const comments = pgTable(
     selector: text('selector').notNull(),
     snippet: text('snippet').notNull(),
     fromName: text('from_name').notNull(),
-    /** unused since the built-in agent was removed */
-    fromUserId: text('from_user_id'),
     text: text('text').notNull(),
     at: bigint('at', { mode: 'number' }).notNull(),
     forAgent: boolean('for_agent').notNull().default(false),
@@ -408,27 +357,6 @@ export const decisions = pgTable(
   (t) => [index('decisions_canvas_idx').on(t.canvasId)],
 )
 
-/** Unused since the distiller was removed (rows are only deleted with their
- *  canvas); kept until a migration drops it. */
-export const memoryProposals = pgTable(
-  'memory_proposals',
-  {
-    id: text('id').primaryKey(),
-    canvasId: text('canvas_id').notNull(),
-    guideName: text('guide_name').notNull(),
-    guideTitle: text('guide_title'),
-    rule: text('rule').notNull(),
-    rationale: text('rationale').notNull(),
-    /** comma-joined decision ids */
-    basedOn: text('based_on').notNull(),
-    at: bigint('at', { mode: 'number' }).notNull(),
-    status: text('status').notNull(),
-    resolvedBy: text('resolved_by'),
-    resolvedAt: bigint('resolved_at', { mode: 'number' }),
-  },
-  (t) => [index('memory_proposals_canvas_idx').on(t.canvasId)],
-)
-
 export const activity = pgTable(
   'activity',
   {
@@ -443,37 +371,6 @@ export const activity = pgTable(
   },
   (t) => [index('activity_canvas_idx').on(t.canvasId)],
 )
-
-/** Unused since the built-in agent's free-tier meter was removed; kept until
- *  a migration drops it. */
-export const residentUsage = pgTable('resident_usage', {
-  userId: text('user_id').primaryKey(),
-  used: integer('used').notNull().default(0),
-  updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
-})
-
-/** Unused since the built-in agent was removed; kept until a migration drops
- *  it. Rows still hold ChatGPT OAuth tokens and API keys — as sensitive as a
- *  password; never read them out. */
-export const modelAccounts = pgTable('model_accounts', {
-  userId: text('user_id').primaryKey(),
-  /** 'chatgpt' (subscription, OAuth) | 'openai-key' (pay-as-you-go API key) */
-  kind: text('kind').notNull(),
-  /** chatgpt: the ChatGPT account the tokens are scoped to */
-  accountId: text('account_id'),
-  /** display only — whose subscription this is, and which plan */
-  email: text('email'),
-  plan: text('plan'),
-  accessToken: text('access_token'),
-  refreshToken: text('refresh_token'),
-  /** epoch ms the access token expires; refreshed ahead of this */
-  expiresAt: bigint('expires_at', { mode: 'number' }),
-  apiKey: text('api_key'),
-  /** the model tier this user picked; null = the server default */
-  model: text('model'),
-  connectedAt: bigint('connected_at', { mode: 'number' }).notNull(),
-  updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
-})
 
 /* The curated background library behind search_backgrounds
    (server/backgrounds.ts). Bytes live in object storage under bg/<id>.webp
@@ -495,71 +392,4 @@ export const backgrounds = pgTable('backgrounds', {
   /** off = kept but hidden from search; new uploads without tags start off */
   enabled: boolean('enabled').notNull().default(true),
   createdAt: bigint('created_at', { mode: 'number' }).notNull(),
-})
-
-/** Unused since the Meta integration was removed; kept until a migration
- *  drops it. Rows still hold access tokens — treat them as secrets. */
-export const integrations = pgTable(
-  'integrations',
-  {
-    id: text('id').primaryKey(),
-    userId: text('user_id').notNull(),
-    /** 'meta' */
-    provider: text('provider').notNull(),
-    accessToken: text('access_token').notNull(),
-    /** epoch ms the token expires; null = the provider said it doesn't */
-    expiresAt: bigint('expires_at', { mode: 'number' }),
-    /** the provider-side identity the token belongs to — display only */
-    accountName: text('account_name'),
-    /** what the connection unlocks: Meta ad accounts the user may pull from */
-    accounts: jsonb('accounts').$type<{ id: string; name: string }[]>().notNull(),
-    connectedAt: bigint('connected_at', { mode: 'number' }).notNull(),
-    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
-  },
-  (t) => [uniqueIndex('integrations_user_provider_idx').on(t.userId, t.provider)],
-)
-
-/** Unused since automations were removed; kept until a migration drops it. */
-export const automations = pgTable(
-  'automations',
-  {
-    id: text('id').primaryKey(),
-    ownerId: text('owner_id').notNull(),
-    name: text('name').notNull(),
-    enabled: boolean('enabled').notNull().default(true),
-    schedule: jsonb('schedule').$type<unknown>().notNull(),
-    steps: jsonb('steps').$type<unknown[]>().notNull(),
-    /** when the scheduler fires it next; null while disabled or incomplete */
-    nextRunAt: bigint('next_run_at', { mode: 'number' }),
-    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
-    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
-  },
-  (t) => [index('automations_owner_idx').on(t.ownerId), index('automations_next_run_idx').on(t.nextRunAt)],
-)
-
-/** Unused since automations were removed; kept until a migration drops it. */
-export const automationRuns = pgTable(
-  'automation_runs',
-  {
-    id: text('id').primaryKey(),
-    automationId: text('automation_id').notNull(),
-    startedAt: bigint('started_at', { mode: 'number' }).notNull(),
-    endedAt: bigint('ended_at', { mode: 'number' }),
-    /** 'running' | 'ok' | 'failed' */
-    status: text('status').notNull(),
-    summary: text('summary'),
-    error: text('error'),
-    canvasId: text('canvas_id'),
-    /** 'reconnect' when the fix is re-authorising an integration */
-    failure: text('failure'),
-  },
-  (t) => [index('automation_runs_automation_idx').on(t.automationId)],
-)
-
-/** Unused since the built-in agent's local Claude runner was removed; kept
- *  until a migration drops it. */
-export const localAgentPreferences = pgTable('local_agent_preferences', {
-  userId: text('user_id').primaryKey(),
-  enabled: boolean('enabled').notNull().default(false),
-  model: text('model').notNull().default('default'),
 })
