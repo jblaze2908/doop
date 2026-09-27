@@ -8,6 +8,8 @@ lists every file in this folder.
 
 - [canvas-theme.md](canvas-theme.md) - Canvas theme: tokens, Google Fonts and shared CSS every
   frame inherits; injection order, render-cache stamp, MCP/REST/WS surfaces.
+- [code-export.md](code-export.md) - Frame → React files (components, theme CSS, page) or one
+  self-contained HTML document.
 - [element-inspector.md](element-inspector.md) - Element panel: token pickers, class chips, component
   props and swap, extra spacing/type controls, save-race and undo-conflict fixes.
 - [lean-reads.md](lean-reads.md) - Frame outline, section read and section replace for agents,

@@ -425,6 +425,16 @@ ${DESIGN_QUALITY}
   you actually observe; otherwise ask the user for screenshots or an HTML export instead
   of inventing the page.
 
+## Exporting frames as code
+
+export_frame_code turns a frame into source files. target "react" (default) gives a page
+component (default export), one components/<Name>.tsx per linked component the page uses
+(props for attributes, props or children for slots), the canvas theme as
+styles/tokens.css and styles/theme.css, and the frame's own CSS — plain CSS, no framework.
+target "html" gives one self-contained index.html, exactly what doop renders. Write the
+files as they are; warnings name anything that could not be carried over (scripts, inline
+event handlers).
+
 ## Exporting frames as images
 
 Every frame response includes an image_url — a public, hotlinkable render of the frame's

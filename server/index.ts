@@ -11,6 +11,7 @@ import { WebSocketServer, WebSocket } from 'ws'
 import { store } from './store.ts'
 import { getImage } from './previews.ts'
 import * as actions from './actions.ts'
+import { exportFrameCode } from './exportCode.ts'
 import { canAccessCanvas, canManageCanvas, hasDurableCanvasAccess, isAdmin } from './access.ts'
 import { auth, initAuth, syncAdmins, getUserName, PUBLIC_ORIGIN, loginProvidersConfig } from './auth.ts'
 import { adminRouter } from './admin.ts'
@@ -1363,6 +1364,15 @@ app.patch('/api/frames/:id', (req, res) => {
   const frame = actions.updateFrame(req.params.id, clean, actor)
   if (!frame) return res.status(404).json({ error: 'frame not found' })
   res.json(frame)
+})
+
+/* frame → code: React files (default) or one self-contained HTML document */
+app.get('/api/frames/:id/export', (req, res) => {
+  const frame = requireFrame(req, res, req.params.id)
+  if (!frame) return
+  const canvas = store.getCanvas(frame.canvasId)
+  if (!canvas) return res.status(404).json({ error: 'canvas not found' })
+  res.json(exportFrameCode(frame, canvas, req.query.target === 'html' ? 'html' : 'react'))
 })
 
 app.post('/api/frames/:id/append', (req, res) => {

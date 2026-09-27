@@ -24,6 +24,7 @@ import { normalizeImportUrl } from './importer.ts'
 import { websiteAccessErrorMessage } from './websiteAccess.ts'
 import { mentionedRole } from '../shared/agents.ts'
 import { findText, outlineOf, outlinePath, parseHtml, replaceSource, resolveOne, sourceOf } from './htmlTree.ts'
+import { exportFrameCode } from './exportCode.ts'
 import {
   isThemeEmpty,
   MAX_THEME_CSS_CHARS,
@@ -1148,6 +1149,29 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
         height: f.height * 2,
         note: 'Public URL, no auth needed. To publish: fetch the URL and upload the bytes to the target platform (e.g. WordPress POST /wp/v2/media), or hotlink it directly — it always shows the current design.',
       })
+    },
+  )
+
+  server.registerTool(
+    'export_frame_code',
+    {
+      title: 'Export frame as code',
+      description:
+        'Export a frame as source files. target "react" (default): a page component (<Frame>.tsx, default export) that imports one components/<Name>.tsx per linked component it uses, the canvas theme as styles/tokens.css and styles/theme.css, and the frame\'s own CSS — plain CSS, no framework. target "html": one self-contained index.html, exactly what doop renders. Write the files into the project as they are; warnings list anything that could not be carried over (scripts, inline event handlers).',
+      inputSchema: {
+        frame_id: z.string(),
+        target: z.enum(['react', 'html']).optional().describe('default react'),
+        agent_name: agentName.optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ frame_id, target, agent_name }) => {
+      const f = frameFor(frame_id)
+      if (!f) return noFrame(frame_id)
+      const c = store.getCanvas(f.canvasId)
+      if (!c) return noFrame(frame_id)
+      arrive(f.canvasId, agent_name)
+      return text(exportFrameCode(f, c, target ?? 'react'))
     },
   )
 
