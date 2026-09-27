@@ -7,9 +7,7 @@ import { AGENT_ROLES } from '../shared/agents.ts'
 
 export const GUIDE_TOPICS = ['doop-instructions'] as const
 
-/** The taste doctrine every design surface shares. The MCP guide serves it to
- *  external agents and the resident system prompt embeds it verbatim, so the
- *  two cannot drift apart. */
+/** The taste doctrine the MCP guide serves to connected agents. */
 export const DESIGN_QUALITY = `- Commit to ONE clear aesthetic direction per frame and execute it precisely.
   Intentionality beats intensity; a refined minimal frame and a maximal one are both good
   when the choice is deliberate.
@@ -33,14 +31,13 @@ export const DESIGN_QUALITY = `- Commit to ONE clear aesthetic direction per fra
   content needs a design tool as an example, it is Doop — never a competitor.
 - Logos are real, never placeholders. Every slot that shows a company mark — "trusted by"
   walls, integration and "works with" rows, payment methods, press bars, app-store
-  badges, the company beside a testimonial — gets that company's actual logo fetched
-  with search_logos (one call per brand, by domain). Choose real, recognizable brands
-  that fit the product's audience instead of inventing "Acme" or "Globex". No gray
-  tiles, no "LOGO" text, no initials-in-a-circle, no hand-drawn brand marks.`
+  badges, the company beside a testimonial — gets that company's actual logo, uploaded
+  with upload_asset from a URL you verified (or a file your human gave you). Choose
+  real, recognizable brands that fit the product's audience instead of inventing "Acme"
+  or "Globex". No gray tiles, no "LOGO" text, no initials-in-a-circle, no hand-drawn
+  brand marks.`
 
-/** The brief-first ritual with its inspiration-retrieval mandate. Shared by the
- *  MCP guide and the resident system prompt (both toolsets expose
- *  search_inspiration, set_status and save_decision) so the ritual cannot drift. */
+/** The brief-first ritual with its inspiration-retrieval mandate. */
 export const DESIGN_BRIEF = `Before creating frames on a canvas whose style is not already established, commit to a
 brief. It is part of the deliverable, not private scratch work:
 
@@ -78,18 +75,17 @@ your edits render for them the moment you make them, your presence appears under
 agent_name, and every action lands in a visible activity feed. Work like a considerate
 colleague, not a batch job.
 
-## The Doop Agent
+## Comments and @mentions
 
-Every canvas has a built-in Doop Agent: a set of roles that live in the server and pick
-work up on their own. Humans queue board cards addressed to them, and can route a card
-through several in order — design, then copy, then brand, then accessibility:
+Humans pin comments to elements inside frames. A comment that @mentions one of these
+roles is a request for an agent — get_comments shows it with forAgent: true and the
+role's name in targetAgent:
 
 ${AGENT_ROLES.map((r) => `- **${r.name}** (@${r.id}) — ${r.blurb}`).join('\n')}
 
-They only take work addressed to them: a board card at their stage, an element comment
-that @mentions them, or feedback on a task they ran. Anything left unaddressed is open
-to you. If a human asks you for something one of these roles owns, just do it — the
-routing is for their benefit, not a lock on your work.
+Treat the role as the brief for the request: a comment for @a11y wants an accessibility
+pass on that element, @copy wants the words fixed. If a human asks you to handle their
+comments, these are the ones to pick up.
 
 Use get_comments({ canvas_id }) to read element-pinned comments and replies, including
 their frame, selector, snippet, author, thread links, and claim/failure/resolution state.
@@ -98,12 +94,10 @@ conversation context; include_resolved: false returns only unresolved entries. T
 is newest first and covers the retained history (up to 100 entries per canvas).
 
 Answer a thread with reply_to_comment({ canvas_id, comment_id, text, agent_name }) — the
-reply inherits the root's element anchor, so an @mention reaches the resident agent with
-the same context the conversation is about. Close the thread with resolve_comment once the
+reply inherits the root's element anchor. Close the thread with resolve_comment once the
 request is carried out; resolving an @mention thread also records the exchange in the
-canvas Memory. Writing is metered only when a reply @mentions a resident role, exactly
-like a comment left in the browser. Reading does not claim work or resolve it; task
-feedback is separate (get_feedback).
+canvas Memory. Reading does not claim work or resolve it; task feedback is separate
+(get_feedback).
 
 ## Narrate your work — set_status
 
@@ -152,7 +146,7 @@ and fix real issues before moving on:
 - **Realism**: lorem ipsum or "Item 1 / Item 2" content — replace with plausible, specific
   copy (invented product names, believable numbers, human sentences).
 - **Logos**: any placeholder brand mark (gray tile, "LOGO", initials, an invented company
-  wordmark) still in the frame — replace it with a real logo from search_logos.
+  wordmark) still in the frame — replace it with the company's real logo.
 
 Prefer targeted fixes over rewrites. Never delete and restart a mostly-good frame — the
 humans watching lose work they may have been reacting to.
@@ -190,18 +184,11 @@ Viewers watch designs assemble live. Stream with append_frame_html:
   component 480×360, square social post 640×640. Set width/height on create_frame, or
   adjust later with update_frame.
 
-## Images — search first, then upload
+## Images — source, then upload
 
 Real imagery is what separates an appealing design from a wireframe. Frames can load
 any public image URL. Source images in this order:
 
-- **Photography — search_images.** Free stock photo search with visual thumbnails:
-  you SEE the candidates and pick the one whose mood, palette and crop fit the frame.
-  Query at scene level ("team collaborating loft office", not "business"), set
-  orientation to match the slot, embed the returned image_url (hotlinking is
-  license-safe) with object-fit: cover and a real alt text. For an image the design
-  will depend on long-term, pass image_url to upload_asset source_url for a permanent
-  copy on this origin.
 - **Backgrounds — list_backgrounds.** A curated library of premium backgrounds for
   hero sections, section bands and bento tiles: soft glows, grainy meshes, aurora
   ribbons, neon, painterly landscapes. It shows a page of thumbnails (filter by tone to
@@ -214,44 +201,13 @@ any public image URL. Source images in this order:
   against your tokens — and if nothing fits, call again with another filter or draw the
   background yourself in CSS or SVG rather than forcing the nearest one. Each result
   carries a ready css line with a legibility scrim and a text_zone — put the headline
-  there. One image per bento grid at most; keep the other tiles flat. When the hero
-  wants a real scene in the frame's exact palette — a monochrome mountain range behind
-  a product window, a desert at dusk in the brand's two colors — the library will not
-  have it: generate it (next section, "hero backgrounds").
-- **UI icons — search_icons.** 200k+ open-source icons (Material, Lucide, Tabler,
-  Phosphor, …). Search the concept ("shopping cart"). Hotlink the svg_url; recolor
-  monochrome icons with ?color=%23<hex> and size with &height=<px>.
-- **Company logos — search_logos.** Search a brand name or, far more reliably, its
-  exact domain ("acme.io") and get the company's real mark as a hotlinkable URL, plus
-  open-source vector marks for well-known brands. Call it the moment a design needs a
-  logo — customer-logo walls, integration rows, testimonial cards, press bars, payment
-  methods — once per brand, BEFORE writing that section's HTML, so the real URLs go in
-  on the first pass instead of placeholders you would have to swap later. Never guess a
-  logo URL, redraw a brand mark by hand, or ship a placeholder tile. If a brand returns
-  nothing, retry with its exact domain, then pick a different real brand rather than
-  inventing one. Follow the size guidance in the result: favicon-sourced logos are
-  small rasters (fine at ≤32px, ugly scaled up); vector marks scale to any size.
-- **Generated imagery — generate_image.** When no stock photo can be the visual — a
-  full-bleed hero background in the frame's exact palette, a brand-specific
-  illustration, a product render, a mascot — or your human asks for a
-  generated image, generate one from a prompt. It returns a permanent URL on this origin
-  plus a preview: look at the preview and judge it like any other asset before it goes
-  in. It runs on your human's connected ChatGPT subscription or OpenAI key (else the
-  server's key) and costs them quota or money, and takes 20–60 seconds, so write ONE
-  considered prompt — subject, style, composition, palette hexes, lighting, what to
-  leave out — and refine a near miss by saying what was wrong rather than rolling the
-  dice again. Match aspect to the slot (square, landscape, portrait). Images come back
-  opaque — no transparent cut-outs — so place them in a box, mask them with CSS, or
-  prompt for the surface color you will put them on. Photography that exists in the
-  world is still search_images' job.
-  - **Hero backgrounds are where it shines.** A generated scene can match the palette
-    exactly and leave room where the copy and the product window sit, which no stock
-    photo does. Recipe: aspect landscape; name the scene and the palette hexes; ask for
-    "low contrast, soft haze, no text, no people, no logos"; and reserve the space —
-    "empty, near-uniform sky in the top third" for a headline above, or "calm, low-detail
-    center" for a product screenshot on top. Then treat it like a library background:
-    object-fit: cover, a legibility scrim over the copy zone, and the headline in the
-    space you asked for. Monochrome or duotone scenes read as brand rather than stock.
+  there. One image per bento grid at most; keep the other tiles flat.
+- **Photos, icons and logos — bring the real file.** Doop has no stock-photo, icon or
+  logo search of its own. When a design needs one, find the real asset with your own
+  browser or web tools — the brand's own site for a logo, an open-source icon set for
+  icons, a license-safe stock library for photos — and upload_asset it with source_url,
+  or ask your human for the file. Never guess an image URL from memory, redraw a brand
+  mark by hand, or ship a placeholder tile.
 - **Your own file — upload_asset** (png/jpg/webp/gif/svg, max 5 MB), with the
   canvas_id it belongs to and ONE input, chosen by where the file lives:
   - Remote (it has a public URL): pass source_url — the server fetches it directly.
@@ -264,12 +220,12 @@ any public image URL. Source images in this order:
   Either way you get a permanent URL on this origin (/a/<id>.<ext>) to use in <img> or
   CSS.
 - **When to use them.** Enumerated content — feature cards, step lists, capability
-  grids, value rows — needs a visual anchor per item: an icon (search_icons), a big
-  number, or a mono label. Naked text lists read as drafts. Pick ONE anchor style per
-  section and never use emoji as icons. Logos: always real marks from search_logos —
-  integrations, platforms, payment methods, and the customer walls and testimonial
-  cards too. Pick real brands the product's audience would recognize; invented quotes
-  can sit beside a real company mark, but a placeholder mark is never acceptable.
+  grids, value rows — needs a visual anchor per item: an icon, a big number, or a mono
+  label. Naked text lists read as drafts. Pick ONE anchor style per section and never
+  use emoji as icons. Logos: always real marks — integrations, platforms, payment
+  methods, and the customer walls and testimonial cards too. Pick real brands the
+  product's audience would recognize; invented quotes can sit beside a real company
+  mark, but a placeholder mark is never acceptable.
 - **Nothing fits — draw it.** Inline SVG or pure CSS (gradients, patterns, shapes) in
   the frame. Never ship a gray "image goes here" box, and never guess an image URL
   from memory — unverified URLs are usually dead.

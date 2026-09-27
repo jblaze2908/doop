@@ -1,8 +1,7 @@
 # Lean agent reads
 
 Status: shipped on the `tijori/design-system` fork, 2026-09-27. Code: `server/htmlTree.ts`, the
-`get_frame_outline` / `get_frame_section` / `replace_frame_section` tools in `server/mcp.ts` and
-`server/resident.ts`.
+`get_frame_outline` / `get_frame_section` / `replace_frame_section` tools in `server/mcp.ts`.
 
 ## Problem
 
@@ -23,5 +22,5 @@ headline, and rewrote whole documents for local edits.
 - `get_frame_section` / `replace_frame_section`: locate by `@path` or a selector that must match
   exactly one element (the error lists the matching `@paths`); replacement splices
   `[start, end)` and keeps every other byte.
-- `edit_frame_html` (MCP and resident) now uses a function replacement, so `$&` / `$1` in the new
+- `edit_frame_html` now uses a function replacement, so `$&` / `$1` in the new
   text stay literal.

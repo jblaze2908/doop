@@ -5,19 +5,16 @@ import { and, desc, eq, inArray } from 'drizzle-orm'
 import { db } from './index.ts'
 import * as t from './schema.ts'
 import { extractAssetIds } from '../assets.ts'
-import { roleByAgentName } from '../../shared/agents.ts'
 import { isCanvasTheme, type CanvasTheme } from '../../shared/theme.ts'
 import type { ComponentDef } from '../../shared/components.ts'
 import type {
   ActivityItem,
   AgentTask,
-  CardScope,
   Canvas,
   DesignDecision,
   ElementComment,
   Frame,
   GuidelineDoc,
-  MemoryProposal,
   MemoryReference,
   TaskFeedback,
 } from '../../shared/types.ts'
@@ -283,39 +280,8 @@ export function saveDecision(canvasId: string, d: DesignDecision) {
     fromName: d.from,
     agentName: d.agentName ?? null,
     at: d.at,
-    distilledAt: d.distilledAt ?? null,
   }
-  swallow(
-    db
-      .insert(t.decisions)
-      .values(row)
-      .onConflictDoUpdate({ target: t.decisions.id, set: { summary: row.summary, distilledAt: row.distilledAt } }),
-  )
-}
-
-export function saveProposal(canvasId: string, p: MemoryProposal) {
-  const row = {
-    id: p.id,
-    canvasId,
-    guideName: p.guideName,
-    guideTitle: p.guideTitle ?? null,
-    rule: p.rule,
-    rationale: p.rationale,
-    basedOn: p.basedOn.join(','),
-    at: p.at,
-    status: p.status,
-    resolvedBy: p.resolvedBy ?? null,
-    resolvedAt: p.resolvedAt ?? null,
-  }
-  swallow(
-    db
-      .insert(t.memoryProposals)
-      .values(row)
-      .onConflictDoUpdate({
-        target: t.memoryProposals.id,
-        set: { status: row.status, resolvedBy: row.resolvedBy, resolvedAt: row.resolvedAt },
-      }),
-  )
+  swallow(db.insert(t.decisions).values(row).onConflictDoNothing())
 }
 
 /* Streaming appends update a frame's html on every chunk — debounce per frame
@@ -410,18 +376,6 @@ export function deleteFrame(frameId: string) {
   swallow(db.delete(t.assetRefs).where(eq(t.assetRefs.frameId, frameId)))
 }
 
-/** The frame/element a prompt card was scoped to, or nothing when the row
- *  carries none or it no longer parses. */
-function scopeField(scope: string | null): Pick<AgentTask, 'scope'> {
-  if (!scope) return {}
-  try {
-    const parsed = JSON.parse(scope) as CardScope
-    return typeof parsed?.frameId === 'string' ? { scope: parsed } : {}
-  } catch {
-    return {}
-  }
-}
-
 /* Task rows are written as whole snapshots and never awaited by callers, so
    two quick edits could otherwise race on the pool and leave the older one
    in the table. Writes to the same task queue behind each other instead. */
@@ -439,14 +393,9 @@ export function saveTask(canvasId: string, task: AgentTask) {
     endedAt: task.endedAt ?? null,
     auto: task.auto ?? false,
     queuedBy: task.queuedBy ?? null,
-    queuedByUserId: task.queuedByUserId ?? null,
     claimedAt: task.claimedAt ?? null,
     failedAt: task.failedAt ?? null,
     failureReason: task.failureReason ?? null,
-    pipeline: task.pipeline?.join(',') ?? null,
-    stage: task.stage ?? null,
-    attachments: task.attachments?.join(',') ?? null,
-    scope: task.scope ? JSON.stringify(task.scope) : null,
     frameIds: task.frameIds?.join(',') ?? null,
   }
   const write = () =>
@@ -463,8 +412,6 @@ export function saveTask(canvasId: string, task: AgentTask) {
           claimedAt: row.claimedAt,
           failedAt: row.failedAt,
           failureReason: row.failureReason,
-          pipeline: row.pipeline,
-          stage: row.stage,
           frameIds: row.frameIds,
         },
       })
@@ -479,9 +426,7 @@ export function saveFeedback(fb: TaskFeedback) {
     taskId: fb.taskId,
     canvasId: fb.canvasId,
     agentName: fb.agentName,
-    targetAgent: fb.targetAgent ?? null,
     fromName: fb.from,
-    fromUserId: fb.fromUserId ?? null,
     text: fb.text,
     at: fb.at,
     deliveredAt: fb.deliveredAt ?? null,
@@ -515,7 +460,6 @@ export function saveComment(c: ElementComment) {
     selector: c.selector,
     snippet: c.snippet,
     fromName: c.from,
-    fromUserId: c.fromUserId ?? null,
     text: c.text,
     at: c.at,
     forAgent: c.forAgent ?? false,
@@ -594,7 +538,6 @@ export interface Hydrated {
   comments: Map<string, ElementComment[]>
   activity: Map<string, ActivityItem[]>
   decisions: Map<string, DesignDecision[]>
-  proposals: Map<string, MemoryProposal[]>
 }
 
 const LOG_CAP = 100
@@ -610,7 +553,6 @@ export async function hydrate(): Promise<Hydrated> {
     guidelineRows,
     referenceRows,
     decisionRows,
-    proposalRows,
     memberRows,
     componentRows,
   ] = await Promise.all([
@@ -623,7 +565,6 @@ export async function hydrate(): Promise<Hydrated> {
     db.select().from(t.guidelines).orderBy(t.guidelines.name),
     db.select().from(t.memoryReferences).orderBy(desc(t.memoryReferences.pinnedAt)),
     db.select().from(t.decisions).orderBy(desc(t.decisions.at)),
-    db.select().from(t.memoryProposals).orderBy(desc(t.memoryProposals.at)),
     db.select().from(t.canvasMembers).orderBy(t.canvasMembers.addedAt),
     db.select().from(t.components).orderBy(t.components.name),
   ])
@@ -720,14 +661,9 @@ export async function hydrate(): Promise<Hydrated> {
       ...(endedAt !== undefined ? { endedAt } : {}),
       ...(row.auto ? { auto: true } : {}),
       ...(row.queuedBy != null ? { queuedBy: row.queuedBy } : {}),
-      ...(row.queuedByUserId != null ? { queuedByUserId: row.queuedByUserId } : {}),
       ...(row.claimedAt != null ? { claimedAt: row.claimedAt } : {}),
       ...(failedAt !== undefined ? { failedAt } : {}),
       ...(failureReason !== undefined ? { failureReason } : {}),
-      ...(row.pipeline ? { pipeline: row.pipeline.split(',').filter(Boolean) } : {}),
-      ...(row.stage != null ? { stage: row.stage } : {}),
-      ...(row.attachments ? { attachments: row.attachments.split(',').filter(Boolean) } : {}),
-      ...scopeField(row.scope),
       ...(row.frameIds ? { frameIds: row.frameIds.split(',').filter(Boolean) } : {}),
     })
     tasks.set(row.canvasId, list)
@@ -737,31 +673,21 @@ export async function hydrate(): Promise<Hydrated> {
   for (const row of feedbackRows) {
     const list = feedback.get(row.canvasId) ?? []
     if (list.length >= LOG_CAP) continue
-    /* only resident agents run in-process; feedback claimed by an outside MCP
-       agent may still be in flight elsewhere, so it is left alone */
-    const interrupted =
-      roleByAgentName(row.claimedBy ?? undefined) != null &&
-      row.deliveredAt != null &&
-      row.completedAt == null &&
-      row.failedAt == null
-    const failedAt = row.failedAt ?? (interrupted ? now : undefined)
-    const failureReason = row.failureReason ?? (interrupted ? interruptedReason : undefined)
-    if (interrupted) swallow(db.update(t.feedback).set({ failedAt, failureReason }).where(eq(t.feedback.id, row.id)))
+    /* feedback is delivered to agents running elsewhere (MCP) — a restart
+       interrupts nothing, so rows load as they are */
     list.push({
       id: row.id,
       taskId: row.taskId,
       canvasId: row.canvasId,
       agentName: row.agentName,
-      ...(row.targetAgent != null ? { targetAgent: row.targetAgent } : {}),
       from: row.fromName,
-      ...(row.fromUserId != null ? { fromUserId: row.fromUserId } : {}),
       text: row.text,
       at: row.at,
       ...(row.deliveredAt != null ? { deliveredAt: row.deliveredAt } : {}),
       ...(row.claimedBy != null ? { claimedBy: row.claimedBy } : {}),
       ...(row.completedAt != null ? { completedAt: row.completedAt } : {}),
-      ...(failedAt !== undefined ? { failedAt } : {}),
-      ...(failureReason !== undefined ? { failureReason } : {}),
+      ...(row.failedAt != null ? { failedAt: row.failedAt } : {}),
+      ...(row.failureReason != null ? { failureReason: row.failureReason } : {}),
     })
     feedback.set(row.canvasId, list)
   }
@@ -770,10 +696,6 @@ export async function hydrate(): Promise<Hydrated> {
   for (const row of commentRows) {
     const list = comments.get(row.canvasId) ?? []
     if (list.length >= LOG_CAP) continue
-    const interrupted = row.claimedBy != null && row.resolvedAt == null && row.failedAt == null
-    const failedAt = row.failedAt ?? (interrupted ? now : undefined)
-    const failureReason = row.failureReason ?? (interrupted ? interruptedReason : undefined)
-    if (interrupted) swallow(db.update(t.comments).set({ failedAt, failureReason }).where(eq(t.comments.id, row.id)))
     list.push({
       id: row.id,
       canvasId: row.canvasId,
@@ -781,15 +703,14 @@ export async function hydrate(): Promise<Hydrated> {
       selector: row.selector,
       snippet: row.snippet,
       from: row.fromName,
-      ...(row.fromUserId != null ? { fromUserId: row.fromUserId } : {}),
       text: row.text,
       at: row.at,
       ...(row.forAgent ? { forAgent: true } : {}),
       ...(row.targetAgent != null ? { targetAgent: row.targetAgent } : {}),
       ...(row.claimedBy != null ? { claimedBy: row.claimedBy } : {}),
       ...(row.claimedAt != null ? { claimedAt: row.claimedAt } : {}),
-      ...(failedAt !== undefined ? { failedAt } : {}),
-      ...(failureReason !== undefined ? { failureReason } : {}),
+      ...(row.failedAt != null ? { failedAt: row.failedAt } : {}),
+      ...(row.failureReason != null ? { failureReason: row.failureReason } : {}),
       ...(row.resolvedBy != null ? { resolvedBy: row.resolvedBy } : {}),
       ...(row.resolvedAt != null ? { resolvedAt: row.resolvedAt } : {}),
       ...(row.parentId != null ? { parentId: row.parentId } : {}),
@@ -826,31 +747,11 @@ export async function hydrate(): Promise<Hydrated> {
       from: row.fromName,
       ...(row.agentName != null ? { agentName: row.agentName } : {}),
       at: row.at,
-      ...(row.distilledAt != null ? { distilledAt: row.distilledAt } : {}),
     })
     decisions.set(row.canvasId, list)
   }
 
-  const proposals = new Map<string, MemoryProposal[]>()
-  for (const row of proposalRows) {
-    const list = proposals.get(row.canvasId) ?? []
-    if (list.length >= LOG_CAP) continue
-    list.push({
-      id: row.id,
-      guideName: row.guideName,
-      ...(row.guideTitle != null ? { guideTitle: row.guideTitle } : {}),
-      rule: row.rule,
-      rationale: row.rationale,
-      basedOn: row.basedOn.split(',').filter(Boolean),
-      at: row.at,
-      status: row.status as MemoryProposal['status'],
-      ...(row.resolvedBy != null ? { resolvedBy: row.resolvedBy } : {}),
-      ...(row.resolvedAt != null ? { resolvedAt: row.resolvedAt } : {}),
-    })
-    proposals.set(row.canvasId, list)
-  }
-
-  return { canvases, tasks, feedback, comments, activity, decisions, proposals }
+  return { canvases, tasks, feedback, comments, activity, decisions }
 }
 
 /** One-time import of the pre-DB data/store.json so existing canvases survive. */

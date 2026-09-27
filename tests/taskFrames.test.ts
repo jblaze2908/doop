@@ -9,7 +9,6 @@ vi.mock('../server/db/persist.ts', () => ({
   saveComment: () => {},
   saveActivity: () => {},
   saveDecision: () => {},
-  saveProposal: () => {},
   saveCanvas: () => {},
   saveCanvasSoon: () => {},
   saveFrame: () => {},
@@ -17,7 +16,6 @@ vi.mock('../server/db/persist.ts', () => ({
 
 const actions = await import('../server/actions.ts')
 const { store } = await import('../server/store.ts')
-const { DEFAULT_ROLE_ID, roleName } = await import('../shared/agents.ts')
 
 /**
  * Clicking a task in the Agents panel flies the camera to where the agent
@@ -39,7 +37,6 @@ beforeEach(() => {
     comments: new Map(),
     activity: new Map(),
     decisions: new Map(),
-    proposals: new Map(),
   })
   canvasId = store.createCanvas('task frames', 'kevin').id
 })
@@ -81,20 +78,5 @@ describe('task frames', () => {
     const frame = actions.createFrame(canvasId, { name: 'Draft' }, { name: 'kevin', kind: 'user', color: '#000' })!
     actions.updateFrame(frame.id, { html: '<p>x</p>' }, { name: 'kevin', kind: 'user', color: '#000' })
     expect(actions.getTasks(canvasId)[0]?.frameIds).toBeUndefined()
-  })
-})
-
-describe('a claimed card next to a status task', () => {
-  it('records the frame on both open tasks, not just the newest', () => {
-    /* only the role at a card's stage can claim it — that is the resident agent */
-    const resident: Actor = { ...agent, name: roleName(DEFAULT_ROLE_ID) }
-    actions.addQueuedCard(canvasId, 'build the hero', 'kevin')
-    const [card] = actions.takeQueuedCardsFor(canvasId, resident.name)
-    expect(card?.agentName).toBe(resident.name)
-    actions.setAgentStatus(canvasId, resident, 'Working on the hero')
-    const frame = actions.createFrame(canvasId, { name: 'Hero', html: '<h1>Hi</h1>' }, resident)!
-    const tasks = actions.getTasks(canvasId)
-    expect(tasks.find((t) => t.id === card?.id)?.frameIds).toEqual([frame.id])
-    expect(tasks.find((t) => !t.queuedBy)?.frameIds).toEqual([frame.id])
   })
 })

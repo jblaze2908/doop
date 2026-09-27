@@ -59,7 +59,6 @@ describe('streamed frame deltas', () => {
       feedback: [],
       comments: [],
       decisions: [],
-      proposals: [],
       selfColor: '#000',
       serverBuild: 'dev',
     })

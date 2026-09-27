@@ -2,7 +2,7 @@ import { importPage } from './importer.ts'
 import { WebsiteCaptureUnavailableError } from './websiteAccess.ts'
 
 /**
- * Read-only viewer behind the resident and MCP view_website tools. It uses the
+ * Read-only viewer behind the MCP view_website tool. It uses the
  * same acquisition and passive-HTML transformation as import_webpage, then
  * returns the locally rendered preview without adding a frame to the canvas.
  */

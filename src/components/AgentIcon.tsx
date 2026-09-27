@@ -20,8 +20,8 @@ export function agentBrand(name: string): { bg: string; fg: string } | undefined
 export function AgentIcon({ name, size = 13, color }: { name: string; size?: number; color?: string }) {
   const n = name.toLowerCase()
   const path = n.includes('claude') ? CLAUDE_PATH : n.includes('codex') || n.includes('gpt') ? OPENAI_PATH : null
-  /* Anything else is a Doop agent (the built-in roles, or an unknown MCP
-     client) and wears the brand's own mark, as on the marketing site. */
+  /* Anything else (the Doop demo agent, or an unknown MCP client) wears the
+     brand's own mark, as on the marketing site. */
   if (!path) return <DoopMark size={size} color={color} />
   const fill = color ?? (n.includes('claude') ? '#D97757' : '#000')
   return (

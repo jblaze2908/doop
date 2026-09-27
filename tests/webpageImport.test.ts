@@ -1,17 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Actor, Frame } from '../shared/types.ts'
-import { createImportedWebpageFrame, findImportedWebpageFrame } from '../server/webpageImport.ts'
+import { createImportedWebpageFrame } from '../server/webpageImport.ts'
 
 describe('agent webpage import', () => {
-  it('finds an existing snapshot by its normalized requested URL', () => {
-    const html =
-      '<!doctype html><html><head><meta name="doop-import-source" content="https%3A%2F%2Fexample.com%2F"></head></html>'
-    const frame = { id: 'source-1', html } as Frame
-
-    expect(findImportedWebpageFrame([frame], 'example.com')).toBe(frame)
-    expect(findImportedWebpageFrame([frame], 'other.example')).toBeUndefined()
-  })
-
   it('maps the editable snapshot into the same attributed frame for every agent surface', async () => {
     const actor: Actor = { name: 'Test Agent', kind: 'agent', color: '#123456', owner: 'Test Owner' }
     const imported = {

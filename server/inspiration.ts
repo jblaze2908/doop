@@ -4,10 +4,10 @@
  * landing pages WITH visual thumbnails plus pre-distilled style facts — a
  * north-star mood line, a named palette, and the fonts in use.
  *
- * Powers the search_inspiration tool in mcp.ts and resident.ts. Keyless, same
- * API the validated scripts/refero-extract.ts pipeline uses. Results are
- * INSPIRATION to look at and adapt in a brief — never imagery to embed in
- * frames (the screenshots are other companies' copyrighted pages).
+ * Powers the search_inspiration tool in mcp.ts. Keyless, same API the
+ * validated scripts/refero-extract.ts pipeline uses. Results are INSPIRATION
+ * to look at and adapt in a brief — never imagery to embed in frames (the
+ * screenshots are other companies' copyrighted pages).
  */
 
 const REFERO_ENDPOINT = 'https://styles.refero.design/api/styles/search'
@@ -65,6 +65,20 @@ export async function searchInspiration(query: string, count = 4): Promise<Inspi
       fonts: s.fonts ?? [],
       thumb_url: thumb,
     }))
+}
+
+/** Fetch a result thumbnail for an image content block. Null on any failure —
+ *  a missing preview must not sink the whole search result. */
+export async function fetchThumb(url: string): Promise<{ data: string; mime: string } | null> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+    if (!res.ok) return null
+    const mime = res.headers.get('content-type')?.split(';')[0] || 'image/jpeg'
+    if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(mime)) return null
+    return { data: Buffer.from(await res.arrayBuffer()).toString('base64'), mime }
+  } catch {
+    return null
+  }
 }
 
 export const INSPIRATION_USAGE_NOTE =

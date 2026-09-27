@@ -11,7 +11,6 @@ import { PanelBody } from './ui/panel'
 import { ListHint, ListItem, ListMeta, ListRow, ListSection, ListSummary, ListTitle } from './ui/list'
 import { MarkdownBlock, Modal, ModalActions, ModalLede, ModalSpacer, ModalTitle } from './ui/modal'
 import { ConfirmDialog } from './ui/alert-dialog'
-import { DoopMark } from './Logo'
 import { isThemeEmpty } from '../../shared/theme'
 import { prepareFrameHtml } from '../../shared/components'
 import { useComponentDefs, useThemeCss } from '../lib/theme'
@@ -53,13 +52,12 @@ const NO_REFS: MemoryReference[] = []
 
 /** The Memory tab in the side panel: the canvas's design brain. References
  *  (pinned exemplar frames), Rules (the style guides), Decisions (captured
- *  feedback) — plus pending distiller proposals to accept or dismiss. */
+ *  feedback). */
 export function MemoryPanel() {
   const canvasId = useStore((s) => s.canvas?.id)
   const docs = useStore((s) => s.canvas?.guidelines ?? NO_DOCS)
   const references = useStore((s) => s.canvas?.references ?? NO_REFS)
   const decisions = useStore((s) => s.decisions)
-  const proposals = useStore((s) => s.proposals)
   const themeEmpty = useStore((s) => isThemeEmpty(s.canvas?.theme))
   /** slug of the open guide, '' = create a new one, null = closed */
   const [openGuide, setOpenGuide] = useState<string | null>(null)
@@ -67,9 +65,7 @@ export function MemoryPanel() {
 
   if (!canvasId) return null
 
-  const pending = proposals.filter((p) => p.status === 'pending')
-  const empty =
-    themeEmpty && docs.length === 0 && references.length === 0 && decisions.length === 0 && pending.length === 0
+  const empty = themeEmpty && docs.length === 0 && references.length === 0 && decisions.length === 0
 
   return (
     <PanelBody className="flex flex-col py-2">
@@ -90,43 +86,11 @@ export function MemoryPanel() {
               <b>Rules</b> — style guides agents read before designing. Write them, or let them grow.
             </li>
             <li className="text-[12px] leading-[1.5] text-ink-soft">
-              <b>Decisions</b> — feedback you give agents is captured here automatically once it’s addressed. When a
-              preference keeps recurring, Doop suggests adding it to your rules.
+              <b>Decisions</b> — feedback you give agents is captured here automatically once it’s addressed.
             </li>
           </ul>
         </div>
       )}
-
-      {pending.map((p) => (
-        <div key={p.id} className="mx-4 mt-3 rounded-[12px] border border-brand bg-white px-3.5 py-3 shadow-card">
-          <div className="text-[10.5px] font-extrabold uppercase tracking-[0.08em] text-accent-ink">
-            <DoopMark size={11} /> Memory suggestion
-          </div>
-          <div className="mt-1.5 text-[13px] font-semibold leading-[1.45] text-ink">{p.rule.replace(/^-\s*/, '')}</div>
-          <div className="mt-1.5 text-[11.5px] leading-[1.45] text-ink-faint">
-            {p.rationale} · from {p.basedOn.length} decision{p.basedOn.length === 1 ? '' : 's'} → “
-            {p.guideTitle ?? guideTitle({ name: p.guideName })}”
-          </div>
-          <div className="mt-2.5 flex justify-end gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-[11.5px]"
-              onClick={() => api.resolveProposal(canvasId, p.id, false).catch(console.error)}
-            >
-              Dismiss
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              className="text-[11.5px]"
-              onClick={() => api.resolveProposal(canvasId, p.id, true).catch(console.error)}
-            >
-              Add to rules
-            </Button>
-          </div>
-        </div>
-      ))}
 
       <ListSection>
         <span>References</span>
@@ -184,7 +148,6 @@ export function MemoryPanel() {
               <ListMeta>
                 {d.from}
                 {d.agentName ? ` → ${d.agentName}` : ''} · {timeAgo(d.at)}
-                {d.distilledAt ? ' · distilled' : ''}
               </ListMeta>
             </ListItem>
           ))}

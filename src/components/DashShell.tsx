@@ -20,13 +20,11 @@ import {
   BuildingIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  LockIcon,
   GearIcon,
   GridIcon,
   HelpIcon,
   ListIcon,
   LogOutIcon,
-  SparkIcon,
   UserIcon,
   UsersIcon,
 } from './ui/icons'
@@ -144,10 +142,8 @@ export const IconGrid = () => <GridIcon {...rail} />
 export const IconList = () => <ListIcon {...rail} />
 export const IconUser = () => <UserIcon {...rail} />
 export const IconShare = () => <UsersIcon {...rail} />
-export const IconSpark = () => <SparkIcon {...rail} />
 /** a shared workspace — the org's building */
 export const IconWorkspace = () => <BuildingIcon {...rail} />
-export const IconLock = () => <LockIcon width={12} height={12} aria-hidden />
 export const IconGear = () => <GearIcon {...rail} />
 export const IconHelp = () => <HelpIcon {...rail} />
 export const IconOut = () => <LogOutIcon {...rail} />

@@ -1,4 +1,3 @@
-import { localAgentRouter, handleLocalAgentMcp } from './localAgent.ts'
 import http from 'node:http'
 import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
@@ -32,13 +31,6 @@ import * as ingest from './ingest.ts'
 import * as backgrounds from './backgrounds.ts'
 import * as storage from './storage.ts'
 import { seed } from './seed.ts'
-import * as allowance from './allowance.ts'
-import * as modelAccounts from './modelAccounts.ts'
-import { getLocalAgentPreference, saveLocalAgentPreference } from './localAgentPreferences.ts'
-import { serverTierInfo } from './agentModel.ts'
-import { serverImageGenEnabled } from './imageGen.ts'
-import { AGENT_MODELS } from './openaiAgent.ts'
-import { mentionedRole } from '../shared/agents.ts'
 import { colorFor } from '../shared/types.ts'
 import { isPeerViewport } from '../shared/viewport.ts'
 import type { ClientMessage, Presence, ServerMessage } from '../shared/types.ts'
@@ -73,24 +65,6 @@ store.init(data.canvases)
 await workspaces.hydrateWorkspaces() // before the first request: canAccessCanvas reads membership
 actions.hydrateLogs(data)
 seed()
-
-/* Never-attempted queued cards get their first pickup after boot. Hydration
-   marks interrupted claimed cards as failed, so they are excluded until a
-   human explicitly retries them. */
-{
-  const pending = [...data.tasks.entries()]
-    .filter(([, list]) => list.some((t) => t.queuedBy && !t.agentName && !t.endedAt))
-    .map(([canvasId]) => canvasId)
-  pending.forEach((canvasId, i) => {
-    setTimeout(
-      () => {
-        import('./resident.ts').then((r) => r.onFeedback(canvasId)).catch(() => {})
-      },
-      5_000 + i * 30_000,
-    )
-  })
-  if (pending.length) console.log(`[resident] ${pending.length} canvas(es) with new queued cards — starting after boot`)
-}
 
 /* asset bookkeeping (no deletion): every upload records its canvas, and
    asset_refs tracks which frames reference which assets — kept in sync on
@@ -504,9 +478,6 @@ app.all('/api/auth/*', async (req, res, next) => {
 })
 
 app.use(express.json({ limit: '10mb' }))
-app.all('/local-agent/mcp/:id', (req, res, next) => {
-  handleLocalAgentMcp(req, res).catch(next)
-})
 
 /* Public: does an account exist for this email? Drives the login page's
    "no account found — sign up instead" prompt. Existence is already
@@ -630,125 +601,7 @@ function requireFrame(req: express.Request, res: express.Response, frameId: stri
   return frame
 }
 
-app.use('/api/local-agent', localAgentRouter)
 app.use('/api/workspaces', workspaces.workspacesRouter)
-
-/* free-tier meter for the resident team: {used, limit, connected, byoModel} */
-app.get('/api/agent-allowance', (req, res) => {
-  allowance
-    .getAllowance(req.user!.id)
-    .then((a) => res.json(a))
-    .catch(() => res.status(500).json({ error: 'allowance unavailable' }))
-})
-
-/* ---- the user's own model account: what keeps the Doop Agent running once
-   the free tasks are gone. Tokens live server-side and are never returned. */
-
-/* Every route that returns an account status returns the SAME shape: the
-   client re-renders straight from the response, so dropping the model list on
-   a PATCH would collapse the picker until the next reload. */
-function accountView(status: modelAccounts.AccountStatus) {
-  return { ...status, chatgptEnabled: modelAccounts.chatgptConnectEnabled(), models: AGENT_MODELS }
-}
-
-app.get('/api/model-account', (req, res) => {
-  modelAccounts
-    .getStatus(req.user!.id)
-    .then((status) => res.json(accountView(status)))
-    .catch(() => res.status(500).json({ error: 'account status unavailable' }))
-})
-
-/* which model tier the connected account runs on */
-app.patch('/api/model-account', async (req, res) => {
-  try {
-    res.json(accountView(await modelAccounts.setAccountModel(req.user!.id, String(req.body?.model ?? ''))))
-  } catch (e) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'could not change the model' })
-  }
-})
-
-/* OpenAI's only registered redirect is a loopback URL, so the browser's
-   callback is reachable by us exactly when the browser is on this machine.
-   A forwarded request came through a proxy and is by definition not. */
-function isSameMachine(req: express.Request): boolean {
-  if (req.headers['x-forwarded-for'] || req.headers['forwarded']) return false
-  const ip = req.socket.remoteAddress ?? ''
-  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1'
-}
-
-/* step 1 of the ChatGPT flow: hand back the OpenAI authorize URL to open.
-   `catching` tells the client we will pick the redirect up ourselves, so it
-   can poll instead of asking the user to copy anything. */
-app.post('/api/model-account/chatgpt/authorize', async (req, res) => {
-  if (!modelAccounts.chatgptConnectEnabled()) {
-    return res.status(404).json({ error: 'ChatGPT connections are disabled on this server' })
-  }
-  const started = modelAccounts.beginChatgptAuth(req.user!.id)
-  const catching = isSameMachine(req) ? await modelAccounts.startCallbackCatcher() : false
-  res.json({ ...started, catching })
-})
-
-/* step 2: the user pastes the redirect URL they landed on; we do the code
-   exchange server-side, so the browser never handles a token */
-app.post('/api/model-account/chatgpt', async (req, res) => {
-  if (!modelAccounts.chatgptConnectEnabled()) {
-    return res.status(404).json({ error: 'ChatGPT connections are disabled on this server' })
-  }
-  try {
-    res.json(accountView(await modelAccounts.completeChatgptAuth(req.user!.id, String(req.body?.redirect ?? ''))))
-  } catch (e) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'could not connect that ChatGPT account' })
-  }
-})
-
-/* device flow: no redirect URI at all, so it works wherever Doop is hosted.
-   We poll OpenAI in the background; the browser polls the status below. */
-app.post('/api/model-account/chatgpt/device', async (req, res) => {
-  if (!modelAccounts.chatgptConnectEnabled()) {
-    return res.status(404).json({ error: 'ChatGPT connections are disabled on this server' })
-  }
-  try {
-    res.json(await modelAccounts.beginDeviceAuth(req.user!.id))
-  } catch (e) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'could not start a device sign-in' })
-  }
-})
-
-app.get('/api/model-account/chatgpt/device', (req, res) => {
-  res.json(modelAccounts.deviceAuthStatus(req.user!.id) ?? { status: 'none' })
-})
-
-app.delete('/api/model-account/chatgpt/device', (req, res) => {
-  modelAccounts.cancelDeviceAuth(req.user!.id)
-  res.json({ ok: true })
-})
-
-app.post('/api/model-account/openai-key', async (req, res) => {
-  try {
-    res.json(accountView(await modelAccounts.connectApiKey(req.user!.id, String(req.body?.apiKey ?? ''))))
-  } catch (e) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'could not save that API key' })
-  }
-})
-
-app.post('/api/model-account/anthropic-key', async (req, res) => {
-  try {
-    const previous = await modelAccounts.getAccount(req.user!.id)
-    const status = await modelAccounts.connectAnthropicKey(req.user!.id, String(req.body?.apiKey ?? ''))
-    if (previous?.kind !== 'anthropic-key') {
-      const preference = await getLocalAgentPreference(req.user!.id)
-      await saveLocalAgentPreference(req.user!.id, { ...preference, enabled: false })
-    }
-    res.json(accountView(status))
-  } catch (e) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'could not save that API key' })
-  }
-})
-
-app.delete('/api/model-account', async (req, res) => {
-  await modelAccounts.disconnect(req.user!.id)
-  res.json(accountView({ connected: false }))
-})
 
 app.get('/api/canvases', (req, res) =>
   res.json(
@@ -1087,7 +940,7 @@ app.delete('/api/canvases/:id/components/:name', (req, res) => {
   }
 })
 
-/* design memory: pin/unpin reference frames, accept/dismiss rule proposals */
+/* design memory: pin/unpin reference frames */
 app.post('/api/canvases/:id/references', (req, res) => {
   if (!requireCanvas(req, res, req.params.id)) return
   const actor = actions.resolveActor({ name: req.user!.name, kind: 'user' })
@@ -1106,14 +959,6 @@ app.delete('/api/canvases/:id/references/:refId', (req, res) => {
   if (!actions.unpinReference(req.params.id, req.params.refId, actor))
     return res.status(404).json({ error: 'reference not found' })
   res.json({ ok: true })
-})
-
-app.post('/api/canvases/:id/proposals/:pid', (req, res) => {
-  if (!requireCanvas(req, res, req.params.id)) return
-  const actor = actions.resolveActor({ name: req.user!.name, kind: 'user' })
-  const proposal = actions.resolveProposal(req.params.id, req.params.pid, !!req.body?.accept, actor)
-  if (!proposal) return res.status(404).json({ error: 'proposal not found' })
-  res.json(proposal)
 })
 
 /* Browser asset uploads (paste / drop): raw image bytes in, permanent /a/
@@ -1191,54 +1036,24 @@ app.delete('/api/frames/:id', (req, res) => {
   res.json({ ok: true })
 })
 
-app.post('/api/frames/:id/comments', async (req, res) => {
+app.post('/api/frames/:id/comments', (req, res) => {
   if (!requireFrame(req, res, req.params.id)) return
   const { selector, snippet, text } = req.body ?? {}
-  /* a comment that @mentions a resident agent is a new command to the team,
-     so it's metered like a card; plain comments and replies stay free */
-  if (mentionedRole(String(text ?? ''))) {
-    const gate = await allowance.consumeResidentTask(req.user!.id)
-    if (!gate.ok) {
-      return res.status(403).json({ error: 'resident_limit', used: gate.used, limit: gate.limit })
-    }
-  }
   const comment = actions.addElementComment(
     req.params.id,
     { selector: String(selector ?? ''), snippet: String(snippet ?? ''), text: String(text ?? '') },
     req.user!.name,
-    req.user!.id,
   )
   if (!comment) return res.status(404).json({ error: 'frame not found or empty text' })
   res.json(comment)
 })
 
-app.post('/api/comments/:id/replies', async (req, res) => {
+app.post('/api/comments/:id/replies', (req, res) => {
   const found = actions.findComment(req.params.id)
   if (!found) return res.status(404).json({ error: 'comment not found' })
   if (!requireCanvas(req, res, found.canvasId)) return
-  const text = String(req.body?.text ?? '')
-  if (!text.trim() || !actions.openThread(req.params.id)) {
-    return res.status(404).json({ error: 'thread resolved or empty text' })
-  }
-  /* same rule as a fresh comment: only an @mention costs a resident task */
-  let gate: Awaited<ReturnType<typeof allowance.consumeResidentTask>> | undefined
-  if (mentionedRole(text)) {
-    gate = await allowance.consumeResidentTask(req.user!.id)
-    if (!gate.ok) {
-      return res.status(403).json({ error: 'resident_limit', used: gate.used, limit: gate.limit })
-    }
-  }
-  const reply = actions.replyToComment(req.params.id, text, req.user!.name, req.user!.id)
-  if (!reply) {
-    /* the thread closed while the meter was being written: give the task
-       back — a failed refund is logged, never turned into a 500 */
-    if (gate) {
-      await allowance.refundResidentTask(gate, req.user!.id).catch((err) => {
-        console.error(`[comments] could not refund a resident task for ${req.user!.id}:`, err)
-      })
-    }
-    return res.status(409).json({ error: 'thread resolved meanwhile' })
-  }
+  const reply = actions.replyToComment(req.params.id, String(req.body?.text ?? ''), req.user!.name)
+  if (!reply) return res.status(404).json({ error: 'thread resolved or empty text' })
   res.json(reply)
 })
 
@@ -1249,14 +1064,10 @@ app.post('/api/comments/:id/resolve', (req, res) => {
   res.json(actions.resolveComment(req.params.id, req.user!.name))
 })
 
-app.post('/api/comments/:id/retry', async (req, res) => {
+app.post('/api/comments/:id/retry', (req, res) => {
   const found = actions.findComment(req.params.id)
   if (!found) return res.status(404).json({ error: 'comment not found' })
   if (!requireCanvas(req, res, found.canvasId)) return
-  const gate = await allowance.consumeResidentTask(req.user!.id)
-  if (!gate.ok) {
-    return res.status(403).json({ error: 'resident_limit', used: gate.used, limit: gate.limit })
-  }
   res.json(actions.retryComment(req.params.id, req.user!.name))
 })
 
@@ -1373,23 +1184,11 @@ app.post('/api/canvases/:id/import', async (req, res) => {
   }
 })
 
-app.post('/api/canvases/:id/cards', async (req, res) => {
+app.post('/api/canvases/:id/cards', (req, res) => {
   if (!requireCanvas(req, res, req.params.id)) return
   const title = String(req.body?.title ?? '').trim()
   if (!title) return res.status(400).json({ error: 'empty title' })
-  const gate = await allowance.consumeResidentTask(req.user!.id)
-  if (!gate.ok) {
-    return res.status(403).json({ error: 'resident_limit', used: gate.used, limit: gate.limit })
-  }
-  const card = actions.addQueuedCard(
-    req.params.id,
-    title,
-    req.user!.name,
-    req.body?.agents,
-    req.body?.attachments,
-    req.user!.id,
-    req.body?.scope,
-  )
+  const card = actions.addQueuedCard(req.params.id, title, req.user!.name)
   if (!card) return res.status(404).json({ error: 'canvas not found or empty title' })
   res.json(card)
 })
@@ -1401,40 +1200,28 @@ app.post('/api/canvases/:canvasId/cards/:id/done', (req, res) => {
   res.json(card)
 })
 
-app.post('/api/canvases/:canvasId/cards/:id/retry', async (req, res) => {
+app.post('/api/canvases/:canvasId/cards/:id/retry', (req, res) => {
   if (!requireCanvas(req, res, req.params.canvasId)) return
-  const gate = await allowance.consumeResidentTask(req.user!.id)
-  if (!gate.ok) {
-    return res.status(403).json({ error: 'resident_limit', used: gate.used, limit: gate.limit })
-  }
   const card = actions.retryCard(req.params.canvasId, req.params.id, req.user!.name)
   if (!card) return res.status(404).json({ error: 'card not found' })
   res.json(card)
 })
 
-app.post('/api/tasks/:id/feedback', async (req, res) => {
+app.post('/api/tasks/:id/feedback', (req, res) => {
   const canvasId = actions.taskCanvasId(req.params.id)
   if (!canvasId) return res.status(404).json({ error: 'task not found' })
   if (!requireCanvas(req, res, canvasId)) return
   const text = String(req.body?.text ?? '').trim()
   if (!text) return res.status(400).json({ error: 'empty text' })
-  const gate = await allowance.consumeResidentTask(req.user!.id)
-  if (!gate.ok) {
-    return res.status(403).json({ error: 'resident_limit', used: gate.used, limit: gate.limit })
-  }
-  const fb = actions.addTaskFeedback(req.params.id, req.user!.name, text, req.user!.id)
+  const fb = actions.addTaskFeedback(req.params.id, req.user!.name, text)
   if (!fb) return res.status(404).json({ error: 'task not found or empty text' })
   res.json(fb)
 })
 
-app.post('/api/feedback/:id/retry', async (req, res) => {
+app.post('/api/feedback/:id/retry', (req, res) => {
   const found = actions.findFeedback(req.params.id)
   if (!found) return res.status(404).json({ error: 'feedback not found' })
   if (!requireCanvas(req, res, found.canvasId)) return
-  const gate = await allowance.consumeResidentTask(req.user!.id)
-  if (!gate.ok) {
-    return res.status(403).json({ error: 'resident_limit', used: gate.used, limit: gate.limit })
-  }
   res.json(actions.retryTaskFeedback(req.params.id, req.user!.name))
 })
 
@@ -1622,22 +1409,16 @@ wss.on('connection', (ws, upgradeReq) => {
         feedback: actions.getFeedback(msg.canvasId),
         comments: actions.getComments(msg.canvasId),
         decisions: actions.getDecisions(msg.canvasId),
-        proposals: actions.getProposals(msg.canvasId),
         selfColor: presence.color,
         serverBuild: BUILD_ID,
       })
       /* An admin looking at a canvas must not act on it. Announcing presence
          would impersonate the owner in the room; maybePlay would have the
-         demo agent perform on an untouched signup canvas; the card kick would
-         start the resident agent working. All three are things the owner's
-         own visit is supposed to trigger, not a support session. */
+         demo agent perform on an untouched signup canvas. Both are things the
+         owner's own visit is supposed to trigger, not a support session. */
       if (silent) return
       broadcast(msg.canvasId, { type: 'presence:join', presence }, presence.clientId)
       demo.maybePlay(msg.canvasId) // first visit to a fresh signup canvas: the demo agent performs
-      /* Start never-attempted cards. Failed/interrupted cards are excluded. */
-      if (actions.getTasks(msg.canvasId).some((t) => t.queuedBy && !t.agentName && !t.endedAt)) {
-        import('./resident.ts').then((r) => r.onFeedback(msg.canvasId)).catch(() => {})
-      }
       return
     }
 
@@ -1701,18 +1482,4 @@ server.listen(PORT, () => {
   console.log(`⟡ doop server     http://localhost:${PORT}`)
   console.log(`⟡ mcp endpoint      http://localhost:${PORT}/mcp`)
   console.log(`⟡ websocket         ws://localhost:${PORT}/ws`)
-  /* The Doop Agent failing silently is the one "why is nothing happening?"
-     a self-hoster cannot debug from the UI — board cards and @mentions just
-     sit there. Say so at boot, not only when the first card is queued. */
-  const tier = serverTierInfo()
-  console.log(
-    tier.ready
-      ? `⟡ doop agent        on — free tier on this server’s ${tier.provider === 'azure' ? 'Azure OpenAI deployment' : 'Anthropic key'}, then each user’s own model account`
-      : `⟡ doop agent        no server ${tier.provider === 'azure' ? 'Azure config' : 'key'} — runs only for users who connect their own ChatGPT subscription or OpenAI key (${tier.provider === 'azure' ? 'set the AZURE_OPENAI_* vars' : 'set ANTHROPIC_API_KEY'} for a free tier; agents connected over MCP work regardless)`,
-  )
-  console.log(
-    serverImageGenEnabled()
-      ? '⟡ image generation  on — each user’s connected ChatGPT/OpenAI account, else this server’s OPENAI_API_KEY'
-      : '⟡ image generation  on for users with a connected ChatGPT/OpenAI account only (set OPENAI_API_KEY to cover everyone else)',
-  )
 })

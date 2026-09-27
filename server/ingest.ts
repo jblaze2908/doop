@@ -387,8 +387,7 @@ export async function handleIngest(req: express.Request, res: express.Response) 
 
 /** The flow map as plain sentences for agents: which frame links to which
  *  (deduped by label), and where users actually navigate, most-traveled
- *  first. One shared formatter so MCP agents and the resident team read the
- *  same picture. Returns [] when the canvas has no flow data. */
+ *  first. Returns [] when the canvas has no flow data. */
 export function describeSyncFlow(flow: { links: SyncFlowLink[]; edges: SyncFlowEdge[] }, frames: Frame[]): string[] {
   const nameOf = (id: string) => {
     const f = frames.find((x) => x.id === id)

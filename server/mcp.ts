@@ -11,18 +11,15 @@ import { auth, getUserName, isBanned, PUBLIC_ORIGIN } from './auth.ts'
 import { capture, captureThrottled } from './analytics.ts'
 import { renderFrame } from './screenshot.ts'
 import { DOOP_GUIDE, GUIDE_TOPICS } from './guide.ts'
-import { describeInspiration, INSPIRATION_USAGE_NOTE, searchInspiration } from './inspiration.ts'
+import { describeInspiration, fetchThumb, INSPIRATION_USAGE_NOTE, searchInspiration } from './inspiration.ts'
 import { ESCAPED_HTML_NOTE, looksEscapedHtml } from './escapedHtml.ts'
 import { describeSyncFlow, getSyncFlow } from './ingest.ts'
 import * as assets from './assets.ts'
-import * as imageSearch from './imageSearch.ts'
-import * as imageGen from './imageGen.ts'
 import * as backgrounds from './backgrounds.ts'
 import { viewWebsite } from './website.ts'
 import { createImportedWebpageFrame } from './webpageImport.ts'
 import { normalizeImportUrl } from './importer.ts'
 import { websiteAccessErrorMessage } from './websiteAccess.ts'
-import { mentionedRole } from '../shared/agents.ts'
 import { findText, outlineOf, outlinePath, parseHtml, replaceSource, resolveOne, sourceOf } from './htmlTree.ts'
 import { exportFrameCode } from './exportCode.ts'
 import {
@@ -41,7 +38,6 @@ import {
   templateSlots,
   type ComponentDef,
 } from '../shared/components.ts'
-import * as allowance from './allowance.ts'
 
 const INSTRUCTIONS = `Doop is a shared multiplayer design canvas: humans and AI agents design together in real time. Canvases contain frames — artboards that render complete HTML documents live for everyone viewing.
 
@@ -54,10 +50,10 @@ You MUST call get_guide({ topic: "doop-instructions" }) once before using other 
 - Review: after every create or significant edit you MUST call get_frame_screenshot and fix what looks wrong before moving on.
 - Small edits: edit_frame_html (exact find/replace — the change morphs into the rendered frame in place). Full redesigns: set_frame_html or a new stream. Rename/move/resize: update_frame.
 - Lean reads: get_frame returns the whole document. For copy edits ("change X everywhere") call find_in_canvas — it returns each element containing the text with its source, ready for edit_frame_html. To change part of an existing frame, call get_frame_outline (one line per element, with @path locators), read the part with get_frame_section, and change it with edit_frame_html or replace_frame_section — never re-read or resend a whole document for a local edit.
-- Images: real imagery makes designs. search_images finds stock photos (you SEE thumbnails and pick), search_icons finds 200k+ UI icons as hotlinkable SVGs, search_logos finds real company logos by brand name or domain — call it once per brand BEFORE writing any logo wall, integration row, press bar or testimonial, and never ship a placeholder tile, "LOGO" text or an invented wordmark in its place, list_backgrounds shows a page of curated hero/section/bento backgrounds (glows, grainy meshes, aurora, painterly scenes) as thumbnails — browse it when a section wants atmosphere rather than defaulting to a flat CSS gradient, judge by eye whether one fits the frame, and draw your own when none does, upload_asset stores your own file (remote file → source_url; local file → local_file=true, returns a curl command) and returns a permanent URL. generate_image makes a new image from a prompt (a full-bleed hero background in the frame's exact palette, illustration, a product render, brand-specific hero art that stock cannot supply) and stores it as a permanent asset — reach for it when search_images cannot deliver the exact visual, or when the human asks for a generated image; it costs the human money or quota, so one considered prompt beats five drafts. Never inline images as data: URIs.
+- Images: real imagery makes designs. list_backgrounds shows a page of curated hero/section/bento backgrounds (glows, grainy meshes, aurora, painterly scenes) as thumbnails — browse it when a section wants atmosphere rather than defaulting to a flat CSS gradient, judge by eye whether one fits the frame, and draw your own when none does. upload_asset stores your own file (remote file → source_url; local file → local_file=true, returns a curl command) and returns a permanent URL — use it for photos, icons and real company logos you sourced yourself, and never ship a placeholder tile, "LOGO" text or an invented wordmark instead. Never inline images as data: URIs.
 - Websites: when a request names an existing site or URL — a redesign of it, or "like acme.com" — call import_webpage FIRST so an editable HTML snapshot lands on the canvas. Leave that source frame unchanged and design in a separate frame. view_website is only for read-only inspection when the page should not be added. If Doop cannot capture the site, do not retry with view_website because it uses the same capture path. Use your own browser or web tool and work only from content you actually observe; if that is unavailable, ask the user for screenshots or an HTML export rather than inventing content.
 - Feedback: humans reply to your tasks; their notes arrive inside your tool results as HUMAN FEEDBACK blocks — address them before continuing.
-- Comments: call get_comments to read element-pinned comments and replies on a canvas, optionally filtered by frame; reply_to_comment answers a thread and resolve_comment closes it. Reading does not claim feedback or comments. A reply that @mentions a resident role is metered like a comment left in the browser.
+- Comments: call get_comments to read element-pinned comments and replies on a canvas, optionally filtered by frame; reply_to_comment answers a thread and resolve_comment closes it. Reading does not claim feedback or comments. A comment that @mentions an agent role (@doop, @ux …) is a request for an agent: forAgent and targetAgent are set on it.
 - Theme: a canvas can carry a theme — design tokens, Google Fonts and shared CSS injected into EVERY frame. get_canvas shows it; read it with get_theme and build frames from its classes and var(--…) tokens, never pasting it into a frame. Put a design system's shared CSS in the theme (set_theme_tokens / set_theme_css / set_theme_fonts), not in each frame.
 - Components: a canvas can carry linked components — custom elements (<ds-stat label="…">…</ds-stat>) whose template and CSS live on the canvas. get_canvas lists them; use instances instead of rewriting their markup, and create reusable pieces with set_component so a change updates every frame.
 - Guidelines: canvases can carry named style guides (brand rules, style recipes). get_canvas lists them with one-line summaries — read the relevant ones with get_guidelines BEFORE designing and follow them.
@@ -185,14 +181,10 @@ function withFeedback<T extends { content: { type: 'text' | 'image'; [k: string]
 const uploadHits = new Map<string, number[]>()
 const UPLOADS_PER_MIN = 15
 
-/* photo search burns the shared Pexels quota (200 req/hour on the free tier) */
+/* inspiration search and website views call out to third-party services —
+   keep a burst of retries from hammering them */
 const searchHits = new Map<string, number[]>()
 const SEARCHES_PER_MIN = 12
-
-/* generation spends the payer's subscription quota or money — keep a burst
-   of retries from draining it */
-const generateHits = new Map<string, number[]>()
-const GENERATIONS_PER_MIN = 6
 
 /* importing writes a potentially large HTML frame, so keep it at the same
    conservative per-user rate as the browser UI's import endpoint */
@@ -300,7 +292,7 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
         const results = await searchInspiration(query, count ?? 4)
         if (results.length === 0)
           return text({ ok: true, results: [], note: `No inspiration for "${query}" — try a broader category.` })
-        const thumbs = await Promise.all(results.map((r) => imageSearch.fetchThumb(r.thumb_url)))
+        const thumbs = await Promise.all(results.map((r) => fetchThumb(r.thumb_url)))
         type ResultBlock = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
         const content: ResultBlock[] = [
           {
@@ -935,7 +927,7 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
     'reply_to_comment',
     {
       description:
-        'Reply inside an element-comment thread on a canvas. The reply inherits the root comment’s element anchor, so an @mention in it gives the resident agent the same anchor the conversation is about. Writing does not resolve the thread — read the request with get_comments, make the change, then close it with resolve_comment. If the text @mentions a resident role (e.g. "@Doop"), it counts as a new resident task against the account’s meter, exactly like a comment left in the browser.',
+        'Reply inside an element-comment thread on a canvas. The reply inherits the root comment’s element anchor, so the thread keeps pointing at the element the conversation is about. Writing does not resolve the thread — read the request with get_comments, make the change, then close it with resolve_comment.',
       inputSchema: {
         canvas_id: z.string(),
         comment_id: z.string().describe('The root comment or any reply in the thread (from get_comments)'),
@@ -950,30 +942,8 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
       if (!body.trim() || !actions.openThread(comment_id)) return err('thread resolved or empty text')
       const actor = actorFrom(agent_name)
       arrive(canvas_id, agent_name)
-      /* A reply that @mentions a resident agent is a new command to the team,
-         metered like a card; plain replies stay free. Mirrors the REST reply
-         route so the meter is spent exactly once either way. */
-      let gate: Awaited<ReturnType<typeof allowance.consumeResidentTask>> | undefined
-      if (mentionedRole(body) && ownerId) {
-        gate = await allowance.consumeResidentTask(ownerId)
-        if (!gate.ok)
-          return err(
-            `resident task limit reached (${gate.used}/${gate.limit}) — connect a model account or retry later`,
-          )
-      }
-      /* attributed to the agent, billed to the connecting user: the resident
-         picks whose model account pays from the requester id, and without one
-         it falls back to the canvas owner's — wrong on a shared canvas */
-      const reply = actions.replyToComment(comment_id, body, actor.name, ownerId, 'agent')
-      if (!reply) {
-        /* the thread closed while the meter was being written: give the task back */
-        if (gate && ownerId) {
-          await allowance
-            .refundResidentTask(gate, ownerId)
-            .catch((e) => console.error(`[mcp] could not refund a resident task for ${ownerId}:`, e))
-        }
-        return err('thread resolved meanwhile')
-      }
+      const reply = actions.replyToComment(comment_id, body, actor.name, 'agent')
+      if (!reply) return err('thread resolved or empty text')
       return withFeedback(text(reply), canvas_id, actor)
     },
   )
@@ -982,7 +952,7 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
     'resolve_comment',
     {
       description:
-        'Resolve an element-comment thread on a canvas, marking the request addressed. Resolving a root comment closes its whole thread; resolving a reply closes only that reply. When the thread was an @mention of a resident agent, resolving it also records the exchange as a design decision in the canvas Memory (plain human-to-human notes are not). Like every mutating tool, the result also carries any pending task feedback addressed to you; get_feedback is for polling it on its own.',
+        'Resolve an element-comment thread on a canvas, marking the request addressed. Resolving a root comment closes its whole thread; resolving a reply closes only that reply. When the thread @mentioned an agent role (@doop, @ux …), resolving it also records the exchange as a design decision in the canvas Memory (plain human-to-human notes are not). Like every mutating tool, the result also carries any pending task feedback addressed to you; get_feedback is for polling it on its own.',
       inputSchema: {
         canvas_id: z.string(),
         comment_id: z.string().describe('The root comment or a reply (from get_comments)'),
@@ -1247,134 +1217,6 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
   )
 
   server.registerTool(
-    'generate_image',
-    {
-      title: 'Generate an image with AI',
-      description:
-        "Generate an image from a text prompt and store it as a permanent asset on this origin — returns the URL to embed plus a preview you can look at. Use it for visuals stock search cannot supply: brand-specific illustration, a product render, a mascot, abstract hero art in the frame's exact palette. Prefer search_images for ordinary photography. It runs on the connecting human's connected ChatGPT subscription or OpenAI key (else the server's key) and costs them quota or money, so write ONE considered prompt: subject, style, composition, palette hexes, lighting, what to leave out. Generation takes 20–60 seconds. ONLY generate when the design genuinely needs it or the human asked.",
-      inputSchema: {
-        prompt: z.string().describe('What to draw: subject, style, composition, palette, lighting, mood'),
-        aspect: z
-          .enum(imageGen.IMAGE_ASPECTS)
-          .optional()
-          .describe('square 1024×1024 (default), landscape 1536×1024, portrait 1024×1536 — match the slot'),
-        quality: z.enum(imageGen.IMAGE_QUALITIES).optional().describe('low is fast and cheap; default medium'),
-        canvas_id: z.string().describe('The canvas this image belongs to'),
-        agent_name: agentName,
-      },
-    },
-    async ({ prompt, aspect, quality, canvas_id, agent_name }) => {
-      if (!canvasFor(canvas_id)) return noCanvas(canvas_id)
-      const now = Date.now()
-      const limitKey = ownerId ?? agent_name
-      const hits = (generateHits.get(limitKey) ?? []).filter((t) => now - t < 60_000)
-      if (hits.length >= GENERATIONS_PER_MIN) return err('image generation rate limit — wait a minute')
-      hits.push(now)
-      generateHits.set(limitKey, hits)
-      try {
-        const image = await imageGen.generateImage(ownerId, { prompt, aspect, quality })
-        const asset = await assets.createAsset(image.buf, { canvasId: canvas_id, ownerId, uploadedBy: agent_name })
-        const url = `${PUBLIC_ORIGIN}/a/${asset.id}.${asset.ext}`
-        capture(ownerId ?? agent_name, 'image_generated', {
-          canvas_id,
-          aspect,
-          quality,
-          billed_to: image.billedTo,
-        })
-        const result = {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify(
-                {
-                  ok: true,
-                  url,
-                  width: image.width,
-                  height: image.height,
-                  mime: asset.mime,
-                  size_bytes: asset.size,
-                  billed_to: image.billedTo,
-                  usage: `<img src="${url}" alt="" style="object-fit: cover">`,
-                },
-                null,
-                2,
-              ),
-            },
-            { type: 'image' as const, data: image.preview.data, mimeType: image.preview.mime },
-            {
-              type: 'text' as const,
-              text: 'Preview above — judge it before embedding. If it misses, refine the prompt (say what was wrong) rather than regenerating blind. The URL is permanent and safe to reference in any frame.',
-            },
-          ],
-        }
-        return withFeedback(result, canvas_id, actorFrom(agent_name))
-      } catch (e) {
-        return err(e instanceof Error ? e.message : 'image generation failed')
-      }
-    },
-  )
-
-  server.registerTool(
-    'search_images',
-    {
-      title: 'Search stock photos',
-      description:
-        'Search free stock photography (Pexels) and get back candidate photos WITH visual thumbnails — look at them and pick the one that fits the frame\'s mood, palette and crop. Use concrete, scene-level queries ("team collaborating loft office", not "business"). Embed the returned image_url directly in frame HTML (hotlinking is fine and license-safe), or pass it to upload_asset source_url for a permanent copy on this origin. Always write a real alt text.',
-      inputSchema: {
-        query: z.string().describe('Scene-level description of the photo you want'),
-        orientation: z
-          .enum(['landscape', 'portrait', 'square'])
-          .optional()
-          .describe('Match the slot the photo will fill'),
-        count: z.number().min(1).max(8).optional().describe('Candidates to return, default 5'),
-        canvas_id: z.string().optional().describe('The canvas you are designing on (lets human feedback reach you)'),
-        agent_name: agentName,
-      },
-    },
-    async ({ query, orientation, count, canvas_id, agent_name }) => {
-      if (!imageSearch.photoSearchEnabled())
-        return err(
-          'photo search is not configured on this server (PEXELS_API_KEY is not set) — draw the visual as inline SVG/CSS instead, or ask your human for an image to upload',
-        )
-      const now = Date.now()
-      const limitKey = ownerId ?? agent_name
-      const hits = (searchHits.get(limitKey) ?? []).filter((t) => now - t < 60_000)
-      if (hits.length >= SEARCHES_PER_MIN) return err('search rate limit — wait a minute')
-      hits.push(now)
-      searchHits.set(limitKey, hits)
-      try {
-        const photos = await imageSearch.searchPhotos(query, { orientation, count })
-        if (photos.length === 0)
-          return text({ ok: true, photos: [], note: `No results for "${query}" — try a broader or more visual query.` })
-        const thumbs = await Promise.all(photos.map((p) => imageSearch.fetchThumb(p.thumb_url)))
-        type ResultBlock = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
-        const content: ResultBlock[] = [
-          {
-            type: 'text' as const,
-            text: `${photos.length} photo(s) for "${query}" — thumbnails below, pick by number:`,
-          },
-        ]
-        photos.forEach((p, i) => {
-          const thumb = thumbs[i]
-          if (thumb) content.push({ type: 'image' as const, data: thumb.data, mimeType: thumb.mime })
-          content.push({
-            type: 'text' as const,
-            text: `#${i + 1}${p.alt ? ` — ${p.alt}` : ''} (${p.width}×${p.height}, avg ${p.avg_color}, by ${p.photographer})\nimage_url: ${p.image_url}`,
-          })
-        })
-        content.push({
-          type: 'text' as const,
-          text: 'Embed the chosen image_url directly (<img src> or CSS background, object-fit: cover), or upload_asset with source_url for a permanent copy. Pexels license: free to use and modify, no attribution required.',
-        })
-        const result = { content }
-        return canvas_id ? withFeedback(result, canvas_id, actorFrom(agent_name)) : result
-      } catch (e) {
-        return err(e instanceof Error ? e.message : 'photo search failed')
-      }
-    },
-  )
-
-  server.registerTool(
     'list_backgrounds',
     {
       title: 'List backgrounds',
@@ -1426,91 +1268,6 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
         return canvas_id ? withFeedback(result, canvas_id, actorFrom(agent_name)) : result
       } catch (e) {
         return err(e instanceof Error ? e.message : 'background search failed')
-      }
-    },
-  )
-
-  server.registerTool(
-    'search_icons',
-    {
-      title: 'Search icons',
-      description:
-        'Search 200,000+ open-source UI icons (Iconify: Material, Lucide, Tabler, Phosphor, …) and get hotlinkable SVG URLs for frame HTML. Search one concept per call ("shopping cart", "arrow right") — multi-concept queries return nothing; call once per icon. Results are semantically named ids — pick by name. For company/brand logos use search_logos instead.',
-      inputSchema: {
-        query: z.string().describe('A single icon concept, e.g. "light bulb"'),
-        limit: z.number().min(1).max(48).optional().describe('Max results, default 24'),
-        canvas_id: z.string().optional().describe('The canvas you are designing on (lets human feedback reach you)'),
-        agent_name: agentName,
-      },
-    },
-    async ({ query, limit, canvas_id, agent_name }) => {
-      try {
-        const icons = await imageSearch.searchIcons(query, { limit })
-        const result = text({
-          ok: true,
-          icons,
-          ...(icons.length === 0 ? { note: `No results for "${query}" — try a synonym or broader concept.` } : {}),
-          usage: imageSearch.ICON_USAGE_NOTE,
-        })
-        return canvas_id ? withFeedback(result, canvas_id, actorFrom(agent_name)) : result
-      } catch (e) {
-        return err(e instanceof Error ? e.message : 'icon search failed')
-      }
-    },
-  )
-
-  server.registerTool(
-    'search_logos',
-    {
-      title: 'Search company logos',
-      description:
-        'Find a company\'s logo by brand name or domain — returns the company\'s real mark as a hotlinkable URL (a thumbnail is included when possible so you can confirm the brand), plus open-source vector marks (SVG) for well-known brands. One company per call — for a logo wall, call once per brand. The exact domain ("acme.io") resolves far more reliably than a name ("Acme"). Use for customer-logo walls, "works with" integration rows, testimonial cards, press bars. Mind each result\'s size guidance: favicon-sourced logos are small rasters — never scale them up.',
-      inputSchema: {
-        query: z.string().describe('A single company name or domain, e.g. "vercel.com"'),
-        count: z.number().min(1).max(8).optional().describe('Candidates to return, default 5'),
-        canvas_id: z.string().optional().describe('The canvas you are designing on (lets human feedback reach you)'),
-        agent_name: agentName,
-      },
-    },
-    async ({ query, count, canvas_id, agent_name }) => {
-      const now = Date.now()
-      const limitKey = ownerId ?? agent_name
-      const hits = (searchHits.get(limitKey) ?? []).filter((t) => now - t < 60_000)
-      if (hits.length >= SEARCHES_PER_MIN) return err('search rate limit — wait a minute')
-      hits.push(now)
-      searchHits.set(limitKey, hits)
-      try {
-        const { brands, vector } = await imageSearch.lookupLogos(query, count)
-        if (brands.length === 0 && vector.length === 0)
-          return text({
-            ok: true,
-            logos: [],
-            note: `No logo found for "${query}" — retry with the company's exact domain (e.g. "acme.io"). If that also fails, search a different real brand instead of drawing a placeholder, or ask your human for a logo file to upload_asset.`,
-          })
-        type ResultBlock = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
-        const content: ResultBlock[] = [{ type: 'text' as const, text: `Logo results for "${query}":` }]
-        if (brands.length > 0) {
-          const thumbs = await Promise.all(brands.map((b) => imageSearch.fetchThumb(b.thumb_url)))
-          brands.forEach((b, i) => {
-            const thumb = thumbs[i]
-            if (thumb) content.push({ type: 'image' as const, data: thumb.data, mimeType: thumb.mime })
-            content.push({
-              type: 'text' as const,
-              text: `#${i + 1} — ${b.name} (${b.domain})\nlogo_url: ${b.logo_url}`,
-            })
-          })
-        }
-        if (vector.length > 0) {
-          content.push({
-            type: 'text' as const,
-            text: `Open-source vector marks:\n${vector.map((v) => `${v.id} → ${v.svg_url}`).join('\n')}`,
-          })
-        }
-        content.push({ type: 'text' as const, text: imageSearch.LOGO_USAGE_NOTE })
-        const result = { content }
-        return canvas_id ? withFeedback(result, canvas_id, actorFrom(agent_name)) : result
-      } catch (e) {
-        return err(e instanceof Error ? e.message : 'logo search failed')
       }
     },
   )

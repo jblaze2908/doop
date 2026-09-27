@@ -7,7 +7,6 @@ import type {
   ElementComment,
   Frame,
   GuidelineDoc,
-  MemoryProposal,
   MemoryReference,
   PeerViewport,
   Presence,
@@ -39,10 +38,8 @@ interface State {
   comments: ElementComment[]
   /** design decisions captured into Memory (newest first) */
   decisions: DesignDecision[]
-  /** distiller rule proposals (newest first) */
-  proposals: MemoryProposal[]
-  /** which tab the side panel shows — in the store so a Memory-suggestion
-   *  toast anywhere in the app can jump straight to the Memory tab */
+  /** which tab the side panel shows — in the store so a Memory toast
+   *  anywhere in the app can jump straight to the Memory tab */
   panelTab: 'tasks' | 'activity' | 'memory'
   /** every selected frame, in selection order — marquee and ⇧-click build
    *  this up; a plain click collapses it to one */
@@ -82,14 +79,7 @@ interface State {
   flashes: Record<string, { color: string; at: number }>
   /** frameId -> actor currently streaming a design into it */
   streams: Record<string, { name: string; color: string }>
-  /** the free-tier wall is showing — in the store so any surface that hits
-   *  the resident-task limit (board, prompt bar, element comment) can raise it */
-  limitWall: boolean
-  /** bumped whenever the allowance could have changed (a model account was
-   *  connected or dropped) so every meter on screen re-reads it */
-  allowanceVersion: number
-  /** a request for the Stage to glide the camera to a frame — the prompt bar
-   *  raises it so a first deliverable streams in on-screen, never off-canvas */
+  /** a request for the Stage to glide the camera to a frame */
   flyTo: { frameId: string; at: number } | { point: { x: number; y: number }; at: number } | null
   /** clientId of the peer whose camera this one is tracking (Figma-style
    *  follow); any camera move of our own lets go */
@@ -130,11 +120,7 @@ interface State {
   setReferenceLocal(id: string, reference: MemoryReference | null): void
   setDecisions(decisions: DesignDecision[]): void
   pushDecision(decision: DesignDecision): void
-  setProposals(proposals: MemoryProposal[]): void
-  upsertProposal(proposal: MemoryProposal): void
   setPanelTab(tab: 'tasks' | 'activity' | 'memory'): void
-  setLimitWall(v: boolean): void
-  allowanceChanged(): void
   requestFlyTo(frameId: string): void
   /** glide the camera to a world point at the current zoom (a peer's cursor) */
   requestFlyToPoint(x: number, y: number): void
@@ -220,10 +206,7 @@ export const useStore = create<State>((set, get) => ({
   feedback: [],
   comments: [],
   decisions: [],
-  proposals: [],
   panelTab: 'tasks',
-  limitWall: false,
-  allowanceVersion: 0,
   flyTo: null,
   following: null,
   selectedIds: [],
@@ -376,24 +359,13 @@ export const useStore = create<State>((set, get) => ({
   setDecisions: (decisions) => set({ decisions }),
   pushDecision: (decision) =>
     set((s) => {
-      /* upsert by id — the summarizer re-broadcasts the same decision with
-         its generalized summary attached a moment after capture */
+      /* upsert by id — a re-broadcast of the same decision replaces it */
       const decisions = s.decisions.some((d) => d.id === decision.id)
         ? s.decisions.map((d) => (d.id === decision.id ? decision : d))
         : [decision, ...s.decisions].slice(0, 100)
       return { decisions }
     }),
-  setProposals: (proposals) => set({ proposals }),
-  upsertProposal: (proposal) =>
-    set((s) => {
-      const proposals = s.proposals.some((p) => p.id === proposal.id)
-        ? s.proposals.map((p) => (p.id === proposal.id ? proposal : p))
-        : [proposal, ...s.proposals].slice(0, 100)
-      return { proposals }
-    }),
   setPanelTab: (panelTab) => set({ panelTab }),
-  setLimitWall: (limitWall) => set({ limitWall }),
-  allowanceChanged: () => set((s) => ({ allowanceVersion: s.allowanceVersion + 1 })),
   requestFlyTo: (frameId) => set({ flyTo: { frameId, at: Date.now() } }),
   requestFlyToPoint: (x, y) => set({ flyTo: { point: { x, y }, at: Date.now() } }),
   /* selecting a different frame (or deselecting) closes the Inspector — the

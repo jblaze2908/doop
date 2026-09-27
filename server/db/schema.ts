@@ -221,18 +221,14 @@ export const tasks = pgTable(
     claimedAt: bigint('claimed_at', { mode: 'number' }),
     failedAt: bigint('failed_at', { mode: 'number' }),
     failureReason: text('failure_reason'),
-    /** comma-joined agent-role ids; null for status tasks and legacy cards */
+    /** pipeline..scope: built-in agent and GitHub card routing, unused since
+     *  those were removed; kept until a migration drops them */
     pipeline: text('pipeline'),
     stage: integer('stage'),
-    /** comma-joined reference-frame ids uploaded with the prompt */
     attachments: text('attachments'),
-    /** account id of the human who queued the card — picks the model credential */
     queuedByUserId: text('queued_by_user_id'),
-    /** structured cards ('sketch', 'design-system'); null for prompt cards */
     kind: text('kind'),
-    /** JSON payload of a structured card — what its runner needs, never a secret */
     payload: text('payload'),
-    /** JSON CardScope: the frame/element the prompt was scoped to when queued */
     scope: text('scope'),
     /** comma-joined ids of the frames edited while the task was open, most recent last */
     frameIds: text('frame_ids'),
@@ -247,6 +243,7 @@ export const feedback = pgTable(
     taskId: text('task_id').notNull(),
     canvasId: text('canvas_id').notNull(),
     agentName: text('agent_name').notNull(),
+    /** unused since the built-in agent was removed (with from_user_id) */
     targetAgent: text('target_agent'),
     fromName: text('from_name').notNull(),
     fromUserId: text('from_user_id'),
@@ -270,6 +267,7 @@ export const comments = pgTable(
     selector: text('selector').notNull(),
     snippet: text('snippet').notNull(),
     fromName: text('from_name').notNull(),
+    /** unused since the built-in agent was removed */
     fromUserId: text('from_user_id'),
     text: text('text').notNull(),
     at: bigint('at', { mode: 'number' }).notNull(),
@@ -390,8 +388,9 @@ export const memoryReferences = pgTable(
   (t) => [index('memory_references_canvas_idx').on(t.canvasId)],
 )
 
-/** Resolved design decisions captured from addressed feedback/comments —
- *  the distiller's raw material. */
+/** Resolved design decisions captured from addressed requests and agent
+ *  reports. summary and distilled_at were the removed distiller's; nothing
+ *  writes them any more. */
 export const decisions = pgTable(
   'decisions',
   {
@@ -409,7 +408,8 @@ export const decisions = pgTable(
   (t) => [index('decisions_canvas_idx').on(t.canvasId)],
 )
 
-/** Rule edits the distiller proposed; humans accept (→ guide) or dismiss. */
+/** Unused since the distiller was removed (rows are only deleted with their
+ *  canvas); kept until a migration drops it. */
 export const memoryProposals = pgTable(
   'memory_proposals',
   {
@@ -444,18 +444,17 @@ export const activity = pgTable(
   (t) => [index('activity_canvas_idx').on(t.canvasId)],
 )
 
-/* free-tier metering: how many resident-team tasks each user has initiated */
+/** Unused since the built-in agent's free-tier meter was removed; kept until
+ *  a migration drops it. */
 export const residentUsage = pgTable('resident_usage', {
   userId: text('user_id').primaryKey(),
   used: integer('used').notNull().default(0),
   updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
 })
 
-/** A user's own model subscription, connected so the Doop Agent keeps running
- *  once their free tasks are gone. Today that is ChatGPT (OAuth against
- *  auth.openai.com, refreshed here) or a plain OpenAI API key — `kind` says
- *  which, and the token columns are empty for the key path. Secrets: these
- *  rows are as sensitive as a password, and never leave the server. */
+/** Unused since the built-in agent was removed; kept until a migration drops
+ *  it. Rows still hold ChatGPT OAuth tokens and API keys — as sensitive as a
+ *  password; never read them out. */
 export const modelAccounts = pgTable('model_accounts', {
   userId: text('user_id').primaryKey(),
   /** 'chatgpt' (subscription, OAuth) | 'openai-key' (pay-as-you-go API key) */
@@ -557,7 +556,8 @@ export const automationRuns = pgTable(
   (t) => [index('automation_runs_automation_idx').on(t.automationId)],
 )
 
-/** Local execution preference; Claude credentials never leave the desktop. */
+/** Unused since the built-in agent's local Claude runner was removed; kept
+ *  until a migration drops it. */
 export const localAgentPreferences = pgTable('local_agent_preferences', {
   userId: text('user_id').primaryKey(),
   enabled: boolean('enabled').notNull().default(false),

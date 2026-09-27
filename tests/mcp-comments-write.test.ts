@@ -2,12 +2,11 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as actions from '../server/actions.ts'
-import * as allowance from '../server/allowance.ts'
 import { buildMcpServer } from '../server/mcp.ts'
 import { store } from '../server/store.ts'
 import type { Canvas, ElementComment, Frame } from '../shared/types.ts'
 
-/* One file, two levels of isolation. The contract/guard/meter tests spy the
+/* One file, two levels of isolation. The contract/guard tests spy the
  * action seams so they can force branches; the real-state tests below let the
  * action layer run and mock only persistence, so they can read the stored
  * comment/activity/decision logs back. */
@@ -17,10 +16,7 @@ vi.mock('../server/db/persist.ts', () => ({
   saveComment: () => {},
   saveActivity: () => {},
   saveDecision: () => {},
-  saveProposal: () => {},
 }))
-vi.mock('../server/resident.ts', () => ({ onFeedback: () => {} }))
-vi.mock('../server/distill.ts', () => ({ onDecision: () => {} }))
 
 const OWNER_ID = 'owner-1'
 
@@ -103,18 +99,6 @@ function stubCanvas(canvas: Canvas) {
   vi.spyOn(store, 'getCanvas').mockImplementation((id: string) => (id === canvas.id ? canvas : undefined))
 }
 
-function gate(overrides: Record<string, unknown> = {}): Awaited<ReturnType<typeof allowance.consumeResidentTask>> {
-  return {
-    ok: true,
-    used: 1,
-    limit: 5,
-    connected: false,
-    byoModel: false,
-    onOwnAccount: false,
-    ...overrides,
-  }
-}
-
 function seedRoot(text: string) {
   const root = actions.addElementComment(FRAME.id, { selector: '.hero h1', snippet: '<h1>Hi</h1>', text }, 'alice')
   if (!root) throw new Error('failed to seed a root comment')
@@ -166,33 +150,9 @@ describe('element-comment write MCP tools', () => {
       })
       expect(isError).toBeFalsy()
       expect(parsed).toEqual(reply)
-      /* the 4th arg is who pays, the 5th the actor kind: an agent reply must not log as a human */
-      expect(replySpy).toHaveBeenCalledWith('m1', '  Done  ', 'Claude', OWNER_ID, 'agent')
+      /* the 4th arg is the actor kind: an agent reply must not log as a human */
+      expect(replySpy).toHaveBeenCalledWith('m1', '  Done  ', 'Claude', 'agent')
       expect(heartbeat).toHaveBeenCalledTimes(1)
-    } finally {
-      await close()
-    }
-  })
-
-  it('bills a reply on a shared canvas to the collaborator who sent it, not the canvas owner', async () => {
-    stubCanvas({ ...CANVAS, ownerId: 'someone-else', memberIds: ['mate-1'] })
-    const root = comment({ id: 'm1' })
-    vi.spyOn(actions, 'findComment').mockReturnValue(root)
-    vi.spyOn(actions, 'openThread').mockReturnValue({ root, frame: FRAME })
-    const replySpy = vi
-      .spyOn(actions, 'replyToComment')
-      .mockReturnValue(comment({ id: 'm2', parentId: 'm1', from: 'Claude', text: '@Doop tighten this' }))
-    vi.spyOn(allowance, 'consumeResidentTask').mockResolvedValue(gate())
-    const { client, close } = await connect('mate-1')
-    try {
-      const { isError } = await call(client, 'reply_to_comment', {
-        canvas_id: CANVAS.id,
-        comment_id: 'm1',
-        text: '@Doop tighten this',
-        agent_name: 'Claude',
-      })
-      expect(isError).toBeFalsy()
-      expect(replySpy).toHaveBeenCalledWith('m1', '@Doop tighten this', 'Claude', 'mate-1', 'agent')
     } finally {
       await close()
     }
@@ -228,33 +188,10 @@ describe('element-comment write MCP tools', () => {
     }
   })
 
-  it('does not spend the resident meter on a plain reply', async () => {
+  it('posts an @mention reply as-is and errors when the thread closes mid-write', async () => {
     const root = comment({ id: 'm1' })
     vi.spyOn(actions, 'findComment').mockReturnValue(root)
     vi.spyOn(actions, 'openThread').mockReturnValue({ root, frame: FRAME })
-    vi.spyOn(actions, 'replyToComment').mockReturnValue(comment({ id: 'm2', parentId: 'm1' }))
-    const consume = vi.spyOn(allowance, 'consumeResidentTask')
-    const { client, close } = await connect()
-    try {
-      const { isError } = await call(client, 'reply_to_comment', {
-        canvas_id: CANVAS.id,
-        comment_id: 'm1',
-        text: 'nice work',
-        agent_name: 'Claude',
-      })
-      expect(isError).toBeFalsy()
-      expect(consume).not.toHaveBeenCalled()
-    } finally {
-      await close()
-    }
-  })
-
-  it('meters an @mention of a resident role and refunds when the thread closes mid-write', async () => {
-    const root = comment({ id: 'm1' })
-    vi.spyOn(actions, 'findComment').mockReturnValue(root)
-    vi.spyOn(actions, 'openThread').mockReturnValue({ root, frame: FRAME })
-    const consume = vi.spyOn(allowance, 'consumeResidentTask').mockResolvedValue(gate())
-    const refund = vi.spyOn(allowance, 'refundResidentTask').mockResolvedValue(undefined)
     const replySpy = vi.spyOn(actions, 'replyToComment').mockReturnValue(comment({ id: 'm2', parentId: 'm1' }))
     const { client, close } = await connect()
     try {
@@ -265,12 +202,8 @@ describe('element-comment write MCP tools', () => {
         agent_name: 'Claude',
       })
       expect(ok.isError).toBeFalsy()
-      expect(consume).toHaveBeenCalledTimes(1)
-      expect(consume).toHaveBeenCalledWith(OWNER_ID)
-      expect(refund).not.toHaveBeenCalled()
+      expect(replySpy).toHaveBeenCalledWith('m1', '@Doop please tighten the hero', 'Claude', 'agent')
 
-      consume.mockClear()
-      refund.mockClear()
       replySpy.mockReturnValue(undefined)
       const failed = await call(client, 'reply_to_comment', {
         canvas_id: CANVAS.id,
@@ -279,30 +212,7 @@ describe('element-comment write MCP tools', () => {
         agent_name: 'Claude',
       })
       expect(failed.isError).toBe(true)
-      expect(refund).toHaveBeenCalledTimes(1)
-      expect(refund).toHaveBeenCalledWith(expect.objectContaining({ ok: true }), OWNER_ID)
-    } finally {
-      await close()
-    }
-  })
-
-  it('refuses a metered reply once the resident allowance is spent', async () => {
-    const root = comment({ id: 'm1' })
-    vi.spyOn(actions, 'findComment').mockReturnValue(root)
-    vi.spyOn(actions, 'openThread').mockReturnValue({ root, frame: FRAME })
-    const replySpy = vi.spyOn(actions, 'replyToComment')
-    vi.spyOn(allowance, 'consumeResidentTask').mockResolvedValue(gate({ ok: false, used: 5, limit: 5 }))
-    const { client, close } = await connect()
-    try {
-      const { raw, isError } = await call(client, 'reply_to_comment', {
-        canvas_id: CANVAS.id,
-        comment_id: 'm1',
-        text: '@Doop help',
-        agent_name: 'Claude',
-      })
-      expect(isError).toBe(true)
-      expect(raw).toContain('resident task limit reached')
-      expect(replySpy).not.toHaveBeenCalled()
+      expect(failed.raw).toContain('thread resolved or empty text')
     } finally {
       await close()
     }
@@ -449,7 +359,6 @@ describe('MCP comment write tools over real action state', () => {
       comments: new Map([[CANVAS.id, []]]),
       activity: new Map([[CANVAS.id, []]]),
       decisions: new Map([[CANVAS.id, []]]),
-      proposals: new Map(),
     })
     vi.spyOn(store, 'getFrame').mockImplementation((id: string) => (id === FRAME.id ? FRAME : undefined))
   })

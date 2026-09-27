@@ -12,8 +12,6 @@ vi.mock('../server/db/persist.ts', () => ({
   saveActivity: () => {},
   saveTask: () => {},
 }))
-vi.mock('../server/resident.ts', () => ({ onFeedback: () => {} }))
-vi.mock('../server/distill.ts', () => ({ onDecision: () => {} }))
 
 const HTML = `<!doctype html><html><head><style>.hero{padding:8px}</style></head><body>
 <header class="nav"><a class="brand">Tijori</a></header>

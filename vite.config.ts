@@ -117,8 +117,7 @@ export default defineConfig({
          the one that serves the login page and that MCP clients connect to */
       '/api': { target: api },
       '/mcp': { target: api },
-      '/local-agent': { target: api },
-      /* frame images only — a bare '/i' prefix would swallow /integrations */
+      /* frame images only — a bare '/i' prefix would swallow SPA routes starting with i */
       '/i/': { target: api },
       '/a/': { target: api },
       '/u/': { target: api },

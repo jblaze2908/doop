@@ -5,13 +5,10 @@ import { useShallow } from 'zustand/react/shallow'
 import { connect, disconnect, sendWs } from '../lib/ws'
 import { api, ApiError, type DiscoveredSite, type SyncKeyInfo } from '../lib/api'
 import { navigate } from '../App'
-import { DoopMark } from '../components/Logo'
 import { BarDivider, TopBar, TopBarHome, TopBarTitle } from '../components/TopBar'
 import { ensureTab } from '../lib/desktop'
 import { Stage } from '../components/Stage'
 import { ActivityPanel } from '../components/ActivityPanel'
-import { LimitWall } from '../components/TeamAllowance'
-import { PromptBar } from '../components/PromptBar'
 import { WorkingNow } from '../components/WorkingNow'
 import { SideRail } from '../components/SideRail'
 import { LayersPanel, LayersRailToggle } from '../components/LayersPanel'
@@ -95,7 +92,6 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
   const [renaming, setRenaming] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const updateReady = useStore((s) => s.updateReady)
-  const limitWall = useStore((s) => s.limitWall)
   const canvasNotFound = useStore((s) => s.canvasNotFound)
 
   /* keep the desktop shell's tab label in step with the live canvas name.
@@ -202,17 +198,9 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
     [],
   )
 
-  /* a pending Memory suggestion gets its own toast beside the side panel;
-     clicking it jumps to the Memory tab, ✕ mutes it for this session */
-  const pendingProposal = useStore((s) => s.proposals.find((p) => p.status === 'pending'))
-  const panelTab = useStore((s) => s.panelTab)
-  const [mutedProposal, setMutedProposal] = useState<string | null>(null)
-
-  /* a decision landing in Memory is invisible work — surface it as its own
-     memory toast in the same top-right stack. Only decisions captured after
-     this page loaded count, so the ws-init batch stays silent. The summarizer
-     re-broadcasts the decision with a generalized summary a moment later; the
-     upsert re-fires this effect and the toast text swaps in place. */
+  /* a decision landing in Memory is invisible work — surface it as a memory
+     toast in the top-right stack. Only decisions captured after this page
+     loaded count, so the ws-init batch stays silent. */
   const latestDecision = useStore((s) => s.decisions[0])
   const [decisionToast, setDecisionToast] = useState<string | null>(null)
   const loadedAt = useRef(0)
@@ -414,28 +402,6 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
                 showActivity && 'right-[324px]',
               )}
             >
-              {pendingProposal && mutedProposal !== pendingProposal.id && !(showActivity && panelTab === 'memory') && (
-                <div className="flex items-center rounded-[10px] border border-brand bg-white shadow-card">
-                  <Button
-                    variant="bare"
-                    className="py-[9px] pl-3.5 pr-1 text-[12.5px] font-bold text-accent-ink hover:bg-transparent hover:text-accent-ink"
-                    onClick={() => {
-                      useStore.getState().setPanelTab('memory')
-                      setShowActivity(true)
-                    }}
-                  >
-                    <DoopMark size={12} /> Memory suggestion — review
-                  </Button>
-                  <Button
-                    variant="bare"
-                    className="py-[9px] pl-1.5 pr-2.5 text-[11px] hover:bg-transparent"
-                    title="Hide for now"
-                    onClick={() => setMutedProposal(pendingProposal.id)}
-                  >
-                    ✕
-                  </Button>
-                </div>
-              )}
               {decisionToast && (
                 <Button
                   variant="ghost"
@@ -456,7 +422,6 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
               )}
             </div>
             <WorkingNow />
-            <PromptBar canvasId={canvasId} />
             <Suspense fallback={null}>
               <Onboarding />
             </Suspense>
@@ -599,17 +564,6 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
             }}
           />
         </Suspense>
-      )}
-      {limitWall && (
-        <LimitWall
-          canvasId={canvasId}
-          onClose={() => useStore.getState().setLimitWall(false)}
-          onOpenConnect={() => {
-            useStore.getState().setLimitWall(false)
-            posthog.capture('agent_connection_opened')
-            setShowConnect(true)
-          }}
-        />
       )}
       {showImport && (
         <ImportModal

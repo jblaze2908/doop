@@ -14,8 +14,6 @@ vi.mock('../server/db/persist.ts', () => ({
   saveActivity: () => {},
   saveTask: () => {},
 }))
-vi.mock('../server/resident.ts', () => ({ onFeedback: () => {} }))
-vi.mock('../server/distill.ts', () => ({ onDecision: () => {} }))
 
 const OWNER_ID = 'owner-1'
 

@@ -3,31 +3,17 @@ import { useStore } from '../lib/store'
 import { api } from '../lib/api'
 import { cn } from '../lib/utils'
 import { timeAgo } from '../lib/time'
-import {
-  AGENT_ROLES,
-  DEFAULT_ROLE_ID,
-  PIPELINE_PRESETS,
-  roleByAgentName,
-  roleById,
-  roleName,
-} from '../../shared/agents'
-import type { AgentTask } from '../../shared/types'
 import { posthog } from '../lib/posthog'
-import { MeterLine, isResidentLimit, useAllowance } from './TeamAllowance'
+import { AgentIcon } from './AgentIcon'
 import { Button } from './ui/button'
 import { Textarea } from './ui/textarea'
 import { Card } from './ui/card'
 import { Dot } from './ui/dot'
-import { RoleMark } from './RoleMark'
 
 /**
  * Board view over the canvas's tasks: queued cards humans leave for agents,
- * live work (claimed cards + agent status tasks), and what's done. Cards are
- * plain AgentTask objects, so everything updates over the same ws stream.
- *
- * A card names an ordered pipeline of agents — design → copy → brand → a11y —
- * and moves down it one stage at a time; the trail on each card is the live
- * position in that pipeline.
+ * live work (agent status tasks), and what's done. Cards are plain AgentTask
+ * objects, so everything updates over the same ws stream.
  */
 
 /* class recipes shared across the board's cards and columns */
@@ -46,145 +32,29 @@ const dismissCls =
   'absolute right-[9px] top-[9px] size-[22px] justify-center rounded-full p-0 text-xs opacity-100 hover:bg-paper-deep hover:text-ink sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100'
 const hintCls = 'text-[11.5px] text-ink-faint'
 
-const stepPhaseCls: Record<string, string> = {
-  past: 'border-line text-ink-faint opacity-55',
-  queued: 'border-ink-soft text-ink-soft',
-  working: 'border-brand bg-brand text-white',
-  ahead: 'border-line text-ink-faint',
-}
-
-function pipelineOf(t: AgentTask): string[] {
-  return t.pipeline?.length ? t.pipeline : [DEFAULT_ROLE_ID]
-}
-
-/** The pipeline of a card with its current position marked. */
-function Trail({ task, state }: { task: AgentTask; state: 'queued' | 'working' | 'done' }) {
-  const pipeline = pipelineOf(task)
-  const at = Math.min(task.stage ?? 0, pipeline.length - 1)
-  return (
-    <div className="mt-[9px] flex flex-wrap items-center gap-x-[5px] gap-y-1">
-      {pipeline.map((id, i) => {
-        const role = roleById(id)
-        const phase = state === 'done' || i < at ? 'past' : i === at ? state : 'ahead'
-        return (
-          <span
-            key={id}
-            className={cn(
-              'inline-flex items-center gap-1 whitespace-nowrap rounded-full border py-0.5 pl-1.5 pr-2 text-[11px] font-semibold',
-              stepPhaseCls[phase],
-              i > 0 && "before:-ml-0.5 before:mr-0.5 before:text-ink-faint before:content-['›']",
-            )}
-            title={role?.blurb}
-          >
-            <RoleMark role={role} size={13} />
-            {role?.name ?? id}
-          </span>
-        )
-      })}
-    </div>
-  )
-}
-
-/** The roster: who is on the team, what each one owns, and what they're on. */
-function Team({ tasks, onPick }: { tasks: AgentTask[]; onPick: (id: string) => void }) {
-  return (
-    <div className="mb-[26px]">
-      <div className="mb-3 flex items-baseline gap-2.5 border-b border-line pb-2.5">
-        <h2 className={cn(colHeadH2Cls, 'text-ink-soft')}>The team</h2>
-        <span className={hintCls}>Pick one to queue a card · @mention them on any element</span>
-      </div>
-      <div className="flex flex-nowrap gap-2 overflow-x-auto pb-1 [scroll-snap-type:x_proximity] md:flex-wrap md:overflow-visible md:pb-0">
-        {AGENT_ROLES.map((role) => {
-          const working = tasks.find((t) => t.agentName === role.name && !t.endedAt && !t.failedAt)
-          const waiting = tasks.filter(
-            (t) => t.queuedBy && !t.agentName && !t.failedAt && !t.endedAt && pipelineOf(t)[t.stage ?? 0] === role.id,
-          ).length
-          return (
-            <Button
-              key={role.id}
-              variant="ghost"
-              className={cn(
-                'w-[178px] flex-none snap-start flex-col items-start gap-[3px] whitespace-normal rounded-[12px] bg-surface px-3 py-2.5 text-left font-normal hover:bg-surface hover:shadow-card',
-                working ? 'border-brand' : 'hover:border-ink-soft',
-              )}
-              onClick={() => onPick(role.id)}
-              title={`Queue a card for ${role.name}`}
-            >
-              <span className="flex flex-wrap items-center gap-x-[5px] gap-y-[2px] font-display text-[13px] font-[650] tracking-[-0.01em] text-ink">
-                <RoleMark role={role} size={16} />
-                {role.name}
-                <span className="font-mono text-[10px] font-normal text-ink-faint">@{role.id}</span>
-              </span>
-              <span className="text-[11.5px] leading-[1.35] text-ink-faint">{role.blurb}</span>
-              <span className="mt-auto flex max-w-full items-center gap-[5px] overflow-hidden text-ellipsis whitespace-nowrap pt-1.5 font-mono text-[10.5px] text-ink-soft">
-                {working ? (
-                  <>
-                    <Dot
-                      size="sm"
-                      className="animate-[stream-pulse_1.2s_ease-in-out_infinite]"
-                      style={{ background: role.reviewer ? '#1e7a4c' : 'var(--brand)' }}
-                    />
-                    {working.status}
-                  </>
-                ) : waiting > 0 ? (
-                  `${waiting} card${waiting > 1 ? 's' : ''} waiting`
-                ) : (
-                  'idle'
-                )}
-              </span>
-            </Button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 export function Board({ canvasId }: { canvasId: string }) {
   const tasks = useStore((s) => s.tasks)
   const [draft, setDraft] = useState<string | null>(null)
-  const [agents, setAgents] = useState<string[]>([DEFAULT_ROLE_ID])
-  const { allowance, refresh } = useAllowance()
 
   const failed = tasks.filter((t) => t.queuedBy && t.failedAt && !t.endedAt)
   const queued = tasks.filter((t) => t.queuedBy && !t.agentName && !t.failedAt && !t.endedAt)
   const inProgress = tasks.filter((t) => t.agentName && !t.failedAt && !t.endedAt)
   const done = tasks.filter((t) => t.endedAt).slice(0, 14)
 
-  /* clicking a chip appends it to the pipeline, so click order = run order */
-  function toggle(id: string) {
-    setAgents((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
-  }
-
-  function openCompose() {
-    setAgents([DEFAULT_ROLE_ID])
-    setDraft('')
-  }
-
   async function submit() {
     const title = draft?.trim()
-    const pipeline = agents.length > 0 ? agents : [DEFAULT_ROLE_ID]
     setDraft(null)
     if (!title) return
     try {
-      await api.addCard(canvasId, title, pipeline)
-      posthog.capture('agent_task_queued', { pipeline_length: pipeline.length })
+      await api.addCard(canvasId, title)
+      posthog.capture('agent_task_queued')
     } catch (err) {
-      if (isResidentLimit(err)) useStore.getState().setLimitWall(true)
-      else console.error(err)
+      console.error(err)
     }
-    refresh()
-  }
-
-  /* picking an agent from the roster opens a card already assigned to it */
-  function composeFor(id: string) {
-    setAgents([id])
-    setDraft('')
   }
 
   return (
     <div className="absolute inset-0 overflow-auto px-4 pb-[calc(120px+env(safe-area-inset-bottom))] pt-[22px] [background:radial-gradient(circle,var(--dot)_1px,transparent_1px)_0_0/26px_26px,var(--paper)] md:px-[34px] md:pb-[60px] md:pt-[30px]">
-      <Team tasks={tasks} onPick={composeFor} />
       <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-7 md:min-w-max md:grid-cols-[repeat(3,minmax(280px,380px))] md:gap-[34px]">
         <section>
           <div className={colHeadCls}>
@@ -210,7 +80,6 @@ export function Board({ canvasId }: { canvasId: string }) {
                   ✕
                 </Button>
                 <h3 className={cardH3Cls}>{t.status}</h3>
-                <Trail task={t} state="queued" />
                 <div className={metaCls}>
                   <b>Attempt stopped</b>
                   {t.agentName ? <span> · {t.agentName}</span> : null}
@@ -223,12 +92,7 @@ export function Board({ canvasId }: { canvasId: string }) {
                   variant="danger-solid"
                   size="pill"
                   className="mt-2.5 px-[11px] py-[5px]"
-                  onClick={() =>
-                    api.retryCard(canvasId, t.id).catch((err) => {
-                      if (isResidentLimit(err)) useStore.getState().setLimitWall(true)
-                      else console.error(err)
-                    })
-                  }
+                  onClick={() => api.retryCard(canvasId, t.id).catch(console.error)}
                 >
                   ↻ Retry
                 </Button>
@@ -245,20 +109,17 @@ export function Board({ canvasId }: { canvasId: string }) {
                   ✕
                 </Button>
                 <h3 className={cardH3Cls}>{t.status}</h3>
-                <Trail task={t} state="queued" />
                 <div className={metaCls}>
                   <b>{t.queuedBy}</b> · {timeAgo(t.startedAt)}
                 </div>
-                <div className="mt-[9px] font-mono text-[11px] text-ink-faint">
-                  ✦ waiting for {roleName(pipelineOf(t)[t.stage ?? 0])}
-                </div>
+                <div className="mt-[9px] font-mono text-[11px] text-ink-faint">✦ waiting for an agent</div>
               </Card>
             ))}
             {draft === null ? (
               <Button
                 variant="ghost"
                 className="justify-center rounded-[14px] border-[1.5px] border-dashed p-3.5 text-[13px] font-[650] text-ink-faint hover:border-brand hover:bg-transparent hover:text-accent-ink"
-                onClick={openCompose}
+                onClick={() => setDraft('')}
               >
                 + New card
               </Button>
@@ -280,52 +141,6 @@ export function Board({ canvasId }: { canvasId: string }) {
                     if (e.key === 'Escape') setDraft(null)
                   }}
                 />
-                <div className="mt-1 border-t border-line pt-2.5">
-                  <div className="flex flex-col gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.08em] text-ink-faint">
-                    <span>Assign to</span>
-                    <div className="-ml-1.5 flex flex-wrap gap-[3px]">
-                      {PIPELINE_PRESETS.map((p) => (
-                        <Button
-                          key={p.id}
-                          variant="bare"
-                          className={cn(
-                            'rounded-full px-1.5 py-0.5 text-[10.5px] font-[650] normal-case tracking-normal',
-                            agents.join(',') === p.roles.join(',') && 'bg-paper-deep text-accent-ink',
-                          )}
-                          onClick={() => setAgents(p.roles)}
-                        >
-                          {p.label}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {AGENT_ROLES.map((role) => {
-                      const at = agents.indexOf(role.id)
-                      return (
-                        <Button
-                          key={role.id}
-                          variant="ghost"
-                          size="sm"
-                          className={cn(
-                            'gap-1 rounded-full px-2 py-1 text-[11.5px] text-ink-soft hover:border-ink-soft hover:bg-transparent',
-                            at >= 0 && 'border-ink bg-ink text-white hover:border-ink hover:bg-ink hover:text-white',
-                          )}
-                          title={role.blurb}
-                          onClick={() => toggle(role.id)}
-                        >
-                          <RoleMark role={role} size={13} />
-                          {role.name}
-                          {at >= 0 && agents.length > 1 && (
-                            <span className="grid h-[13px] min-w-[13px] place-items-center rounded-full bg-white/25 font-mono text-[9.5px]">
-                              {at + 1}
-                            </span>
-                          )}
-                        </Button>
-                      )
-                    })}
-                  </div>
-                </div>
                 <div className="mt-3 flex flex-wrap items-center gap-2.5">
                   <Button
                     className="rounded-full border-transparent bg-ink px-3.5 py-1.5 text-xs font-bold text-white shadow-none hover:translate-x-0 hover:translate-y-0 hover:shadow-none"
@@ -334,14 +149,7 @@ export function Board({ canvasId }: { canvasId: string }) {
                   >
                     Queue it
                   </Button>
-                  <MeterLine allowance={allowance} />
-                  <span className={hintCls}>
-                    {agents.length === 0
-                      ? 'Doop picks it up right away'
-                      : agents.length === 1
-                        ? `${roleName(agents[0])} picks it up right away`
-                        : `${roleName(agents[0])} starts, then ${agents.slice(1).map(roleName).join(' → ')}`}
-                  </span>
+                  <span className={hintCls}>Waits on the board until you remove it</span>
                 </div>
               </Card>
             )}
@@ -361,7 +169,6 @@ export function Board({ canvasId }: { canvasId: string }) {
                 className={cn(cardBase, 'border-brand bg-surface shadow-[0_0_0_1px_var(--brand),var(--shadow-card)]')}
               >
                 <h3 className={cardH3Cls}>{t.status}</h3>
-                {t.queuedBy && <Trail task={t} state="working" />}
                 <div className={metaCls}>
                   <Dot
                     size="sm"
@@ -369,7 +176,7 @@ export function Board({ canvasId }: { canvasId: string }) {
                     style={{ background: t.color }}
                   />
                   <b className="inline-flex items-center gap-1">
-                    <RoleMark role={roleByAgentName(t.agentName)} size={13} />
+                    <AgentIcon name={t.agentName} />
                     {t.agentName}
                   </b>
                   {t.owner && <span> · for {t.owner}</span>}
@@ -393,7 +200,6 @@ export function Board({ canvasId }: { canvasId: string }) {
                 <h3 className="break-words pr-4 font-display text-[13.5px] font-semibold leading-[1.35] tracking-[-0.01em] text-ink-soft">
                   {t.status}
                 </h3>
-                {t.queuedBy && pipelineOf(t).length > 1 && <Trail task={t} state="done" />}
                 <div className={metaCls}>
                   <span className="font-[750] text-[#1e7a4c]">✓</span> {t.agentName || t.queuedBy}
                   {t.queuedBy && t.agentName && <span> · for {t.queuedBy}</span>}

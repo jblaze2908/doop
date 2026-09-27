@@ -6,9 +6,6 @@ import { CodeBlock } from './ui/code-block'
 import { Dot } from './ui/dot'
 import { Modal, ModalActions, ModalLede, ModalTitle } from './ui/modal'
 
-/* This modal is about MCP agents only. Running the built-in Doop Agent on your
-   own ChatGPT subscription is an account-level setting and lives in /settings. */
-
 /* The step captions between code blocks. */
 const stepHeading = 'mt-6 text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint'
 
@@ -37,8 +34,7 @@ export function ConnectModal({ canvasId, onClose }: { canvasId?: string; onClose
   )
 }
 
-/** The connect instructions, shared by the connect modal and the free-tier
- *  wall: endpoint, per-client commands, and a starter prompt. */
+/** The connect instructions: endpoint, per-client commands, and a starter prompt. */
 export function ConnectBody({ canvasId }: { canvasId?: string }) {
   const mcpUrl = `${location.origin}/mcp`
 
@@ -73,8 +69,8 @@ export function ConnectBody({ canvasId }: { canvasId?: string }) {
   )
 }
 
-/** Live connection status: flips the moment an outside (non-resident) agent
- *  joins this canvas's presence, so nobody is left wondering whether the
+/** Live connection status: flips the moment an outside agent (not the Doop
+ *  demo) joins this canvas's presence, so nobody is left wondering whether the
  *  OAuth dance actually worked. */
 export function AgentArrival() {
   const presences = useStore((s) => s.presences)

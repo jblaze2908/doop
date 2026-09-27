@@ -110,7 +110,6 @@ export function handle(msg: ServerMessage) {
       s.setFeedback(msg.feedback)
       s.setComments(msg.comments)
       s.setDecisions(msg.decisions)
-      s.setProposals(msg.proposals)
       break
     case 'presence:join':
       if (msg.presence.clientId !== me) s.upsertPresence(msg.presence)
@@ -187,9 +186,6 @@ export function handle(msg: ServerMessage) {
       break
     case 'decision':
       s.pushDecision(msg.decision)
-      break
-    case 'proposal':
-      s.upsertProposal(msg.proposal)
       break
     case 'canvas:deleted':
       /* the room only receives this for the canvas it's viewing */

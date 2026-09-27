@@ -1,11 +1,9 @@
 import type { CanvasTheme, ThemeTokenInput } from '../../shared/theme'
 import type { ComponentDef, ComponentInput } from '../../shared/components'
-import type { LocalAgentPreference, LocalAgentJob, LocalAgentResult } from '../../shared/localAgent'
 import type {
   ActivityItem,
   Canvas,
   CanvasMeta,
-  CardScope,
   Frame,
   WorkspaceDetail,
   WorkspaceInvite,
@@ -62,51 +60,6 @@ export interface DiscoveredSite {
   truncated: boolean
 }
 
-/** The Doop Agent's free-task meter for the signed-in user. */
-export interface Allowance {
-  used: number
-  limit: number
-  /** connected an agent of their own over MCP — unmetered */
-  connected: boolean
-  /** connected a model account the Doop Agent itself can run on */
-  byoModel: boolean
-  byoKind?: ModelAccountKind | 'claude-local'
-  byoEmail?: string
-  /** free tasks are spent and their own account is carrying the agent */
-  onOwnAccount: boolean
-}
-
-export type ModelAccountKind = 'chatgpt' | 'openai-key' | 'anthropic-key'
-
-/** An in-flight device sign-in: the user types `userCode` at `verificationUrl`
- *  and the server polls OpenAI until they approve. */
-export interface DeviceFlow {
-  userCode: string
-  verificationUrl: string
-  status: 'pending' | 'connected' | 'error'
-  error?: string
-}
-
-export interface AgentModelOption {
-  id: string
-  name: string
-  blurb: string
-}
-
-export interface ModelAccountStatus {
-  connected: boolean
-  kind?: ModelAccountKind
-  email?: string
-  plan?: string
-  /** the model tier this account runs on right now */
-  model?: string
-  connectedAt?: number
-  /** false when the server has switched the ChatGPT flow off */
-  chatgptEnabled?: boolean
-  /** the tiers a user may pick between */
-  models?: AgentModelOption[]
-}
-
 export interface WebsiteImportResult {
   frames: Frame[]
   failures: { url: string; error: string }[]
@@ -156,20 +109,6 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  localAgent: () => req<LocalAgentPreference>('/api/local-agent'),
-  setLocalAgent: (preference: LocalAgentPreference) =>
-    req<LocalAgentPreference>('/api/local-agent', { method: 'PUT', body: JSON.stringify(preference) }),
-  pollLocalAgent: (deviceId: string) =>
-    req<{ job: LocalAgentJob | null; enabled: boolean }>('/api/local-agent/poll', {
-      method: 'POST',
-      body: JSON.stringify({ deviceId }),
-    }),
-  finishLocalAgent: (id: string, deviceId: string, result: LocalAgentResult) =>
-    req<{ ok: boolean }>(`/api/local-agent/finish/${id}`, {
-      method: 'POST',
-      body: JSON.stringify({ deviceId, ...result }),
-    }),
-  stopLocalAgent: () => req<{ ok: boolean }>('/api/local-agent/stop', { method: 'POST' }),
   listCanvases: () => req<CanvasMeta[]>('/api/canvases'),
   getCanvas: (id: string) => req<Canvas>(`/api/canvases/${id}`),
   deleteCanvas: (id: string) => req(`/api/canvases/${id}`, { method: 'DELETE' }),
@@ -226,8 +165,6 @@ export const api = {
     req(`/api/canvases/${canvasId}/references`, { method: 'POST', body: JSON.stringify({ frameId }) }),
   unpinReference: (canvasId: string, refId: string) =>
     req(`/api/canvases/${canvasId}/references/${refId}`, { method: 'DELETE' }),
-  resolveProposal: (canvasId: string, proposalId: string, accept: boolean) =>
-    req(`/api/canvases/${canvasId}/proposals/${proposalId}`, { method: 'POST', body: JSON.stringify({ accept }) }),
   /* raw image bytes -> permanent /a/ URL (5 MB cap, type sniffed server-side) */
   uploadAsset: async (canvasId: string, blob: Blob) => {
     const res = await fetch(`/api/canvases/${canvasId}/assets`, {
@@ -271,27 +208,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ urls }),
     }),
-  agentAllowance: () => req<Allowance>('/api/agent-allowance'),
-  modelAccount: () => req<ModelAccountStatus>('/api/model-account'),
-  chatgptAuthorize: () =>
-    req<{ url: string; state: string; catching: boolean }>('/api/model-account/chatgpt/authorize', { method: 'POST' }),
-  startDeviceAuth: () => req<DeviceFlow>('/api/model-account/chatgpt/device', { method: 'POST' }),
-  deviceAuthStatus: () => req<DeviceFlow | { status: 'none' }>('/api/model-account/chatgpt/device'),
-  cancelDeviceAuth: () => req('/api/model-account/chatgpt/device', { method: 'DELETE' }),
-  connectChatgpt: (redirect: string) =>
-    req<ModelAccountStatus>('/api/model-account/chatgpt', { method: 'POST', body: JSON.stringify({ redirect }) }),
-  connectOpenAiKey: (apiKey: string) =>
-    req<ModelAccountStatus>('/api/model-account/openai-key', { method: 'POST', body: JSON.stringify({ apiKey }) }),
-  connectAnthropicKey: (apiKey: string) =>
-    req<ModelAccountStatus>('/api/model-account/anthropic-key', { method: 'POST', body: JSON.stringify({ apiKey }) }),
-  disconnectModelAccount: () => req<ModelAccountStatus>('/api/model-account', { method: 'DELETE' }),
-  setAgentModel: (model: string) =>
-    req<ModelAccountStatus>('/api/model-account', { method: 'PATCH', body: JSON.stringify({ model }) }),
-  addCard: (canvasId: string, title: string, agents: string[], attachments?: string[], scope?: CardScope) =>
-    req(`/api/canvases/${canvasId}/cards`, {
-      method: 'POST',
-      body: JSON.stringify({ title, agents, attachments, scope }),
-    }),
+  addCard: (canvasId: string, title: string) =>
+    req(`/api/canvases/${canvasId}/cards`, { method: 'POST', body: JSON.stringify({ title }) }),
   completeCard: (canvasId: string, cardId: string) =>
     req(`/api/canvases/${canvasId}/cards/${cardId}/done`, { method: 'POST' }),
   retryCard: (canvasId: string, cardId: string) =>

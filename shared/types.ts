@@ -131,19 +131,17 @@ export interface MemoryReference {
   pinnedAt: number
 }
 
-/** A resolved design decision, captured automatically when an agent addresses
- *  human feedback or an @agent element comment gets resolved. Raw material
- *  the distiller condenses into rule proposals. */
+/** A resolved design decision, captured automatically when an @agent element
+ *  comment gets resolved, or reported by a connected agent (save_decision). */
 export interface DesignDecision {
   id: string
   /** the human's words — what they asked to change */
   text: string
-  /** the generalized preference distilled from the raw words shortly after
-   *  capture (e.g. "Prefer white and blue; no italic serif") — what the UI
-   *  leads with; absent until the summarizer has run (or without an API key) */
+  /** a generalized one-line preference the UI leads with; only decisions
+   *  from before the summarizer was removed carry one */
   summary?: string
-  /** where the decision came from: task feedback, an @agent element comment,
-   *  or the human's own conversation with a connected agent (save_decision) */
+  /** where the decision came from: task feedback (older decisions only), an
+   *  @agent element comment, or the human's conversation with a connected agent */
   source: 'feedback' | 'comment' | 'chat'
   frameId?: string
   /** the human who gave the feedback */
@@ -151,28 +149,6 @@ export interface DesignDecision {
   /** the agent that addressed it */
   agentName?: string
   at: number
-  /** consumed by a distiller run (whether or not it yielded a proposal) */
-  distilledAt?: number
-}
-
-/** A rule edit the distiller proposes from accumulated decisions. Nothing is
- *  written to a guide until a human accepts — memory is curated, not scraped. */
-export interface MemoryProposal {
-  id: string
-  /** slug of the guide the rule should land in (existing or new) */
-  guideName: string
-  /** pretty display name, used when the guide doesn't exist yet */
-  guideTitle?: string
-  /** markdown to append to the guide (usually one bullet) */
-  rule: string
-  /** why the distiller thinks this is a rule, in one sentence */
-  rationale: string
-  /** decision ids this was distilled from */
-  basedOn: string[]
-  at: number
-  status: 'pending' | 'accepted' | 'dismissed'
-  resolvedBy?: string
-  resolvedAt?: number
 }
 
 /** A named design markdown attached to a canvas — palettes, fonts, layout
@@ -219,8 +195,8 @@ export interface Presence {
 }
 
 /** A unit of work an agent announced via set_status. A new status completes the previous task.
- *  Board cards are the same object: a human queues one (queuedBy set, agentName empty)
- *  and an agent claims it — cards stay open until explicitly completed. */
+ *  Board cards are the same object: a human queues one (queuedBy set, agentName empty) and
+ *  it stays open until explicitly completed. */
 export interface AgentTask {
   id: string
   /** empty string while a queued card waits for an agent */
@@ -238,28 +214,10 @@ export interface AgentTask {
   frameIds?: string[]
   /** human who queued this as a board card */
   queuedBy?: string
-  /** account id of that human — decides which model credential runs the card */
-  queuedByUserId?: string
   claimedAt?: number
   /** unsuccessful agent attempt; failed work waits for an explicit human retry */
   failedAt?: number
   failureReason?: string
-  /** board cards: ordered agent-role ids the card walks through, one at a time.
-   *  Absent on status tasks and on cards queued before pipelines existed. */
-  pipeline?: string[]
-  /** board cards: ids of reference image frames uploaded with the prompt */
-  attachments?: string[]
-  /** index into pipeline of the stage that is queued or running right now */
-  stage?: number
-  /** board cards: the frame (and optionally the element inside it) the human
-   *  had selected when they asked — the agent edits that in place */
-  scope?: CardScope
-}
-
-export interface CardScope {
-  frameId: string
-  /** element selector inside the frame (frameRuntime cssPath); absent = whole frame */
-  selector?: string
 }
 
 /** Human feedback left on an agent task: an open request on the canvas that ANY
@@ -270,26 +228,22 @@ export interface TaskFeedback {
   canvasId: string
   /** whose work the feedback is about (the task's agent), not who must handle it */
   agentName: string
-  /** the resident agent this is routed to; unset = open to any agent */
-  targetAgent?: string
   from: string
-  /** account id of the human who left it — decides which model credential runs it */
-  fromUserId?: string
   text: string
   at: number
   /** set once the feedback has been included in some agent's tool result */
   deliveredAt?: number
   /** the agent that picked it up */
   claimedBy?: string
-  /** resident Doop finished handling this feedback */
+  /** an agent reported it handled (older feedback only) */
   completedAt?: number
-  /** unsuccessful resident-agent attempt; never retried automatically */
+  /** an interrupted attempt (older feedback only); waits for a human retry */
   failedAt?: number
   failureReason?: string
 }
 
-/** A comment pinned to a specific element inside a frame. Comments that
- *  mention @Doop are routed to the resident agent; others are notes for
+/** A comment pinned to a specific element inside a frame. A comment that
+ *  @mentions an agent role is a request for an agent; others are notes for
  *  the humans in the room. */
 export interface ElementComment {
   id: string
@@ -300,13 +254,11 @@ export interface ElementComment {
   /** outerHTML excerpt of the element, for agent context and dead-anchor display */
   snippet: string
   from: string
-  /** account id of the human who left it — decides which model credential runs it */
-  fromUserId?: string
   text: string
   at: number
-  /** true when the text @mentions a resident agent — that agent picks it up */
+  /** true when the text @mentions an agent role — a request for an agent */
   forAgent?: boolean
-  /** which resident agent was mentioned; defaults to Doop */
+  /** the role that was mentioned (shared/agents.ts) */
   targetAgent?: string
   claimedBy?: string
   claimedAt?: number
@@ -358,7 +310,6 @@ export type ServerMessage =
       feedback: TaskFeedback[]
       comments: ElementComment[]
       decisions: DesignDecision[]
-      proposals: MemoryProposal[]
       selfColor: string
       /** id of the client bundle the server is serving; 'dev' outside production */
       serverBuild: string
@@ -400,8 +351,6 @@ export type ServerMessage =
   | { type: 'reference'; id: string; reference: MemoryReference | null; actor: Actor }
   /** a design decision was captured into Memory */
   | { type: 'decision'; decision: DesignDecision }
-  /** the distiller proposed a rule, or a proposal was accepted/dismissed */
-  | { type: 'proposal'; proposal: MemoryProposal }
   | { type: 'canvas:deleted' }
   | { type: 'activity'; item: ActivityItem }
 

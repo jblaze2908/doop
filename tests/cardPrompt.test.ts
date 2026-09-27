@@ -8,7 +8,6 @@ vi.mock('../server/db/persist.ts', () => ({
   saveComment: () => {},
   saveActivity: () => {},
   saveDecision: () => {},
-  saveProposal: () => {},
   saveCanvas: () => {},
   saveCanvasSoon: () => {},
   saveFrame: () => {},
@@ -18,9 +17,9 @@ const actions = await import('../server/actions.ts')
 const { store } = await import('../server/store.ts')
 
 /**
- * A card's text IS the prompt the resident agent runs on. It used to be cut
- * to 200 characters on the way in, so any instruction past that point never
- * reached the agent. These tests pin that the whole prompt is kept.
+ * A card's text IS the request. It used to be cut to 200 characters on the
+ * way in, so any instruction past that point was lost. These tests pin that
+ * the whole prompt is kept.
  */
 
 const filler = 'this opening is deliberately filler and carries no instruction at all, please ignore it. '
@@ -39,7 +38,6 @@ beforeEach(() => {
     comments: new Map(),
     activity: new Map(),
     decisions: new Map(),
-    proposals: new Map(),
   })
   canvasId = store.createCanvas('card prompt', 'kevin').id
 })
@@ -69,33 +67,6 @@ describe('addQueuedCard', () => {
     const b = actions.addQueuedCard(canvasId, `${filler.repeat(3)}make it blue`, 'kevin')
     expect(b?.id).not.toBe(a?.id)
     expect(actions.getTasks(canvasId)).toHaveLength(2)
-  })
-
-  it('carries the selected frame and element as the card scope', () => {
-    const frame = store.createFrame(canvasId, { name: 'Home' }, 'kevin')!
-    const card = actions.addQueuedCard(canvasId, 'make it bolder', 'kevin', undefined, undefined, undefined, {
-      frameId: frame.id,
-      selector: 'aside:nth-of-type(1)',
-    })
-    expect(card?.scope).toEqual({ frameId: frame.id, selector: 'aside:nth-of-type(1)' })
-    const whole = actions.addQueuedCard(canvasId, 'make it bolder', 'kevin', undefined, undefined, undefined, {
-      frameId: frame.id,
-      selector: '   ',
-    })
-    expect(whole?.scope).toEqual({ frameId: frame.id })
-    expect(whole?.id).not.toBe(card?.id)
-  })
-
-  it('drops a scope whose frame is not on this canvas', () => {
-    const other = store.createCanvas('elsewhere', 'kevin').id
-    const foreign = store.createFrame(other, { name: 'Away' }, 'kevin')!
-    const card = actions.addQueuedCard(canvasId, 'tidy up', 'kevin', undefined, undefined, undefined, {
-      frameId: foreign.id,
-      selector: 'div',
-    })
-    expect(card?.scope).toBeUndefined()
-    const junk = actions.addQueuedCard(canvasId, 'tidy up again', 'kevin', undefined, undefined, undefined, 'nope')
-    expect(junk?.scope).toBeUndefined()
   })
 })
 

@@ -12,19 +12,11 @@ import { Tooltip } from './ui/tooltip'
 import { PanelCollapseRightIcon } from './ui/icons'
 import { Input } from './ui/input'
 import { Dot } from './ui/dot'
-import { isResidentLimit } from './TeamAllowance'
 
 /* the Memory tab is a chunk of its own: most visits never open it */
 const MemoryPanel = lazy(() => import('./MemoryPanel').then((m) => ({ default: m.MemoryPanel })))
 
 const emptyNote = 'px-4 py-6 text-center text-[13px] text-ink-faint'
-
-/* feedback and retries are metered like any other resident task — a 403
-   here means the free tier ran out, so raise the connect wall */
-function reportLimit(err: unknown) {
-  if (isResidentLimit(err)) useStore.getState().setLimitWall(true)
-  else console.error(err)
-}
 
 /** The frame a task is "at": the last frame it touched that still exists,
  *  or — for a task still running before any edit landed — wherever the agent
@@ -213,7 +205,7 @@ function TaskRow({ task }: { task: AgentTask }) {
     try {
       await api.sendTaskFeedback(task.id, text)
     } catch (e) {
-      reportLimit(e)
+      console.error(e)
     }
   }
 
@@ -292,7 +284,7 @@ function TaskRow({ task }: { task: AgentTask }) {
             size="pill"
             onClick={(e) => {
               e.stopPropagation()
-              api.retryCard(canvasId, task.id).catch(reportLimit)
+              api.retryCard(canvasId, task.id).catch(console.error)
             }}
           >
             ↻ Retry
@@ -328,7 +320,7 @@ function TaskRow({ task }: { task: AgentTask }) {
                 <Button
                   variant="danger-solid"
                   size="pill"
-                  onClick={() => api.retryTaskFeedback(f.id).catch(reportLimit)}
+                  onClick={() => api.retryTaskFeedback(f.id).catch(console.error)}
                 >
                   ↻ Retry
                 </Button>

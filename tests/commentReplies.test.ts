@@ -9,7 +9,6 @@ vi.mock('../server/db/persist.ts', () => ({
   saveComment: () => {},
   saveActivity: () => {},
   saveDecision: () => {},
-  saveProposal: () => {},
 }))
 
 const actions = await import('../server/actions.ts')
@@ -43,10 +42,17 @@ beforeEach(() => {
     comments: new Map([[CANVAS, []]]),
     activity: new Map(),
     decisions: new Map(),
-    proposals: new Map(),
   })
   vi.spyOn(store, 'getFrame').mockImplementation((id) => (id === FRAME.id ? FRAME : undefined))
 })
+
+/** A thread's messages, oldest first. */
+function thread(rootId: string) {
+  return actions
+    .getComments(CANVAS)
+    .filter((c) => c.id === rootId || c.parentId === rootId)
+    .sort((a, b) => a.at - b.at)
+}
 
 function root() {
   return actions.addElementComment(
@@ -63,7 +69,7 @@ describe('replying to a comment', () => {
     expect(reply.parentId).toBe(parent.id)
     expect(reply.selector).toBe(parent.selector)
     expect(reply.snippet).toBe(parent.snippet)
-    expect(actions.commentThread(reply).map((c) => c.text)).toEqual(['Too small', 'Agreed'])
+    expect(thread(parent.id).map((c) => c.text)).toEqual(['Too small', 'Agreed'])
   })
 
   it('gives every message a distinct timestamp so order survives a reload', () => {
@@ -79,18 +85,18 @@ describe('replying to a comment', () => {
     const first = actions.replyToComment(parent.id, 'Agreed', 'bob')!
     const second = actions.replyToComment(first.id, 'Same', 'carol')!
     expect(second.parentId).toBe(parent.id)
-    expect(actions.commentThread(parent).map((c) => c.from)).toEqual(['alice', 'bob', 'carol'])
+    expect(thread(parent.id).map((c) => c.from)).toEqual(['alice', 'bob', 'carol'])
   })
 
-  it('routes an @mention in a reply to the agent with the thread anchor', () => {
+  it('flags an @mention in a reply as a request for that agent, with the thread anchor', () => {
     const parent = root()
-    const reply = actions.replyToComment(parent.id, `@${DEFAULT_ROLE_ID} make it 48px`, 'alice', 'alice')!
+    const reply = actions.replyToComment(parent.id, `@${DEFAULT_ROLE_ID} make it 48px`, 'alice')!
     expect(reply.forAgent).toBe(true)
     expect(reply.targetAgent).toBe(AGENT)
-    expect(actions.takeAgentCommentsFor(CANVAS, AGENT, 'alice').map((c) => c.id)).toEqual([reply.id])
+    expect(reply.selector).toBe(parent.selector)
   })
 
-  it('reports whether a thread can take a reply before anything is metered', () => {
+  it('reports whether a thread can take a reply', () => {
     const parent = root()
     const reply = actions.replyToComment(parent.id, 'Agreed', 'bob')!
     expect(actions.openThread(reply.id)?.root.id).toBe(parent.id)
@@ -107,17 +113,17 @@ describe('replying to a comment', () => {
     expect(actions.replyToComment('missing', 'Hello', 'bob')).toBeUndefined()
   })
 
-  it('resolving the root closes every open reply so none stays queued for an agent', () => {
+  it('resolving the root closes every open reply so none stays open for an agent', () => {
     const parent = root()
-    const reply = actions.replyToComment(parent.id, `@${DEFAULT_ROLE_ID} bigger`, 'alice', 'alice')!
+    const reply = actions.replyToComment(parent.id, `@${DEFAULT_ROLE_ID} bigger`, 'alice')!
     actions.resolveComment(parent.id, 'alice')
     expect(actions.findComment(reply.id)?.resolvedAt).toBeDefined()
-    expect(actions.takeAgentCommentsFor(CANVAS, AGENT, 'alice')).toEqual([])
+    expect(actions.getComments(CANVAS).filter((c) => c.forAgent && !c.resolvedAt)).toEqual([])
   })
 
   it('resolving a reply leaves the thread open', () => {
     const parent = root()
-    const reply = actions.replyToComment(parent.id, `@${DEFAULT_ROLE_ID} bigger`, 'alice', 'alice')!
+    const reply = actions.replyToComment(parent.id, `@${DEFAULT_ROLE_ID} bigger`, 'alice')!
     actions.resolveComment(reply.id, AGENT)
     expect(actions.findComment(parent.id)?.resolvedAt).toBeUndefined()
   })

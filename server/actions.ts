@@ -3,7 +3,7 @@ import { store } from './store.ts'
 import * as persist from './db/persist.ts'
 import * as thumbs from './thumbs.ts'
 import { colorFor } from '../shared/types.ts'
-import { DEFAULT_ROLE_ID, mentionedRole, normalizePipeline, roleByAgentName, roleName } from '../shared/agents.ts'
+import { mentionedRole } from '../shared/agents.ts'
 import { decodeEscapedHtml, looksEscapedHtml, repairEscapedHtml } from './escapedHtml.ts'
 import { resolveFonts } from './theme.ts'
 import { compileTheme } from '../shared/theme.ts'
@@ -30,12 +30,10 @@ import type {
   ActorKind,
   ActivityItem,
   AgentTask,
-  CardScope,
   DesignDecision,
   ElementComment,
   Frame,
   GuidelineDoc,
-  MemoryProposal,
   MemoryReference,
   ServerMessage,
   TaskFeedback,
@@ -72,14 +70,12 @@ export function hydrateLogs(data: {
   comments: Map<string, ElementComment[]>
   activity: Map<string, ActivityItem[]>
   decisions: Map<string, DesignDecision[]>
-  proposals: Map<string, MemoryProposal[]>
 }) {
   for (const [canvasId, list] of data.tasks) taskLog.set(canvasId, list)
   for (const [canvasId, list] of data.feedback) feedbackLog.set(canvasId, list)
   for (const [canvasId, list] of data.comments) commentLog.set(canvasId, list)
   for (const [canvasId, list] of data.activity) activityLog.set(canvasId, list)
   for (const [canvasId, list] of data.decisions) decisionLog.set(canvasId, list)
-  for (const [canvasId, list] of data.proposals) proposalLog.set(canvasId, list)
   failInterruptedWork()
 }
 
@@ -101,24 +97,6 @@ function failInterruptedWork() {
         t.endedAt = now
       }
       persist.saveTask(canvasId, t)
-    }
-  }
-  for (const [, list] of feedbackLog) {
-    for (const f of list) {
-      if (f.deliveredAt && !f.completedAt && !f.failedAt) {
-        f.failedAt = now
-        f.failureReason = reason
-        persist.saveFeedback(f)
-      }
-    }
-  }
-  for (const [, list] of commentLog) {
-    for (const c of list) {
-      if (c.claimedBy && !c.resolvedAt && !c.failedAt) {
-        c.failedAt = now
-        c.failureReason = reason
-        persist.saveComment(c)
-      }
     }
   }
 }
@@ -157,10 +135,8 @@ function touch(canvasId: string, actor: Actor, frameId?: string | null) {
   if (actor.kind === 'agent') agentTouch(canvasId, actor.name, frameId, undefined, actor.owner)
 }
 
-/** Refresh an agent's presence without changing its frame or status. A model
- *  turn can stay silent longer than the presence TTL, and expiry fails the
- *  run's claimed cards as "disconnected" — resident runs beat this on a timer
- *  for as long as they are actually alive. */
+/** Refresh an agent's presence without changing its frame or status — an
+ *  MCP read counts as arrival, not only a mutation. */
 export function heartbeatAgent(canvasId: string, actor: Actor) {
   touch(canvasId, actor)
 }
@@ -168,85 +144,6 @@ export function heartbeatAgent(canvasId: string, actor: Actor) {
 /** Same agent identity = same name. (Owner-scoping deferred until MCP auth.) */
 function sameAgent(t: { agentName: string }, actor: Actor): boolean {
   return t.agentName === actor.name
-}
-
-/* ------------------------------------------------------------------ */
-/* Agent routing: a board card carries an ordered pipeline of roles and */
-/* is only ever visible to the role at its current stage. Feedback and  */
-/* element comments carry a target agent instead. Untargeted work stays */
-/* open to anyone — that's what outside MCP agents pick up.             */
-/* ------------------------------------------------------------------ */
-
-/** The pipeline of a card, tolerating cards queued before pipelines existed. */
-export function pipelineOf(task: AgentTask): string[] {
-  return task.pipeline?.length ? task.pipeline : [DEFAULT_ROLE_ID]
-}
-
-/** The agent whose turn it is on this card. */
-function stageAgent(task: AgentTask): string {
-  const pipeline = pipelineOf(task)
-  return roleName(pipeline[Math.min(task.stage ?? 0, pipeline.length - 1)])
-}
-
-/** Distinct resident agents with work waiting, in the order work arrived. */
-export function pendingWorkAgents(canvasId: string): string[] {
-  const names: string[] = []
-  const add = (name: string) => {
-    if (!names.includes(name)) names.push(name)
-  }
-  /* oldest first so a queue is worked in the order humans filled it */
-  for (const card of [...(taskLog.get(canvasId) ?? [])].reverse()) {
-    if (card.queuedBy && !card.agentName && !card.failedAt && !card.endedAt) add(stageAgent(card))
-  }
-  for (const f of [...(feedbackLog.get(canvasId) ?? [])].reverse()) {
-    if (!f.deliveredAt && !f.failedAt) add(f.targetAgent ?? roleName(DEFAULT_ROLE_ID))
-  }
-  for (const c of [...(commentLog.get(canvasId) ?? [])].reverse()) {
-    if (c.forAgent && !c.claimedBy && !c.failedAt && !c.resolvedAt) add(c.targetAgent ?? roleName(DEFAULT_ROLE_ID))
-  }
-  return names
-}
-
-/**
- * Who pays for the next run: the account behind the OLDEST piece of work this
- * agent can claim. A run bills exactly one person, so the queue is worked one
- * requester at a time rather than sweeping several people's work into a single
- * model call on whichever account happened to be found first.
- *
- * Returns '' when the oldest item predates per-user attribution (the caller
- * falls back to the canvas owner), and undefined when nothing is claimable.
- * `skip` holds payers already found to have no usable model this sweep, so one
- * stalled requester never blocks everyone behind them.
- */
-export function nextWorkPayer(canvasId: string, agentName: string, skip?: ReadonlySet<string>): string | undefined {
-  let oldest: { at: number; payer: string } | undefined
-  const consider = (at: number, userId: string | undefined) => {
-    const payer = userId ?? ''
-    if (skip?.has(payer)) return
-    if (!oldest || at < oldest.at) oldest = { at, payer }
-  }
-  for (const card of taskLog.get(canvasId) ?? []) {
-    if (card.queuedBy && !card.agentName && !card.failedAt && !card.endedAt && stageAgent(card) === agentName) {
-      consider(card.startedAt, card.queuedByUserId)
-    }
-  }
-  for (const c of commentLog.get(canvasId) ?? []) {
-    if (
-      c.forAgent &&
-      !c.claimedBy &&
-      !c.failedAt &&
-      !c.resolvedAt &&
-      (c.targetAgent ?? roleName(DEFAULT_ROLE_ID)) === agentName
-    ) {
-      consider(c.at, c.fromUserId)
-    }
-  }
-  for (const f of feedbackLog.get(canvasId) ?? []) {
-    if (!f.deliveredAt && !f.failedAt && (!f.targetAgent || f.targetAgent === agentName)) {
-      consider(f.at, f.fromUserId)
-    }
-  }
-  return oldest?.payer
 }
 
 /* ------------------------------------------------------------------ */
@@ -322,28 +219,18 @@ export function findFeedback(feedbackId: string): TaskFeedback | undefined {
   return undefined
 }
 
-export function addTaskFeedback(
-  taskId: string,
-  from: string,
-  text: string,
-  fromUserId?: string,
-): TaskFeedback | undefined {
+export function addTaskFeedback(taskId: string, from: string, text: string): TaskFeedback | undefined {
   const clean = text.trim()
   if (!clean) return undefined
   for (const [canvasId, tasks] of taskLog) {
     const task = tasks.find((t) => t.id === taskId)
     if (!task) continue
-    /* a reply goes back to the agent whose work it is about — unless that was
-       an outside agent, in which case it stays open to whoever shows up */
-    const target = roleByAgentName(task.agentName)?.name
     const fb: TaskFeedback = {
       id: nanoid(8),
       taskId,
       canvasId,
       agentName: task.agentName,
-      ...(target ? { targetAgent: target } : {}),
       from,
-      ...(fromUserId ? { fromUserId } : {}),
       text: clean,
       at: Date.now(),
     }
@@ -353,9 +240,6 @@ export function addTaskFeedback(
     feedbackLog.set(canvasId, list)
     persist.saveFeedback(fb)
     broadcast(canvasId, { type: 'feedback', feedback: fb })
-    /* resident Doop agent picks feedback up instantly (no-op without an API
-       key). Dynamic import: resident depends on this module. */
-    import('./resident.ts').then((r) => r.onFeedback(canvasId)).catch(() => {})
     logActivity(
       canvasId,
       resolveActor({ name: from, kind: 'user' }),
@@ -366,17 +250,10 @@ export function addTaskFeedback(
   return undefined
 }
 
-/** Open feedback this agent may take: everything addressed to it, plus
- *  untargeted feedback — that part stays a canvas-level queue where the first
- *  identified agent call wins. */
-export function takeFeedbackFor(canvasId: string, agentName: string, payer?: string): TaskFeedback[] {
-  const pending = (feedbackLog.get(canvasId) ?? []).filter(
-    (f) =>
-      !f.deliveredAt &&
-      !f.failedAt &&
-      (!f.targetAgent || f.targetAgent === agentName) &&
-      (payer === undefined || (f.fromUserId ?? '') === payer),
-  )
+/** Open feedback on this canvas, claimed by this agent: a canvas-level queue
+ *  where the first identified agent call wins. */
+export function takeFeedbackFor(canvasId: string, agentName: string): TaskFeedback[] {
+  const pending = (feedbackLog.get(canvasId) ?? []).filter((f) => !f.deliveredAt && !f.failedAt)
   for (const f of pending) {
     f.deliveredAt = Date.now()
     f.claimedBy = agentName
@@ -384,40 +261,6 @@ export function takeFeedbackFor(canvasId: string, agentName: string, payer?: str
     broadcast(canvasId, { type: 'feedback', feedback: f }) // clients flip the entry to "picked up"
   }
   return pending
-}
-
-export function failTaskFeedback(feedbackId: string, reason: string): TaskFeedback | undefined {
-  for (const [canvasId, list] of feedbackLog) {
-    const feedback = list.find((f) => f.id === feedbackId)
-    if (!feedback) continue
-    feedback.failedAt = Date.now()
-    feedback.failureReason = reason
-    persist.saveFeedback(feedback)
-    broadcast(canvasId, { type: 'feedback', feedback })
-    return feedback
-  }
-  return undefined
-}
-
-export function completeTaskFeedback(feedbackId: string): TaskFeedback | undefined {
-  for (const [canvasId, list] of feedbackLog) {
-    const feedback = list.find((f) => f.id === feedbackId)
-    if (!feedback) continue
-    feedback.completedAt = Date.now()
-    delete feedback.failedAt
-    delete feedback.failureReason
-    persist.saveFeedback(feedback)
-    broadcast(canvasId, { type: 'feedback', feedback })
-    /* addressed feedback is a settled design decision — capture it into Memory */
-    captureDecision(canvasId, {
-      text: feedback.text,
-      source: 'feedback',
-      from: feedback.from,
-      agentName: feedback.claimedBy,
-    })
-    return feedback
-  }
-  return undefined
 }
 
 export function retryTaskFeedback(feedbackId: string, by: string): TaskFeedback | undefined {
@@ -433,7 +276,6 @@ export function retryTaskFeedback(feedbackId: string, by: string): TaskFeedback 
     persist.saveFeedback(feedback)
     broadcast(canvasId, { type: 'feedback', feedback })
     logActivity(canvasId, resolveActor({ name: by, kind: 'user' }), 'retried agent feedback')
-    import('./resident.ts').then((r) => r.onFeedback(canvasId)).catch(() => {})
     return feedback
   }
   return undefined
@@ -441,8 +283,8 @@ export function retryTaskFeedback(feedbackId: string, by: string): TaskFeedback 
 
 /* ------------------------------------------------------------------ */
 /* Element comments: pinned to a specific element inside a frame.      */
-/* Comments mentioning @Doop are routed to the resident agent; the     */
-/* rest are notes for the humans in the room.                          */
+/* A comment that @mentions an agent role is flagged as a request for  */
+/* an agent; the rest are notes for the humans in the room.            */
 /* ------------------------------------------------------------------ */
 
 const commentLog = new Map<string, ElementComment[]>() // canvasId -> entries (newest first)
@@ -464,7 +306,6 @@ export function addElementComment(
   frameId: string,
   input: { selector: string; snippet: string; text: string },
   from: string,
-  fromUserId?: string,
 ): ElementComment | undefined {
   const frame = store.getFrame(frameId)
   if (!frame) return undefined
@@ -473,35 +314,25 @@ export function addElementComment(
     { selector: String(input.selector ?? '').slice(0, 300), snippet: String(input.snippet ?? '').slice(0, 400) },
     input.text,
     from,
-    fromUserId,
   )
 }
 
 /** Reply inside a thread: the reply inherits the root comment's element so an
- *  @mention in it gives the agent the same anchor the conversation is about. */
+ *  @mention in it carries the same anchor the conversation is about. */
 export function replyToComment(
   commentId: string,
   text: string,
   from: string,
-  fromUserId?: string,
   kind: ActorKind = 'user',
 ): ElementComment | undefined {
   const open = openThread(commentId)
   if (!open) return undefined
   const { root, frame } = open
-  return postComment(
-    frame,
-    { selector: root.selector, snippet: root.snippet, parentId: root.id },
-    text,
-    from,
-    fromUserId,
-    kind,
-  )
+  return postComment(frame, { selector: root.selector, snippet: root.snippet, parentId: root.id }, text, from, kind)
 }
 
 /** The root and frame a reply to this comment would land on, or undefined
- *  when the thread is resolved or its frame is gone — checked before any
- *  metering so a rejected reply never costs a resident task. */
+ *  when the thread is resolved or its frame is gone. */
 export function openThread(commentId: string): { root: ElementComment; frame: Frame } | undefined {
   const parent = findComment(commentId)
   if (!parent) return undefined
@@ -517,12 +348,11 @@ function postComment(
   anchor: { selector: string; snippet: string; parentId?: string },
   text: string,
   from: string,
-  fromUserId?: string,
   kind: ActorKind = 'user',
 ): ElementComment | undefined {
   const clean = text.trim()
   if (!clean) return undefined
-  /* @Doop, @brand, @a11y… — whichever resident agent is mentioned picks it up */
+  /* @doop, @brand, @a11y… — the mention flags the comment as a request for an agent */
   const mentioned = mentionedRole(clean)
   const list = commentLog.get(frame.canvasId) ?? []
   /* strictly increasing per canvas: thread order is reconstructed from `at`
@@ -535,7 +365,6 @@ function postComment(
     selector: anchor.selector,
     snippet: anchor.snippet,
     from,
-    ...(fromUserId ? { fromUserId } : {}),
     text: clean,
     at,
     ...(mentioned ? { forAgent: true, targetAgent: mentioned.name } : {}),
@@ -555,56 +384,7 @@ function postComment(
       : `commented on an element in “${frame.name}”: “${excerpt}”`,
     frame.id,
   )
-  if (comment.forAgent) {
-    /* @Doop mention: the resident agent picks it up instantly (no-op without
-       an API key). Dynamic import: resident depends on this module. */
-    import('./resident.ts').then((r) => r.onFeedback(frame.canvasId)).catch(() => {})
-  }
   return comment
-}
-
-/** The whole conversation a comment belongs to, oldest first. */
-export function commentThread(comment: ElementComment): ElementComment[] {
-  const rootId = comment.parentId ?? comment.id
-  /* the log is newest-first; reverse before the (stable) sort so replies
-     posted within the same millisecond keep their arrival order */
-  return [...(commentLog.get(comment.canvasId) ?? [])]
-    .reverse()
-    .filter((c) => c.id === rootId || c.parentId === rootId)
-    .sort((a, b) => a.at - b.at)
-}
-
-/** Open comments @mentioning this agent, claimed by it. */
-export function takeAgentCommentsFor(canvasId: string, agentName: string, payer?: string): ElementComment[] {
-  const pending = (commentLog.get(canvasId) ?? []).filter(
-    (c) =>
-      c.forAgent &&
-      !c.claimedBy &&
-      !c.failedAt &&
-      !c.resolvedAt &&
-      (c.targetAgent ?? roleName(DEFAULT_ROLE_ID)) === agentName &&
-      (payer === undefined || (c.fromUserId ?? '') === payer),
-  )
-  for (const c of pending) {
-    c.claimedBy = agentName
-    c.claimedAt = Date.now()
-    persist.saveComment(c)
-    broadcast(canvasId, { type: 'comment', comment: c }) // pins flip to "Doop is on it"
-  }
-  return pending
-}
-
-export function failComment(commentId: string, reason: string): ElementComment | undefined {
-  for (const [canvasId, list] of commentLog) {
-    const comment = list.find((c) => c.id === commentId)
-    if (!comment || comment.resolvedAt) continue
-    comment.failedAt = Date.now()
-    comment.failureReason = reason
-    persist.saveComment(comment)
-    broadcast(canvasId, { type: 'comment', comment })
-    return comment
-  }
-  return undefined
 }
 
 export function retryComment(commentId: string, by: string): ElementComment | undefined {
@@ -619,7 +399,6 @@ export function retryComment(commentId: string, by: string): ElementComment | un
     persist.saveComment(comment)
     broadcast(canvasId, { type: 'comment', comment })
     logActivity(canvasId, resolveActor({ name: by, kind: 'user' }), 'retried an element comment', comment.frameId)
-    import('./resident.ts').then((r) => r.onFeedback(canvasId)).catch(() => {})
     return comment
   }
   return undefined
@@ -653,13 +432,6 @@ export function resolveComment(commentId: string, by: string): ElementComment | 
     return c
   }
   return undefined
-}
-
-/** Surface an agent's closing summary in the activity feed. */
-export function agentSummary(canvasId: string, actor: Actor, text: string) {
-  const clean = text.replace(/\s+/g, ' ').trim()
-  if (!clean) return
-  logActivity(canvasId, actor, `finished: “${clean.length > 220 ? clean.slice(0, 217) + '…' : clean}”`)
 }
 
 /** True if the agent has an explicitly announced (non-auto) task open. */
@@ -737,56 +509,20 @@ export function endAgentTasks(canvasId: string, agentName: string) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Board cards: humans queue work; agents claim it. Same AgentTask     */
-/* object — queuedBy set, agentName empty until claimed.               */
+/* Board cards: work humans queue for agents. Same AgentTask object —  */
+/* queuedBy set, agentName empty while it waits.                       */
 /* ------------------------------------------------------------------ */
 
-/** A card's text is the whole prompt the agent gets — never shorten it for
- *  display here; the board clamps long headings visually. The cap only stops
- *  a pasted document from being stored, broadcast and prompted verbatim. */
+/** A card's text is the whole request — never shorten it for display here;
+ *  the board clamps long headings visually. The cap only stops a pasted
+ *  document from being stored and broadcast verbatim. */
 export const MAX_CARD_CHARS = 4_000
 
-const MAX_SELECTOR_CHARS = 1_000
-
-/** The frame (and optional element) a prompt is scoped to — only a frame
- *  that lives on this canvas counts, and a selector rides along only with
- *  its frame. Anything else queues as an unscoped card. */
-function normalizeScope(canvasId: string, scope: unknown): CardScope | undefined {
-  if (!scope || typeof scope !== 'object') return undefined
-  const { frameId, selector } = scope as Record<string, unknown>
-  if (typeof frameId !== 'string' || store.getFrame(frameId)?.canvasId !== canvasId) return undefined
-  const sel = typeof selector === 'string' ? selector.trim().slice(0, MAX_SELECTOR_CHARS) : ''
-  return sel ? { frameId, selector: sel } : { frameId }
-}
-
-export function addQueuedCard(
-  canvasId: string,
-  title: string,
-  from: string,
-  agents?: unknown,
-  attachments?: unknown,
-  fromUserId?: string,
-  scope?: unknown,
-): AgentTask | undefined {
+export function addQueuedCard(canvasId: string, title: string, from: string): AgentTask | undefined {
   const clean = title.trim().slice(0, MAX_CARD_CHARS)
   if (!clean || !store.getCanvas(canvasId)) return undefined
-  const pipeline = normalizePipeline(agents)
-  const target = normalizeScope(canvasId, scope)
-  /* reference-image frame ids: only frames that actually live on this canvas */
-  const refs = (Array.isArray(attachments) ? attachments : [])
-    .filter((a): a is string => typeof a === 'string')
-    .filter((id, i, arr) => arr.indexOf(id) === i && store.getFrame(id)?.canvasId === canvasId)
-    .slice(0, 4)
   const list = taskLog.get(canvasId) ?? []
-  const duplicate = list.find(
-    (t) =>
-      t.queuedBy === from &&
-      !t.endedAt &&
-      t.status === clean &&
-      pipelineOf(t).join(',') === pipeline.join(',') &&
-      (t.attachments ?? []).join(',') === refs.join(',') &&
-      JSON.stringify(t.scope ?? null) === JSON.stringify(target ?? null),
-  )
+  const duplicate = list.find((t) => t.queuedBy === from && !t.endedAt && t.status === clean)
   if (duplicate) return duplicate
   const card: AgentTask = {
     id: nanoid(8),
@@ -795,23 +531,12 @@ export function addQueuedCard(
     status: clean,
     startedAt: Date.now(),
     queuedBy: from,
-    ...(fromUserId ? { queuedByUserId: fromUserId } : {}),
-    pipeline,
-    stage: 0,
-    ...(refs.length > 0 ? { attachments: refs } : {}),
-    ...(target ? { scope: target } : {}),
   }
   list.unshift(card)
   taskLog.set(canvasId, trimTaskLog(list))
   persist.saveTask(canvasId, card)
   broadcast(canvasId, { type: 'task', task: card })
-  logActivity(
-    canvasId,
-    resolveActor({ name: from, kind: 'user' }),
-    `queued a card for ${pipeline.map(roleName).join(' → ')}: “${clean}”`,
-  )
-  /* the resident agents pick queued cards up instantly (no-op without a key) */
-  import('./resident.ts').then((r) => r.onFeedback(canvasId)).catch(() => {})
+  logActivity(canvasId, resolveActor({ name: from, kind: 'user' }), `queued a card: “${clean}”`)
   return card
 }
 
@@ -837,64 +562,10 @@ export function trimTaskLog(list: AgentTask[]): AgentTask[] {
   return list
 }
 
-/** Cards waiting on THIS agent's stage, claimed by it. A card at another
- *  stage is invisible here — that is what keeps a pipeline in order. */
-export function takeQueuedCardsFor(canvasId: string, agentName: string, payer?: string): AgentTask[] {
-  const pending = (taskLog.get(canvasId) ?? []).filter(
-    (t) =>
-      t.queuedBy &&
-      !t.agentName &&
-      !t.failedAt &&
-      !t.endedAt &&
-      stageAgent(t) === agentName &&
-      (payer === undefined || (t.queuedByUserId ?? '') === payer),
-  )
-  for (const c of pending) {
-    c.agentName = agentName
-    c.color = colorFor(agentName)
-    c.claimedAt = Date.now()
-    persist.saveTask(canvasId, c)
-    broadcast(canvasId, { type: 'task', task: c })
-  }
-  return pending
-}
-
-/** An agent finished its stage: hand the card to the next agent in the
- *  pipeline, or complete it if that was the last one. */
-export function advanceCard(canvasId: string, cardId: string, by: Actor): AgentTask | undefined {
-  const card = (taskLog.get(canvasId) ?? []).find((t) => t.id === cardId && t.queuedBy)
-  if (!card || card.endedAt) return card
-  const pipeline = pipelineOf(card)
-  const next = (card.stage ?? 0) + 1
-  if (next >= pipeline.length) return completeCard(canvasId, cardId)
-
-  card.stage = next
-  card.agentName = ''
-  delete card.claimedAt
-  delete card.failedAt
-  delete card.failureReason
-  persist.saveTask(canvasId, card)
-  broadcast(canvasId, { type: 'task', task: card })
-  logActivity(canvasId, by, `handed “${card.status}” to ${roleName(pipeline[next])}`)
-  import('./resident.ts').then((r) => r.onFeedback(canvasId)).catch(() => {})
-  return card
-}
-
 export function completeCard(canvasId: string, cardId: string): AgentTask | undefined {
   const card = (taskLog.get(canvasId) ?? []).find((t) => t.id === cardId && t.queuedBy)
   if (!card || card.endedAt) return card
   card.endedAt = Date.now()
-  persist.saveTask(canvasId, card)
-  broadcast(canvasId, { type: 'task', task: card })
-  return card
-}
-
-/** An unsuccessful card stays paused until a human explicitly retries it. */
-export function failCard(canvasId: string, cardId: string, reason: string): AgentTask | undefined {
-  const card = (taskLog.get(canvasId) ?? []).find((t) => t.id === cardId && t.queuedBy)
-  if (!card || card.endedAt) return card
-  card.failedAt = Date.now()
-  card.failureReason = reason
   persist.saveTask(canvasId, card)
   broadcast(canvasId, { type: 'task', task: card })
   return card
@@ -911,7 +582,6 @@ export function retryCard(canvasId: string, cardId: string, by: string): AgentTa
   persist.saveTask(canvasId, card)
   broadcast(canvasId, { type: 'task', task: card })
   logActivity(canvasId, resolveActor({ name: by, kind: 'user' }), `retried a card: “${card.status}”`)
-  import('./resident.ts').then((r) => r.onFeedback(canvasId)).catch(() => {})
   return card
 }
 
@@ -1177,7 +847,6 @@ export function deleteCanvas(canvasId: string): boolean {
   commentLog.delete(canvasId)
   activityLog.delete(canvasId)
   decisionLog.delete(canvasId)
-  proposalLog.delete(canvasId)
   return true
 }
 
@@ -1197,7 +866,7 @@ export function renameCanvas(canvasId: string, name: string, actor: Actor) {
 
 export const MAX_GUIDELINE_CHARS = 24_000
 export const MAX_GUIDELINE_DOCS = 20
-export const GUIDELINE_NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
+const GUIDELINE_NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
 export const MAX_GUIDELINE_TITLE_CHARS = 80
 
 /** Display name of a design guide: the pretty title, else the prettified slug. */
@@ -1413,27 +1082,21 @@ export async function setTheme(canvasId: string, patch: ThemePatch, actor: Actor
 }
 
 /* ------------------------------------------------------------------ */
-/* Design memory: pinned reference frames (exemplars), captured        */
-/* decisions (addressed feedback), and distiller proposals (rule edits */
-/* a human accepts into a guide or dismisses). The guides above are    */
-/* the distilled layer; this is everything upstream of them.           */
+/* Design memory: pinned reference frames (exemplars) and captured     */
+/* decisions (resolved agent requests, and what agents report from     */
+/* their own chat). The guides above are the curated layer.            */
 /* ------------------------------------------------------------------ */
 
 export const MAX_REFERENCES = 12
 
 const decisionLog = new Map<string, DesignDecision[]>() // canvasId -> newest first
-const proposalLog = new Map<string, MemoryProposal[]>() // canvasId -> newest first
 
 export function getDecisions(canvasId: string): DesignDecision[] {
   return decisionLog.get(canvasId) ?? []
 }
 
-export function getProposals(canvasId: string): MemoryProposal[] {
-  return proposalLog.get(canvasId) ?? []
-}
-
-/** Record a settled design decision and poke the distiller. Deterministic and
- *  silent in the activity feed — the client toasts "Saved to Memory" instead. */
+/** Record a settled design decision. Deterministic and silent in the
+ *  activity feed — the client toasts "Saved to Memory" instead. */
 function captureDecision(
   canvasId: string,
   input: { text: string; source: DesignDecision['source']; frameId?: string; from: string; agentName?: string },
@@ -1453,21 +1116,7 @@ function captureDecision(
   decisionLog.set(canvasId, list)
   persist.saveDecision(canvasId, decision)
   broadcast(canvasId, { type: 'decision', decision })
-  /* generalize the raw words into a preference, then maybe propose a rule
-     (both no-ops without an API key). Dynamic import: distill depends on
-     this module. */
-  import('./distill.ts').then((d) => d.onDecision(canvasId, decision.id)).catch(() => {})
   return decision
-}
-
-/** The summarizer generalized a decision — attach it and re-broadcast
- *  (clients upsert by id, so open panels and toasts update in place). */
-export function setDecisionSummary(canvasId: string, id: string, summary: string) {
-  const decision = getDecisions(canvasId).find((d) => d.id === id)
-  if (!decision) return
-  decision.summary = summary
-  persist.saveDecision(canvasId, decision)
-  broadcast(canvasId, { type: 'decision', decision })
 }
 
 export const MAX_DECISION_CHARS = 500
@@ -1518,71 +1167,4 @@ export function unpinReference(canvasId: string, id: string, actor: Actor): bool
   broadcast(canvasId, { type: 'reference', id, reference: null, actor })
   logActivity(canvasId, actor, `unpinned the reference “${ref.title}” from Memory`)
   return true
-}
-
-/** Decisions the distiller has not consumed yet. */
-export function undistilledDecisions(canvasId: string): DesignDecision[] {
-  return getDecisions(canvasId).filter((d) => !d.distilledAt)
-}
-
-/** Mark decisions consumed by a distiller run — even a run that produced no
- *  proposal, so the same set is never re-analyzed forever. */
-export function markDecisionsDistilled(canvasId: string, ids: string[]) {
-  const now = Date.now()
-  for (const d of getDecisions(canvasId)) {
-    if (ids.includes(d.id)) {
-      d.distilledAt = now
-      persist.saveDecision(canvasId, d)
-    }
-  }
-}
-
-/** The distiller proposed a rule: store it pending and show it to the room. */
-export function addProposal(
-  canvasId: string,
-  input: { guideName: string; guideTitle?: string; rule: string; rationale: string; basedOn: string[] },
-): MemoryProposal {
-  const proposal: MemoryProposal = {
-    id: nanoid(8),
-    guideName: input.guideName,
-    ...(input.guideTitle ? { guideTitle: input.guideTitle } : {}),
-    rule: input.rule,
-    rationale: input.rationale,
-    basedOn: input.basedOn,
-    at: Date.now(),
-    status: 'pending',
-  }
-  const list = proposalLog.get(canvasId) ?? []
-  list.unshift(proposal)
-  if (list.length > 100) list.length = 100
-  proposalLog.set(canvasId, list)
-  persist.saveProposal(canvasId, proposal)
-  broadcast(canvasId, { type: 'proposal', proposal })
-  return proposal
-}
-
-/** A human accepted (rule lands in the guide, versioned like any edit) or
- *  dismissed a proposal. */
-export function resolveProposal(
-  canvasId: string,
-  proposalId: string,
-  accept: boolean,
-  actor: Actor,
-): MemoryProposal | undefined {
-  const proposal = getProposals(canvasId).find((p) => p.id === proposalId)
-  if (!proposal || proposal.status !== 'pending') return proposal
-  if (accept) {
-    const guide = store.getGuidelines(canvasId).find((d) => d.name === proposal.guideName)
-    const markdown = guide
-      ? `${guide.markdown}\n\n${proposal.rule}`
-      : `# ${proposal.guideTitle ?? guidelineTitle({ name: proposal.guideName })}\n\n${proposal.rule}`
-    setGuideline(canvasId, proposal.guideName, markdown, actor, undefined, guide ? undefined : proposal.guideTitle)
-  }
-  proposal.status = accept ? 'accepted' : 'dismissed'
-  proposal.resolvedBy = actor.name
-  proposal.resolvedAt = Date.now()
-  persist.saveProposal(canvasId, proposal)
-  broadcast(canvasId, { type: 'proposal', proposal })
-  if (accept) logActivity(canvasId, actor, `accepted a Memory rule into “${proposal.guideName}”`)
-  return proposal
 }

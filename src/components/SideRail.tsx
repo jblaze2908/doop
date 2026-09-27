@@ -15,7 +15,6 @@ type PanelTab = 'tasks' | 'activity' | 'memory'
 export function SideRail({ onOpen }: { onOpen: () => void }) {
   const setTab = useStore((s) => s.setPanelTab)
   const working = useStore((s) => s.tasks.filter((t) => t.agentName && !t.endedAt && !t.failedAt).length)
-  const proposalPending = useStore((s) => s.proposals.some((p) => p.status === 'pending'))
 
   function show(next: PanelTab) {
     setTab(next)
@@ -46,11 +45,8 @@ export function SideRail({ onOpen }: { onOpen: () => void }) {
       <RailControl label="Activity" onClick={() => show('activity')}>
         <PulseIcon />
       </RailControl>
-      <RailControl label={proposalPending ? 'Memory · suggestion to review' : 'Memory'} onClick={() => show('memory')}>
+      <RailControl label="Memory" onClick={() => show('memory')}>
         <BookmarkIcon />
-        {proposalPending && (
-          <span className="absolute top-[5px] right-[5px] size-1.5 rounded-full bg-accent-ink shadow-[0_0_0_2px_var(--surface)]" />
-        )}
       </RailControl>
     </nav>
   )

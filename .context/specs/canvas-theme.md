@@ -20,14 +20,14 @@ token change meant editing every frame, and agents re-read that CSS on every `ge
   cascade. Browser: the runtime adds it to every parsed document before the morph and
   `serialize()` strips it. Server: `spliceTheme` in `loadFramePage`. Not an adopted sheet —
   adopted sheets cascade after the document's own styles, so the theme would beat the frame.
-- Opt-out per frame: `<html data-doop-theme="off">`. Webpage imports, design-sync snapshots and
-  GitHub screens get it automatically (`withoutTheme`): they ship their own complete CSS.
+- Opt-out per frame: `<html data-doop-theme="off">`. Webpage imports and design-sync snapshots
+  get it automatically (`withoutTheme`): they ship their own complete CSS.
 - Render caches (`previews.ts`, `thumbs.ts`) key on `renderStamp` = frame `updatedAt` + theme
   `version`.
 - Persistence: `saveCanvasTheme`, never the `canvasColumns` upsert — `saveCanvas` runs on every
   frame edit.
-- Surfaces: MCP `get_theme` / `set_theme_tokens` / `set_theme_css` / `set_theme_fonts` (and the
-  same in the resident agent, whose system prompt carries the theme), `get_canvas` summary,
+- Surfaces: MCP `get_theme` / `set_theme_tokens` / `set_theme_css` / `set_theme_fonts`,
+  `get_canvas` summary,
   REST `GET`/`PUT /api/canvases/:id/theme`, WS `{type:'theme'}`, the Theme section of Memory.
 - Concurrency: last write wins per field. Fonts are fetched before the current theme is read,
   so a slow fetch never clobbers a token write that landed meanwhile.

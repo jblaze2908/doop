@@ -10,12 +10,7 @@ import type { ComponentType, SVGProps } from 'react'
 import {
   Activity,
   Building,
-  CreditCard,
-  Lock,
-  Attachment,
   Brain,
-  Computer,
-  Download,
   Group,
   HelpCircle,
   LogOut,
@@ -26,7 +21,6 @@ import {
   ViewGrid,
   ArrowUp,
   Bookmark,
-  Check,
   Compress,
   Copy,
   DesignNib,
@@ -68,7 +62,6 @@ export const MoreHorizontalIcon = icon(MoreHoriz)
 export const ShareIcon = icon(ShareAndroid)
 export const CopyIcon = icon(Copy)
 export const TrashIcon = icon(Trash)
-export const CheckIcon = icon(Check)
 export const ChevronRightIcon = icon(NavArrowRight)
 export const ChevronDownIcon = icon(NavArrowDown)
 export const SyncIcon = icon(RefreshDouble)
@@ -99,11 +92,6 @@ export const UsersIcon = icon(Group)
 export const GearIcon = icon(Settings)
 export const HelpIcon = icon(HelpCircle)
 export const LogOutIcon = icon(LogOut)
-export const AttachmentIcon = icon(Attachment)
 export const BrainIcon = icon(Brain)
 /** a shared workspace — the org's building */
 export const BuildingIcon = icon(Building)
-export const CreditCardIcon = icon(CreditCard)
-export const LockIcon = icon(Lock)
-export const DesktopIcon = icon(Computer)
-export const DownloadIcon = icon(Download)

@@ -31,6 +31,6 @@ props, description, version, deletedAt? }`. `name` is the custom element tag (`d
   load or a server render. Nesting deeper than 8 renders the same box (recursion guard).
 - Render caches join `componentsStamp` (count + newest `updatedAt`) into `renderStamp`.
 - Surfaces: MCP `list_components` / `get_component` / `set_component` / `delete_component` /
-  `component_usages`, a `components` summary in `get_canvas`, resident tools + prompt block, REST
+  `component_usages`, a `components` summary in `get_canvas`, REST
   `PUT`/`DELETE /api/canvases/:id/components/:name`, WS `{type:'component'}`, Memory panel
   Components section.

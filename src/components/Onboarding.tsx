@@ -49,8 +49,8 @@ export function Onboarding() {
   /* live detection — flips only ever go false -> true */
   const live = useMemo(() => {
     const demoDone = tasks.some((t) => t.agentName === 'Doop' && t.endedAt)
-    /* "connected" means an OUTSIDE agent over MCP — the resident team
-       (Doop and the specialists) doesn't count towards the setup steps */
+    /* "connected" means an OUTSIDE agent over MCP — the Doop demo agent (and
+       any agent working under a role name) doesn't count towards the setup steps */
     const realAgent = (t: { agentName: string }) => t.agentName !== '' && !roleByAgentName(t.agentName)
     const agentHere = Object.values(presences).some((p) => p.kind === 'agent' && !roleByAgentName(p.name))
     const agentWorked = tasks.some(realAgent)

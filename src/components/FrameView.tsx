@@ -19,7 +19,6 @@ import { CodePanel } from './CodePanel'
 import { ContextMenu, ContextMenuTrigger } from './ui/context-menu'
 import { AGENT_ROLES, DEFAULT_ROLE_ID, mentionedRole, roleName } from '../../shared/agents'
 import { posthog } from '../lib/posthog'
-import { isResidentLimit } from './TeamAllowance'
 import { cn } from '@/lib/utils'
 import { Button } from './ui/button'
 import { Textarea } from './ui/textarea'
@@ -827,15 +826,7 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
                         <CommentThread
                           thread={thread}
                           onReply={(text) =>
-                            api
-                              .replyComment(c.id, text)
-                              .then(() => posthog.capture('element_comment_replied'))
-                              .catch((err) => {
-                                /* the wall explains a hit limit; anything else
-                                   surfaces in the thread so the draft survives */
-                                if (isResidentLimit(err)) useStore.getState().setLimitWall(true)
-                                throw err
-                              })
+                            api.replyComment(c.id, text).then(() => posthog.capture('element_comment_replied'))
                           }
                           onResolve={() => {
                             api
@@ -844,12 +835,7 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
                               .catch(console.error)
                             setOpenThread(null)
                           }}
-                          onRetry={(id) =>
-                            api.retryComment(id).catch((err) => {
-                              if (isResidentLimit(err)) useStore.getState().setLimitWall(true)
-                              else console.error(err)
-                            })
-                          }
+                          onRetry={(id) => api.retryComment(id).catch(console.error)}
                         />
                       )}
                     </div>
@@ -921,11 +907,7 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
                           api
                             .addComment(frame.id, { selector: anchor.selector, snippet: anchor.snippet, text })
                             .then(() => posthog.capture('element_comment_created'))
-                            .catch((err) => {
-                              /* an @mention past the free tier raises the wall */
-                              if (isResidentLimit(err)) useStore.getState().setLimitWall(true)
-                              else console.error(err)
-                            })
+                            .catch(console.error)
                           if (editing) setComposing(false)
                           else closePopovers()
                         }}
@@ -965,8 +947,8 @@ function CommentComposer({
   const taRef = useRef<HTMLTextAreaElement>(null)
   useEffect(() => taRef.current?.focus(), [])
   const send = () => text.trim() && onSubmit(text)
-  /* @mention a resident agent to route the comment to it; without one the
-     comment is a note for the humans in the room */
+  /* @mention an agent role to flag the comment as a request for an agent;
+     without one the comment is a note for the humans in the room */
   const mentioned = mentionedRole(text)
   return (
     <div className="w-[240px] rounded-[10px] border border-line bg-surface p-2 shadow-pop animate-[chip-in_0.18s_ease]">

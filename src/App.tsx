@@ -1,4 +1,3 @@
-import { startLocalAgent } from './lib/localAgent'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { DESKTOP_HANDOFF_PATH, DESKTOP_SIGNIN_PATH } from './lib/desktopAuth'
 import { authClient } from './lib/auth'
@@ -91,11 +90,6 @@ function Routes() {
   useEffect(() => {
     if (!isPending) setTabsUser(session?.user?.id ?? null)
   }, [isPending, session?.user?.id])
-
-  const localAgentUser = !isPending && me && !me.impersonating ? session?.user.id : undefined
-  useEffect(() => {
-    if (localAgentUser) return startLocalAgent(localAgentUser)
-  }, [localAgentUser])
 
   if (isPending)
     return (

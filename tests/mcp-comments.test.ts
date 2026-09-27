@@ -251,14 +251,12 @@ describe('get_comments MCP tool', () => {
     const stored = [comment({ id: 'm1', forAgent: true, targetAgent: 'Doop', text: '@Doop bigger' })]
     vi.spyOn(actions, 'getComments').mockReturnValue(stored)
     const takeFeedback = vi.spyOn(actions, 'takeFeedbackFor')
-    const takeComments = vi.spyOn(actions, 'takeAgentCommentsFor')
     const resolve = vi.spyOn(actions, 'resolveComment')
     const before = JSON.parse(JSON.stringify(stored))
     const { client, close } = await connect()
     try {
       await callComments(client, { canvas_id: CANVAS.id, agent_name: 'Claude' })
       expect(takeFeedback).not.toHaveBeenCalled()
-      expect(takeComments).not.toHaveBeenCalled()
       expect(resolve).not.toHaveBeenCalled()
       expect(stored).toEqual(before)
       expect(stored[0]?.claimedBy).toBeUndefined()
