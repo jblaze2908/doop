@@ -2,7 +2,7 @@ import type { ClientMessage, ServerMessage } from '../../shared/types'
 import { isPeerViewport } from '../../shared/viewport'
 import { getIdentity } from './identity'
 import { useStore } from './store'
-import { healPartialHtml } from '../../shared/stream'
+import { StreamHealer } from '../../shared/stream'
 
 let socket: WebSocket | null = null
 let currentCanvasId: string | null = null
@@ -11,7 +11,7 @@ let retryTimer: number | null = null
 let loadedBuild: string | null = null
 /* raw text of frames mid-stream: the store holds the healed version that
    renders, deltas append to what the server actually has */
-const streamRaw = new Map<string, string>()
+const streamRaw = new Map<string, StreamHealer>()
 
 export function connect(canvasId: string) {
   currentCanvasId = canvasId
@@ -148,12 +148,11 @@ export function handle(msg: ServerMessage) {
     case 'frame:append': {
       const frame = s.canvas?.frames.find((f) => f.id === msg.frameId)
       if (!frame) break
-      const raw = msg.at === 0 ? '' : (streamRaw.get(msg.frameId) ?? frame.html)
+      const healer = msg.at === 0 ? new StreamHealer() : (streamRaw.get(msg.frameId) ?? new StreamHealer(frame.html))
       /* a missed chunk (joined mid-reveal, reconnect): wait for the whole frame */
-      if (raw.length !== msg.at) break
-      const next = raw + msg.chunk
-      streamRaw.set(msg.frameId, next)
-      s.upsertFrame({ ...frame, html: healPartialHtml(next), updatedAt: msg.updatedAt, updatedBy: msg.updatedBy })
+      if (healer.length !== msg.at) break
+      streamRaw.set(msg.frameId, healer)
+      s.upsertFrame({ ...frame, html: healer.push(msg.chunk), updatedAt: msg.updatedAt, updatedBy: msg.updatedBy })
       break
     }
     case 'frame:updated':

@@ -344,10 +344,13 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
     if (!runtimeReady) return
     iframeRef.current?.contentWindow?.postMessage({ type: 'doop:components', defs: componentDefs }, '*')
   }, [runtimeReady, componentDefs])
+  /* mid-stream posts may take the runtime's spine-only morph; the post when
+     the stream ends (streaming flips false) is a full morph that resyncs */
+  const streaming = !!stream
   useEffect(() => {
     if (!runtimeReady || editing || suspendPost) return
-    iframeRef.current?.contentWindow?.postMessage({ type: 'doop:html', html }, '*')
-  }, [runtimeReady, html, editing, suspendPost])
+    iframeRef.current?.contentWindow?.postMessage({ type: 'doop:html', html, append: streaming }, '*')
+  }, [runtimeReady, html, editing, suspendPost, streaming])
 
   /* ---- element comments ---- */
   const frameComments = useStore((s) => s.comments).filter((c) => c.frameId === frame.id)

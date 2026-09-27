@@ -38,9 +38,15 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
     return n === 'STYLE' || n === 'TEXTAREA' || n === 'IFRAME' || el.namespaceURI !== 'http://www.w3.org/1999/xhtml'
   }
 
-  function morphChildren(from, to) {
+  /* spine: an append-only stream can only grow the last child it already had
+     and add children after it; everything before is closed in the source, so
+     a mid-stream render skips it instead of re-diffing the whole document */
+  function morphChildren(from, to, spine) {
     var tc = to.childNodes
-    for (var i = 0; i < tc.length; i++) {
+    /* fewer children than before: the parse restructured, diff it all */
+    if (spine && tc.length < from.childNodes.length) spine = false
+    var start = spine ? Math.max(0, Math.min(from.childNodes.length, tc.length) - 1) : 0
+    for (var i = start; i < tc.length; i++) {
       var t = tc[i]
       var f = from.childNodes[i]
       if (!f) {
@@ -65,7 +71,7 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
         } else if (isOpaque(f)) {
           if (f.innerHTML !== t.innerHTML) f.innerHTML = t.innerHTML
         } else {
-          morphChildren(f, t)
+          morphChildren(f, t, spine)
         }
       }
     }
@@ -154,8 +160,13 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
     doopComponents.setTheme(themeOff(document.documentElement) ? '' : themeCss)
   }
 
-  function render(html) {
+  var lastHtml = ''
+
+  function render(html, append) {
     var doc
+    /* the healer may have closed a trailing <style>; the rest must be a prefix */
+    var base = lastHtml.slice(-8) === '</style>' ? lastHtml.slice(0, -8) : lastHtml
+    var spine = !!append && !!lastHtml && html.lastIndexOf(base, 0) === 0
     try {
       doc = new DOMParser().parseFromString(html, 'text/html')
       addTheme(doc)
@@ -163,13 +174,17 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
       /* the incoming html carries no root style, so the sync drops our
          crisp-render zoom — put it back before the page reflows */
       if (curZoom !== 1) document.documentElement.style.zoom = String(curZoom)
-      morphChildren(document.head, doc.head)
-      morphChildren(document.body, doc.body)
+      /* head streams in first while body is still empty, so it is never the
+         last child the spine rule relies on: it is always diffed in full */
+      morphChildren(document.head, doc.head, false)
+      morphChildren(document.body, doc.body, spine)
+      lastHtml = html
       activateScripts()
       shareTheme()
       doopComponents.refresh() // the morph may have changed instance attributes
     } catch (e) {
       if (doc) document.documentElement.innerHTML = doc.documentElement.innerHTML
+      lastHtml = doc ? html : ''
     }
   }
 
@@ -583,6 +598,10 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
     if (ev.source !== parent) return
     var d = ev.data
     if (!d) return
+    /* any other writer to this DOM voids the spine shortcut's premise */
+    if (d.type === 'doop:style' || d.type === 'doop:classes' || d.type === 'doop:attrs' || d.type === 'doop:edit') {
+      lastHtml = ''
+    }
     if (d.type === 'doop:inspect') {
       parent.postMessage({ type: 'doop:inspect-result', reqId: d.reqId, info: inspect(d.selector) }, '*')
     }
@@ -601,7 +620,7 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
       var attred = applyAttrs(d.selector, d.attrs)
       parent.postMessage({ type: 'doop:attrs-result', reqId: d.reqId, ok: attred, info: attred ? inspect(d.selector) : null }, '*')
     }
-    if (d.type === 'doop:html' && typeof d.html === 'string' && !editing && !styleTimer) render(d.html)
+    if (d.type === 'doop:html' && typeof d.html === 'string' && !editing && !styleTimer) render(d.html, d.append)
     if (d.type === 'doop:edit') setEdit(!!d.on)
     if (d.type === 'doop:probe') {
       parent.postMessage({ type: 'doop:probe-result', reqId: d.reqId, hit: probe(d.x, d.y) }, '*')
