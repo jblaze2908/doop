@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { WorkspaceDetail, WorkspaceRole } from '../../shared/types'
 import { navigate } from '../App'
 import { api, errorMessage } from '../lib/api'
+import { useHomeFeed } from '../lib/homeFeed'
 import { authClient } from '../lib/auth'
 import { posthog } from '../lib/posthog'
 import { AccountMenu, ConnectCard, IconBack, IconChevron, IconGear, IconShare } from '../components/DashShell'
@@ -47,6 +48,8 @@ export function Workspace({ workspaceId }: { workspaceId: string }) {
   }, [workspaceId])
 
   useEffect(reload, [reload])
+  /* members, roles and the name change live when another admin edits them */
+  useHomeFeed({ refresh: reload })
 
   function showToast(message: string) {
     setToast(message)

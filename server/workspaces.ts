@@ -73,6 +73,16 @@ function membersOf(workspaceId: string): Map<string, Membership> {
 
 /* ---- reads ---- */
 
+/* Set by the home feed: whose dashboards a workspace write changes. */
+let membershipChanged: (userIds: string[]) => void = () => {}
+export function onMembershipChange(fn: (userIds: string[]) => void) {
+  membershipChanged = fn
+}
+
+export function memberIdsOf(workspaceId: string): string[] {
+  return [...(members.get(workspaceId)?.keys() ?? [])]
+}
+
 export function getWorkspace(id: string): WorkspaceRecord | undefined {
   return records.get(id)
 }
@@ -140,6 +150,7 @@ export function createWorkspace(name: string, ownerId: string): WorkspaceRecord 
         .values({ workspaceId: ws.id, userId: ownerId, role: 'owner', addedBy: ownerId, addedAt: now })
     }),
   )
+  membershipChanged([ownerId])
   return ws
 }
 
@@ -149,6 +160,7 @@ export function renameWorkspace(id: string, name: string): WorkspaceRecord | und
   ws.name = name
   ws.updatedAt = Date.now()
   swallow(db.update(t.workspaces).set({ name, updatedAt: ws.updatedAt }).where(eq(t.workspaces.id, id)))
+  membershipChanged(memberIdsOf(id))
   return ws
 }
 
@@ -156,9 +168,11 @@ export function renameWorkspace(id: string, name: string): WorkspaceRecord | und
  *  spaces (nothing is deleted). */
 export async function deleteWorkspace(id: string): Promise<void> {
   if (!records.has(id)) return
+  const affected = memberIdsOf(id)
   store.detachWorkspace(id)
   records.delete(id)
   members.delete(id)
+  membershipChanged(affected)
   await db.transaction(async (tx) => {
     await tx.delete(t.workspaceMembers).where(eq(t.workspaceMembers.workspaceId, id))
     await tx.delete(t.workspaceInvites).where(eq(t.workspaceInvites.workspaceId, id))
@@ -173,6 +187,7 @@ export function addMember(workspaceId: string, userId: string, role: WorkspaceRo
   const addedAt = Date.now()
   map.set(userId, { role, addedAt })
   swallow(db.insert(t.workspaceMembers).values({ workspaceId, userId, role, addedBy, addedAt }).onConflictDoNothing())
+  membershipChanged(memberIdsOf(workspaceId))
   return true
 }
 
@@ -186,6 +201,7 @@ export function setRole(workspaceId: string, userId: string, role: WorkspaceRole
       .set({ role })
       .where(and(eq(t.workspaceMembers.workspaceId, workspaceId), eq(t.workspaceMembers.userId, userId))),
   )
+  membershipChanged(memberIdsOf(workspaceId))
   return true
 }
 
@@ -199,6 +215,7 @@ export async function removeMember(workspaceId: string, userId: string): Promise
     .delete(t.workspaceMembers)
     .where(and(eq(t.workspaceMembers.workspaceId, workspaceId), eq(t.workspaceMembers.userId, userId)))
   map.delete(userId)
+  membershipChanged([userId, ...map.keys()])
   return true
 }
 
@@ -259,6 +276,7 @@ async function acceptInvite(
   })
   const map = membersOf(ws.id)
   if (!map.has(userId)) map.set(userId, { role, addedAt })
+  membershipChanged(memberIdsOf(ws.id))
 }
 
 /** A new account with an invited email joins its workspaces on arrival.

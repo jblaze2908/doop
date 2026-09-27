@@ -12,6 +12,13 @@ import type { ComponentDef } from '../shared/components.ts'
 class Store {
   canvases = new Map<string, Canvas>()
   private frameIndex = new Map<string, string>() // frameId -> canvasId
+  /* Set by the home feed (server/homeFeed.ts). Every change a dashboard row
+     shows goes through one of these; they run per stream chunk, so they must
+     stay O(1). */
+  onChanged: (canvasId: string) => void = () => {}
+  onRemoved: (canvas: Canvas) => void = () => {}
+  onAccessLost: (canvasId: string, userIds: string[]) => void = () => {}
+  onMoved: (canvasId: string, fromWorkspaceId: string | undefined) => void = () => {}
 
   init(canvases: Canvas[]) {
     for (const c of canvases) {
@@ -22,7 +29,8 @@ class Store {
 
   /** The dashboard row for one canvas, marked as shared-with-me unless the
    *  viewer owns it. */
-  private toMeta(c: Canvas, viewerId: string) {
+  toMeta(c: Canvas, viewerId: string) {
+    const preview = c.frames.length ? c.frames.reduce((a, b) => (b.updatedAt > a.updatedAt ? b : a)) : undefined
     return {
       id: c.id,
       name: c.name,
@@ -34,7 +42,8 @@ class Store {
       frameCount: c.frames.length,
       /* most recently touched frame — the home dashboard renders it as the
          canvas preview via the public /i/ image pipeline */
-      previewFrameId: c.frames.length ? c.frames.reduce((a, b) => (b.updatedAt > a.updatedAt ? b : a)).id : undefined,
+      previewFrameId: preview?.id,
+      previewAt: preview?.updatedAt,
     }
   }
 
@@ -62,6 +71,7 @@ class Store {
     if (workspaceId) canvas.workspaceId = workspaceId
     this.canvases.set(canvas.id, canvas)
     persist.saveCanvas(canvas)
+    this.onChanged(canvas.id)
     return canvas
   }
 
@@ -114,6 +124,7 @@ class Store {
     await persist.saveCanvasCopy(canvas)
     this.canvases.set(canvas.id, canvas)
     for (const frame of frames) this.frameIndex.set(frame.id, canvas.id)
+    this.onChanged(canvas.id)
     return canvas
   }
 
@@ -128,6 +139,7 @@ class Store {
     for (const f of c.frames) this.frameIndex.delete(f.id)
     this.canvases.delete(id)
     persist.deleteCanvas(id)
+    this.onRemoved(c)
     return c
   }
 
@@ -137,6 +149,7 @@ class Store {
     if (!c || c.ownerId) return undefined
     c.ownerId = userId
     persist.saveCanvas(c)
+    this.onChanged(id)
     return c
   }
 
@@ -160,9 +173,11 @@ class Store {
   setWorkspace(id: string, workspaceId: string | undefined): Canvas | undefined {
     const c = this.canvases.get(id)
     if (!c) return undefined
+    const from = c.workspaceId
     if (workspaceId) c.workspaceId = workspaceId
     else delete c.workspaceId
     persist.saveCanvas(c)
+    this.onMoved(id, from)
     return c
   }
 
@@ -178,6 +193,7 @@ class Store {
       if (c.workspaceId === workspaceId) {
         delete c.workspaceId
         persist.saveCanvas(c)
+        this.onMoved(c.id, workspaceId)
       }
     }
   }
@@ -189,6 +205,7 @@ class Store {
     if (!(c.memberIds ??= []).includes(userId)) {
       c.memberIds.push(userId)
       persist.saveMember(canvasId, userId, addedBy, Date.now())
+      this.onChanged(canvasId)
     }
     return c
   }
@@ -199,6 +216,7 @@ class Store {
     if (!c || idx === -1) return false
     c.memberIds!.splice(idx, 1)
     persist.deleteMember(canvasId, userId)
+    this.onAccessLost(canvasId, [userId])
     return true
   }
 
@@ -208,6 +226,7 @@ class Store {
     c.name = name
     c.updatedAt = Date.now()
     persist.saveCanvas(c)
+    this.onChanged(id)
     return c
   }
 
@@ -387,6 +406,7 @@ class Store {
     this.frameIndex.set(frame.id, canvasId)
     persist.saveFrame(frame, true)
     persist.saveCanvas(c)
+    this.onChanged(c.id)
     return frame
   }
 
@@ -411,6 +431,7 @@ class Store {
     c.updatedAt = Date.now()
     persist.saveFrame(frame) // debounced: streaming appends land as one write per burst
     persist.saveCanvasSoon(c) // likewise: updatedAt moves on every chunk
+    this.onChanged(c.id)
     return frame
   }
 
@@ -426,6 +447,7 @@ class Store {
     this.frameIndex.delete(frameId)
     persist.deleteFrame(frameId)
     persist.saveCanvas(c)
+    this.onChanged(c.id)
     return frame
   }
 }

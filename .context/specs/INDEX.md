@@ -16,6 +16,8 @@ lists every file in this folder.
   backed by an offset-preserving HTML parser.
 - [linked-components.md](linked-components.md) - Linked components: custom elements with shadow DOM
   templates shared by every frame; runtime, cascade trap, tombstones, surfaces.
+- [live-dashboards.md](live-dashboards.md) - Realtime dashboards: a per-user channel on the canvas
+  WebSocket, store hooks, coalesced rows, settled preview thumbnails.
 - [performance.md](performance.md) - Measured memory/CPU work: streaming deltas, broadcast and
   persistence coalescing, with before/after numbers.
 - [workspaces.md](workspaces.md) - Shared workspaces (org-level canvas access with roles): data

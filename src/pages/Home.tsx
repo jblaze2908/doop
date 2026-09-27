@@ -20,6 +20,7 @@ import {
 } from '../components/DashShell'
 import { posthog } from '../lib/posthog'
 import { closeTab, openCanvasTab, pruneTabs } from '../lib/desktop'
+import { useHomeFeed } from '../lib/homeFeed'
 import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Button } from '../components/ui/button'
 import { Badge } from '../components/ui/badge'
@@ -79,6 +80,11 @@ const cardCls = cn(
   'bg-[color-mix(in_srgb,var(--surface)_72%,transparent)] backdrop-blur-[6px]',
 )
 
+/** Replace a canvas's row, or add it, keeping the list newest-edited first like the server's. */
+function upsertRow(list: CanvasMeta[], row: CanvasMeta): CanvasMeta[] {
+  return [row, ...list.filter((c) => c.id !== row.id)].sort((a, b) => b.updatedAt - a.updatedAt)
+}
+
 export function Home() {
   const [canvases, setCanvases] = useState<CanvasMeta[] | null>(null)
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([])
@@ -97,6 +103,21 @@ export function Home() {
   const [now, setNow] = useState(0)
   const { data: session } = authClient.useSession()
   const searchRef = useRef<HTMLInputElement>(null)
+
+  /* live: a canvas an agent creates, renames or edits anywhere shows up here
+     without a reload (server/homeFeed.ts) */
+  useHomeFeed({
+    canvas: (row) => setCanvases((list) => list && upsertRow(list, row)),
+    removed: (id) => setCanvases((list) => list && list.filter((c) => c.id !== id)),
+    refresh: reload,
+    activity: (item) => setActivity((items) => [item, ...items.filter((i) => i.id !== item.id)].slice(0, 14)),
+  })
+
+  /* every fresh list is a chance to drop tabs for canvases that are gone —
+     deleted here, in another session, or by someone else */
+  useEffect(() => {
+    if (canvases) pruneTabs(new Set(canvases.map((c) => c.id)))
+  }, [canvases])
 
   useEffect(() => {
     reload()
@@ -185,15 +206,7 @@ export function Home() {
   }
 
   function reload() {
-    api
-      .listCanvases()
-      .then((list) => {
-        setCanvases(list)
-        /* every fresh list is a chance to drop tabs for canvases that are
-           gone — deleted here, in another session, or by someone else */
-        pruneTabs(new Set(list.map((c) => c.id)))
-      })
-      .catch(console.error)
+    api.listCanvases().then(setCanvases).catch(console.error)
     api
       .listWorkspaces()
       .then((res) => setWorkspaces(res.workspaces))
@@ -671,10 +684,33 @@ function remove(id: string, done: () => void) {
     .finally(done)
 }
 
+/** A live row's preview stamp moves on every streamed chunk and each new image
+ *  URL is a server render, so the URL follows the stamp only after 2 s of
+ *  quiet — or every 10 s during a long stream. */
+function useSettled(value: number | undefined, quietMs = 2000, maxWaitMs = 10_000) {
+  const [settled, setSettled] = useState(value)
+  const pendingSince = useRef<number | null>(null)
+  useEffect(() => {
+    if (value === settled) {
+      pendingSince.current = null
+      return
+    }
+    pendingSince.current ??= Date.now()
+    const wait = Math.min(quietMs, Math.max(0, pendingSince.current + maxWaitMs - Date.now()))
+    const timer = window.setTimeout(() => {
+      pendingSince.current = null
+      setSettled(value)
+    }, wait)
+    return () => window.clearTimeout(timer)
+  }, [value, settled, quietMs, maxWaitMs])
+  return settled
+}
+
 function Preview({ canvas, blankSize = 'text-[12px]' }: { canvas: CanvasMeta; blankSize?: string }) {
   /* which frame failed, not whether — a new previewFrameId must retry
      rather than inherit the old frame's failure */
   const [failedId, setFailedId] = useState<string | null>(null)
+  const version = useSettled(canvas.previewAt)
   if (!canvas.previewFrameId) return <span className={cn('text-ink-faint', blankSize)}>empty canvas</span>
   /* a failed render must look different from an empty canvas — silence here
      made preview outages undiagnosable */
@@ -682,7 +718,7 @@ function Preview({ canvas, blankSize = 'text-[12px]' }: { canvas: CanvasMeta; bl
     return <span className={cn('text-ink-faint', blankSize)}>preview unavailable</span>
   return (
     <img
-      src={`/i/${canvas.previewFrameId}.jpg?preview`}
+      src={`/i/${canvas.previewFrameId}.jpg?preview${version ? `&v=${version}` : ''}`}
       alt=""
       loading="lazy"
       className="h-full w-full object-cover object-top"

@@ -8,6 +8,7 @@ import { toNodeHandler, fromNodeHeaders } from 'better-auth/node'
 import { oAuthDiscoveryMetadata } from 'better-auth/plugins'
 import { WebSocketServer, WebSocket } from 'ws'
 import { store } from './store.ts'
+import * as homeFeed from './homeFeed.ts'
 import { getImage } from './previews.ts'
 import * as actions from './actions.ts'
 import { exportFrameCode } from './exportCode.ts'
@@ -33,7 +34,7 @@ import * as storage from './storage.ts'
 import { seed } from './seed.ts'
 import { colorFor } from '../shared/types.ts'
 import { isPeerViewport } from '../shared/viewport.ts'
-import type { ClientMessage, Presence, ServerMessage } from '../shared/types.ts'
+import type { CanvasMeta, ClientMessage, Presence, ServerMessage } from '../shared/types.ts'
 
 const PORT = Number(process.env.PORT || 4400)
 
@@ -161,6 +162,9 @@ function broadcast(canvasId: string, msg: ServerMessage, excludeClientId?: strin
     if (lossy && c.ws.bufferedAmount > LOSSY_BACKLOG) continue
     send(c.ws, (json ??= JSON.stringify(msg)))
   }
+  /* the two canvas events a dashboard shows that the store never sees */
+  if (msg.type === 'task') homeFeed.canvasChanged(canvasId)
+  else if (msg.type === 'activity') homeFeed.activity(canvasId, msg.item)
 }
 
 /* Agents show up in presence while they are actively calling tools. */
@@ -608,20 +612,21 @@ function requireFrame(req: express.Request, res: express.Response, frameId: stri
 
 app.use('/api/workspaces', workspaces.workspacesRouter)
 
-app.get('/api/canvases', (req, res) =>
-  res.json(
-    workspaces.canvasesFor(req.user!.id).map((c) => {
-      /* which agents have worked on this canvas (most recent first), with
-         the user whose token they connected under and when they last worked */
-      const seen = new Map<string, { owner?: string; lastAt: number }>()
-      for (const t of actions.getTasks(c.id)) {
-        if (!t.agentName) continue // unclaimed board cards have no agent yet
-        if (!seen.has(t.agentName)) seen.set(t.agentName, { owner: t.owner, lastAt: t.startedAt })
-      }
-      return { ...c, agents: [...seen].slice(0, 8).map(([name, v]) => ({ name, owner: v.owner, lastAt: v.lastAt })) }
-    }),
-  ),
-)
+/** A dashboard row: the store's summary plus which agents have worked on the
+ *  canvas (most recent first), with the user whose token they connected under
+ *  and when they last worked. */
+function canvasRow(meta: CanvasMeta): CanvasMeta {
+  const seen = new Map<string, { owner?: string; lastAt: number }>()
+  for (const t of actions.getTasks(meta.id)) {
+    if (!t.agentName) continue // unclaimed board cards have no agent yet
+    if (!seen.has(t.agentName)) seen.set(t.agentName, { owner: t.owner, lastAt: t.startedAt })
+  }
+  return { ...meta, agents: [...seen].slice(0, 8).map(([name, v]) => ({ name, owner: v.owner, lastAt: v.lastAt })) }
+}
+
+homeFeed.wireHome(send, (c, viewerId) => canvasRow(store.toMeta(c, viewerId)))
+
+app.get('/api/canvases', (req, res) => res.json(workspaces.canvasesFor(req.user!.id).map(canvasRow)))
 
 /* A workspace canvas needs membership of that workspace. */
 function requireWorkspaceMember(req: express.Request, res: express.Response, workspaceId: string) {
@@ -1106,8 +1111,9 @@ app.post('/api/canvases/:id/import', async (req, res) => {
   const canvas = requireCanvas(req, res, req.params.id)
   if (!canvas) return
   try {
-    const { importPage, importSitePages, assertPublicHttpUrl, isSameSiteUrl, MAX_SITE_PAGES } =
-      await import('./importer.ts')
+    const { importPage, importSitePages, assertPublicHttpUrl, isSameSiteUrl, MAX_SITE_PAGES } = await import(
+      './importer.ts'
+    )
     const requested: string[] | null = Array.isArray(req.body?.urls)
       ? (req.body.urls as unknown[]).map((value) => String(value))
       : null
@@ -1375,6 +1381,16 @@ wss.on('connection', (ws, upgradeReq) => {
     }
     const conn = conns.get(ws)
 
+    if (msg.type === 'home') {
+      const session = await sessionPromise
+      if (!session) {
+        ws.close(4401, 'unauthorized')
+        return
+      }
+      homeFeed.addHome(session.user.id, ws)
+      return
+    }
+
     if (msg.type === 'join') {
       const session = await sessionPromise
       if (!session) {
@@ -1476,6 +1492,7 @@ wss.on('connection', (ws, upgradeReq) => {
   })
 
   ws.on('close', () => {
+    homeFeed.dropHome(ws)
     const conn = dropConn(ws)
     if (!conn) return
     if (conn.silent) return // never announced a join, so nothing to leave

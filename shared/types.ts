@@ -32,6 +32,8 @@ export interface CanvasMeta {
   frameCount: number
   /** most recently updated frame — render /i/<id>.jpg for a canvas preview */
   previewFrameId?: string
+  /** that frame's render stamp (its updatedAt): the preview image is stale once this moves */
+  previewAt?: number
   /** agents that have worked on this canvas (most recent first) */
   agents?: { name: string; owner?: string; lastAt?: number }[]
 }
@@ -282,6 +284,9 @@ export interface ActivityItem {
   at: number
 }
 
+/** An activity row on the dashboard's live feed, with the canvas it happened on. */
+export type HomeActivity = ActivityItem & { canvasId: string; canvasName: string }
+
 /** A client's camera: world→screen transform plus the stage size it fills. */
 export interface PeerViewport {
   x: number
@@ -299,8 +304,15 @@ export type ClientMessage =
   | { type: 'viewport'; viewport: PeerViewport }
   | { type: 'editing'; frameId: string | null }
   | { type: 'frame:drag'; frameId: string; x: number; y: number; width: number; height: number }
+  /** a dashboard socket: live rows for every canvas the user can list */
+  | { type: 'home' }
 
 export type ServerMessage =
+  | { type: 'home:canvas'; canvas: CanvasMeta }
+  | { type: 'home:canvas:removed'; canvasId: string }
+  /** access or workspaces changed in a way a row cannot express: refetch the lists */
+  | { type: 'home:refresh' }
+  | { type: 'home:activity'; item: HomeActivity }
   | {
       type: 'init'
       canvas: Canvas

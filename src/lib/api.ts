@@ -1,10 +1,10 @@
 import type { CanvasTheme, ThemeTokenInput } from '../../shared/theme'
 import type { ComponentDef, ComponentInput } from '../../shared/components'
 import type {
-  ActivityItem,
   Canvas,
   CanvasMeta,
   Frame,
+  HomeActivity,
   WorkspaceDetail,
   WorkspaceInvite,
   WorkspaceMember,
@@ -12,7 +12,7 @@ import type {
   WorkspaceSummary,
 } from '../../shared/types'
 
-export type HomeActivity = ActivityItem & { canvasId: string; canvasName: string }
+export type { HomeActivity }
 
 export interface CanvasMember {
   userId: string
