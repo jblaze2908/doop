@@ -25,6 +25,7 @@ function Avatar({
   owner,
   stacked = false,
   className,
+  style,
   ...props
 }: Omit<React.ComponentProps<'div'>, 'color'> & {
   name: string
@@ -47,7 +48,7 @@ function Avatar({
           'rounded-[9px] after:absolute after:-inset-[5px] after:animate-[agent-pulse_1.8s_ease-out_infinite] after:rounded-[13px] after:border-2 after:border-current after:opacity-0 after:content-[""]',
         className,
       )}
-      style={{ background: tile, color: tile }}
+      style={{ background: tile, color: tile, ...style }}
       title={`${name}${kind === 'agent' ? (owner ? ` (${owner}'s agent)` : ' (agent)') : ''}${status ? ` — ${status}` : ''}`}
       {...props}
     >
