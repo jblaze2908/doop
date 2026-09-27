@@ -1,7 +1,7 @@
 import { localAgentRouter, handleLocalAgentMcp } from './localAgent.ts'
 import http from 'node:http'
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import express from 'express'
 import { eq, inArray } from 'drizzle-orm'
@@ -1714,6 +1714,26 @@ app.get('/sitemap.xml', (_req, res) => {
 /* production: serve the built client */
 if (process.env.NODE_ENV === 'production') {
   const dist = path.join(process.cwd(), 'dist')
+  const assets = path.join(dist, 'assets')
+  /* hashed build assets never change: cache them for a year, and serve the
+     brotli/gzip copies the build wrote (vite.config.ts). The allowlist is the
+     directory listing read once at boot, so request paths never reach the fs. */
+  const files = new Set(existsSync(assets) ? readdirSync(assets) : [])
+  app.use('/assets', (req, res) => {
+    const name = req.path.slice(1)
+    /* a miss is a 404, never the SPA shell: a stale chunk must fail as a chunk */
+    if (!files.has(name) || name.endsWith('.br') || name.endsWith('.gz')) return res.sendStatus(404)
+    /* our preference, not the header's order: Chrome lists gzip before br */
+    const encoding = (['br', 'gzip'] as const).find(
+      (e) => files.has(`${name}.${e === 'br' ? 'br' : 'gz'}`) && req.acceptsEncodings(e) === e,
+    )
+    res.set('Cache-Control', 'public, max-age=31536000, immutable')
+    res.vary('Accept-Encoding')
+    res.type(path.extname(name))
+    if (encoding) res.set('Content-Encoding', encoding)
+    const suffix = encoding === 'br' ? '.br' : encoding === 'gzip' ? '.gz' : ''
+    res.sendFile(path.join(assets, name + suffix), { cacheControl: false })
+  })
   app.use(express.static(dist))
   app.get('*', (_req, res) => res.sendFile(path.join(dist, 'index.html')))
 }
