@@ -7,6 +7,7 @@ import { mentionedRole } from '../shared/agents.ts'
 import { decodeEscapedHtml, looksEscapedHtml, repairEscapedHtml } from './escapedHtml.ts'
 import { resolveFonts } from './theme.ts'
 import { compileTheme } from '../shared/theme.ts'
+import { MAX_FRAME_HTML_BYTES } from './limits.ts'
 import {
   componentUsages,
   hostBoxWarning,
@@ -871,6 +872,72 @@ export function createFrame(
   logActivity(canvasId, actor, `created frame “${frame.name}”`, frame.id)
   touch(canvasId, actor, frame.id)
   return frame
+}
+
+/** One exact find/replace, the same contract as edit_frame_html. */
+export interface FrameEdit {
+  old_str: string
+  new_str: string
+}
+
+const COPY_GAP = 80
+
+/** Right of the source, pushed further right past any frame the copy would
+ *  cover. O(frames²) per duplicate, fine at canvas sizes. */
+function besideFrame(frames: Frame[], source: Frame, width: number, height: number): { x: number; y: number } {
+  const y = source.y
+  let x = source.x + source.width + COPY_GAP
+  const covers = (f: Frame) => f.x < x + width && x < f.x + f.width && f.y < y + height && y < f.y + f.height
+  for (let hit = frames.find(covers); hit; hit = frames.find(covers)) x = hit.x + hit.width + COPY_GAP
+  return { x, y }
+}
+
+/** Copy a frame on its canvas, optionally resized and with edits applied to the
+ *  copy — a variant (dark mode, another headline) without re-sending the
+ *  document. Edits run in order and each must match exactly once at its turn;
+ *  any miss creates nothing. */
+export function duplicateFrame(
+  frameId: string,
+  opts: { name?: string; x?: number; y?: number; width?: number; height?: number; edits?: FrameEdit[] },
+  actor: Actor,
+): { ok: true; frame: Frame } | { ok: false; error: string } {
+  const source = store.getFrame(frameId)
+  const canvas = source && store.getCanvas(source.canvasId)
+  if (!source || !canvas) return { ok: false, error: `no frame with id ${frameId}` }
+  let html = source.html
+  for (const [i, edit] of (opts.edits ?? []).entries()) {
+    const count = edit.old_str ? html.split(edit.old_str).length - 1 : 0
+    if (count !== 1) {
+      return {
+        ok: false,
+        error: `edit ${i + 1}: old_str matches ${count} times in the copy — it must match exactly once`,
+      }
+    }
+    /* a function replacement: a string one would expand $& / $1 inside new_str */
+    html = html.replace(edit.old_str, () => edit.new_str)
+  }
+  if (html.length > MAX_FRAME_HTML_BYTES) return { ok: false, error: 'the edited copy exceeds the frame size limit' }
+  const width = opts.width ?? source.width
+  const height = opts.height ?? source.height
+  const beside = besideFrame(canvas.frames, source, width, height)
+  const frame = store.createFrame(
+    canvas.id,
+    {
+      name: opts.name?.trim() || `${source.name} copy`,
+      x: opts.x ?? beside.x,
+      y: opts.y ?? beside.y,
+      width,
+      height,
+      html,
+    },
+    actor.name,
+  )
+  if (!frame) return { ok: false, error: `no frame with id ${frameId}` }
+  /* no typewriter reveal, even for an agent: a copy is not new work */
+  broadcast(canvas.id, { type: 'frame:created', frame, actor })
+  logActivity(canvas.id, actor, `duplicated “${source.name}” as “${frame.name}”`, frame.id)
+  touch(canvas.id, actor, frame.id)
+  return { ok: true, frame }
 }
 
 export function updateFrame(

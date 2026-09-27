@@ -330,6 +330,7 @@ Steering happens at three layers (the same architecture paper.design uses, plus 
 | `get_frame`            | Read a frame including its HTML                                                                                     |
 | `get_frame_screenshot` | Render the frame headlessly and return a PNG — lets agents _see_ and iterate on their design                        |
 | `set_frame_html`       | Replace a frame's design in one shot — renders live for everyone                                                    |
+| `duplicate_frame`      | Copy a frame, optionally resized and with find/replace edits applied — a variant in one call                        |
 | `append_frame_html`    | **Stream** a design in chunks (`start=true` first, `done=true` last) — viewers watch it build up                    |
 | `edit_frame_html`      | Targeted exact find/replace in a frame's HTML — morphs into the render in place                                     |
 | `update_frame`         | Rename / move / resize a frame                                                                                      |

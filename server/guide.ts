@@ -184,6 +184,9 @@ Viewers watch designs assemble live. Stream with append_frame_html:
 - For small tweaks (copy, a color, one element's spacing) use edit_frame_html — an exact
   find/replace that morphs into the rendered frame in place, with no re-render. Resending
   a whole document via set_frame_html is for genuine redesigns.
+- For a variant of an existing frame (dark mode, another headline, a mobile width) use
+  duplicate_frame with edits: it copies the frame and applies exact find/replace edits to the
+  copy in one call, so the document is never re-sent.
 
 ## Frames and HTML
 
