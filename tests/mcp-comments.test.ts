@@ -65,7 +65,7 @@ interface CallResult {
 
 async function connect(ownerId: string | undefined = OWNER_ID) {
   const server = buildMcpServer('Test Owner', ownerId)
-  const client = new Client({ name: 'doop-comments-test', version: '1.0.0' })
+  const client = new Client({ name: 'draft-comments-test', version: '1.0.0' })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   await server.connect(serverTransport)
   await client.connect(clientTransport)
@@ -132,8 +132,8 @@ describe('get_comments MCP tool', () => {
       text: 'Too small',
       at: 1,
       forAgent: true,
-      targetAgent: 'Doop',
-      claimedBy: 'Doop',
+      targetAgent: 'Draft',
+      claimedBy: 'Draft',
       claimedAt: 3,
     })
     const stored = [reply, root]
@@ -248,7 +248,7 @@ describe('get_comments MCP tool', () => {
   })
 
   it('does not claim or resolve anything while reading', async () => {
-    const stored = [comment({ id: 'm1', forAgent: true, targetAgent: 'Doop', text: '@Doop bigger' })]
+    const stored = [comment({ id: 'm1', forAgent: true, targetAgent: 'Draft', text: '@Draft bigger' })]
     vi.spyOn(actions, 'getComments').mockReturnValue(stored)
     const takeFeedback = vi.spyOn(actions, 'takeFeedbackFor')
     const resolve = vi.spyOn(actions, 'resolveComment')

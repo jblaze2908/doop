@@ -23,7 +23,7 @@ import type { Canvas, Frame } from '../shared/types.ts'
  * Frame → code. `react` writes a page component plus one component file per
  * linked component it uses, the theme as plain CSS, and the frame's own CSS;
  * `html` writes one self-contained document (theme and component runtime
- * inlined, exactly what doop renders). Both are pure functions of the canvas.
+ * inlined, exactly what draft renders). Both are pure functions of the canvas.
  */
 
 export interface ExportFile {
@@ -358,7 +358,7 @@ export function exportFrameCode(frame: Frame, canvas: Canvas, target: 'react' | 
     ...[...ctx.used].sort().map((n) => `import { ${pascal(n)} } from './components/${pascal(n)}'`),
     `import './${Page}.css'`,
     '',
-    `/** Exported from the doop frame “${frame.name}” (${Math.round(frame.width)}×${Math.round(frame.height)}). */`,
+    `/** Exported from the draft frame “${frame.name}” (${Math.round(frame.width)}×${Math.round(frame.height)}). */`,
     `export default function ${Page}() {`,
     '  return (',
     `    <>${jsx}</>`,

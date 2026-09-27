@@ -14,7 +14,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const API = 'https://styles.refero.design/api/styles'
-const UA = { 'user-agent': 'Mozilla/5.0 (doop inspo test)' }
+const UA = { 'user-agent': 'Mozilla/5.0 (draft inspo test)' }
 
 type Style = {
   id: string

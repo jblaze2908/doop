@@ -32,7 +32,7 @@ import {
  */
 
 const UA =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36 DoopImporter/1.0'
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36 DraftImporter/1.0'
 const VIEWPORT_WIDTH = 1280
 const MAX_HEIGHT = 6000
 const MAX_PREVIEW_HEIGHT = 4000
@@ -405,8 +405,8 @@ type CapturedCss = { ok: true; css: string } | { ok: false; reason: 'oversized' 
 const OVERSIZED: CapturedCss = { ok: false, reason: 'oversized' }
 const UNREACHABLE: CapturedCss = { ok: false, reason: 'unreachable' }
 
-const CSS_OVERSIZED_MESSAGE = `This page's stylesheets are larger than Doop's ${MAX_IMPORT_CSS_FETCH_BYTES / 1_000_000} MB import limit`
-const CSS_PRUNED_OVERSIZED_MESSAGE = `This page needs more than Doop's ${MAX_IMPORT_CSS_BYTES / 1_000_000} MB CSS import limit even after unused styles are removed`
+const CSS_OVERSIZED_MESSAGE = `This page's stylesheets are larger than Draft's ${MAX_IMPORT_CSS_FETCH_BYTES / 1_000_000} MB import limit`
+const CSS_PRUNED_OVERSIZED_MESSAGE = `This page needs more than Draft's ${MAX_IMPORT_CSS_BYTES / 1_000_000} MB CSS import limit even after unused styles are removed`
 const CSS_UNREACHABLE_MESSAGE = 'The webpage HTML was captured, but one or more stylesheets could not be fully loaded'
 
 /** Fetch a stylesheet within the bytes still available for the page's CSS,
@@ -488,7 +488,7 @@ export interface ImportedPage {
   }
 }
 
-const IMPORT_SOURCE_META = 'doop-import-source'
+const IMPORT_SOURCE_META = 'draft-import-source'
 
 /** Identify snapshots created from a particular requested URL. The value is
  *  encoded so an arbitrary query string cannot break the HTML attribute. */
@@ -525,7 +525,7 @@ export async function importPage(rawUrl: string, options: { includePreview?: boo
           timeout: 20_000,
         })
       } catch {
-        throw new WebsiteCaptureUnavailableError('Context.dev returned HTML that Doop could not render')
+        throw new WebsiteCaptureUnavailableError('Context.dev returned HTML that Draft could not render')
       }
     } else {
       await navigateWebsitePage(page, requestedUrl.href, { waitUntil: 'networkidle2', timeout: 30_000 })
@@ -646,7 +646,7 @@ export async function importPage(rawUrl: string, options: { includePreview?: boo
       `<meta name="${IMPORT_SOURCE_META}" content="${encodeURIComponent(requestedUrl.href)}">` +
       `<meta http-equiv="Content-Security-Policy" content="${IMPORT_CSP}">` +
       `<base href="${documentBase.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">` +
-      (css.trim() ? `<style data-doop-import>\n${css.replace(/<\/style/gi, '<\\/style')}\n</style>` : '')
+      (css.trim() ? `<style data-draft-import>\n${css.replace(/<\/style/gi, '<\\/style')}\n</style>` : '')
     const headMatch = html.match(/<head[^>]*>/i)
     if (headMatch) html = html.replace(headMatch[0], headMatch[0] + inject)
     else html = inject + html
@@ -720,7 +720,7 @@ export async function importPage(rawUrl: string, options: { includePreview?: boo
         }
       } catch (error) {
         if (error instanceof WebsiteCaptureUnavailableError) throw error
-        throw new WebsiteCaptureUnavailableError('Doop could not render a local preview of the webpage')
+        throw new WebsiteCaptureUnavailableError('Draft could not render a local preview of the webpage')
       } finally {
         await previewIsolated.close()
       }
@@ -735,7 +735,7 @@ export async function importPage(rawUrl: string, options: { includePreview?: boo
     }
   } catch (error) {
     if (error instanceof WebsiteCaptureUnavailableError) throw error
-    throw new WebsiteCaptureUnavailableError('Doop could not finish rendering the webpage HTML')
+    throw new WebsiteCaptureUnavailableError('Draft could not finish rendering the webpage HTML')
   } finally {
     await isolated.close()
   }

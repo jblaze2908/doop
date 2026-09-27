@@ -11,7 +11,7 @@ interface ToolInputSchema {
 describe('MCP website tool contract', () => {
   it('separates read-only website viewing from editable webpage imports', async () => {
     const server = buildMcpServer('Test Owner', 'test-owner-id')
-    const client = new Client({ name: 'doop-tool-contract-test', version: '1.0.0' })
+    const client = new Client({ name: 'draft-tool-contract-test', version: '1.0.0' })
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
 
     await server.connect(serverTransport)

@@ -25,7 +25,7 @@ export function TopBar({ className, ...props }: React.ComponentProps<'div'>) {
   )
 }
 
-/** The Doop mark at the left edge: the way back to the level above. */
+/** The Draft mark at the left edge: the way back to the level above. */
 export function TopBarHome({ label, to }: { label: string; to: string }) {
   return (
     <Tooltip label={label} side="bottom" align="start">

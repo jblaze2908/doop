@@ -1,11 +1,11 @@
 /**
- * The agent roles an element comment can @mention (@doop, @ux …). A mention
+ * The agent roles an element comment can @mention (@draft, @ux …). A mention
  * marks the comment as a request for an agent; connected MCP agents read the
  * role off it in get_comments.
  *
  * `name` is what shows up in @mentions and on the comment's status, and
  * colorFor(name) gives it its colour. `color` is the role's crew colour, used
- * only to tint its Doop mark.
+ * only to tint its Draft mark.
  */
 
 export interface AgentRole {
@@ -22,8 +22,8 @@ export interface AgentRole {
 
 export const AGENT_ROLES: AgentRole[] = [
   {
-    id: 'doop',
-    name: 'Doop',
+    id: 'draft',
+    name: 'Draft',
     color: '#E8432E',
     blurb: 'Generalist designer — makes the thing',
     aliases: ['design', 'designer'],
@@ -65,7 +65,7 @@ export const AGENT_ROLES: AgentRole[] = [
   },
 ]
 
-export const DEFAULT_ROLE_ID = 'doop'
+export const DEFAULT_ROLE_ID = 'draft'
 
 const byId = new Map(AGENT_ROLES.map((r) => [r.id, r]))
 const byName = new Map(AGENT_ROLES.map((r) => [r.name.toLowerCase(), r]))
@@ -75,7 +75,7 @@ function roleById(id: string | undefined): AgentRole | undefined {
 }
 
 /** The role an agent name belongs to — undefined for other names. The scripted
- *  demo agent works as "Doop", so this is how the UI tells it from a real agent. */
+ *  demo agent works as "Draft", so this is how the UI tells it from a real agent. */
 export function roleByAgentName(name: string | undefined): AgentRole | undefined {
   return name ? byName.get(name.toLowerCase()) : undefined
 }
@@ -84,7 +84,7 @@ export function roleName(id: string | undefined): string {
   return roleById(id)?.name ?? roleById(DEFAULT_ROLE_ID)!.name
 }
 
-/** Every spelling that addresses a role in a comment: @doop, @UXLead, @ux… */
+/** Every spelling that addresses a role in a comment: @draft, @UXLead, @ux… */
 function mentionsFor(role: AgentRole): string[] {
   return [role.id, role.name.replace(/\s+/g, ''), ...(role.aliases ?? [])].map((m) => m.toLowerCase())
 }

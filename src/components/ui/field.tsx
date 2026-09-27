@@ -3,7 +3,7 @@ import { cva, type VariantProps } from 'class-variance-authority'
 
 import { cn } from '@/lib/utils'
 
-/* Doop labels a control two ways: a loud uppercase micro-caption above form
+/* Draft labels a control two ways: a loud uppercase micro-caption above form
    rows, or a plain sentence-case line in denser panels. */
 const labelVariants = cva('block text-ink-soft', {
   variants: {

@@ -4,7 +4,7 @@ import { cva, type VariantProps } from 'class-variance-authority'
 
 import { cn } from '@/lib/utils'
 
-/* Doop's modal: a hairline card lifted on the soft pop shadow, over a dimmed
+/* Draft's modal: a hairline card lifted on the soft pop shadow, over a dimmed
    canvas. Built on Radix so it brings a focus trap, Escape and scroll-locking
    with it — the hand-rolled backdrop divs it replaces had none of that. Call
    sites mount it conditionally, so `open` defaults to true and `onClose` is

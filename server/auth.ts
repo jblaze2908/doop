@@ -33,15 +33,19 @@ const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '')
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean)
 
-/** Empty means public signup; otherwise only exact email domains may register. */
+/** Both empty means public signup; otherwise an address must match a listed domain or a listed email. */
 const SIGNUP_EMAIL_DOMAINS = (process.env.SIGNUP_EMAIL_DOMAINS || '')
   .split(',')
   .map((s) => s.trim().toLowerCase().replace(/^@/, ''))
   .filter(Boolean)
+const SIGNUP_EMAILS = (process.env.SIGNUP_EMAILS || '')
+  .split(',')
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean)
 
 /**
  * Whether an unverified account may sign in. Set REQUIRE_EMAIL_VERIFICATION
- * to "false" to let people use doop the moment they sign up — fewer people
+ * to "false" to let people use draft the moment they sign up — fewer people
  * fall out of the funnel at a "check your inbox" screen, at the cost of
  * letting anyone hold an address they don't own.
  *
@@ -195,7 +199,7 @@ export function loginProvidersConfig(): {
 }
 
 /**
- * Shared by every external identity provider doop signs people in through
+ * Shared by every external identity provider draft signs people in through
  * (the OIDC SSO plugin and the Google and Microsoft social providers — each
  * hands this its raw profile: `email` + `email_verified`, or for Microsoft,
  * which only sends email_verified when the app registration asks for it,
@@ -252,24 +256,26 @@ async function linkVerifiedProviderEmail(profile: {
 }
 
 /**
- * SIGNUP_EMAIL_DOMAINS, enforced where every sign-up path converges — the
- * user row's creation — rather than on the email/password endpoint alone,
- * so an OAuth provider (Google, SSO) can't walk around the allowlist with
- * an address it would have rejected typed in. The email endpoint returns
- * the thrown error as a plain 400; the OAuth callbacks (social and
- * genericOAuth alike, as of better-auth 1.6.26) catch it and redirect back
- * to /auth with the MESSAGE as the ?error= code, spaces turned into
- * underscores — see SIGNUP_RESTRICTED_PREFIX in AuthPage.tsx, which undoes
- * that. Keep the message's first words stable.
+ * SIGNUP_EMAIL_DOMAINS / SIGNUP_EMAILS, enforced where every sign-up path
+ * converges — the user row's creation — rather than on the email/password
+ * endpoint alone, so an OAuth provider (Google, SSO) can't walk around the
+ * allowlist with an address it would have rejected typed in. The email
+ * endpoint returns the thrown error as a plain 400; the OAuth callbacks
+ * (social and genericOAuth alike, as of better-auth 1.6.26) catch it and
+ * redirect back to /auth with the MESSAGE as the ?error= code, spaces turned
+ * into underscores — see SIGNUP_RESTRICTED_PREFIX in AuthPage.tsx, which
+ * undoes that. Keep the message's first words stable.
  */
-function assertSignupDomainAllowed(email: string): void {
-  if (!SIGNUP_EMAIL_DOMAINS.length) return
+function assertSignupAllowed(email: string): void {
+  if (!SIGNUP_EMAIL_DOMAINS.length && !SIGNUP_EMAILS.length) return
   const lowered = email.toLowerCase()
   const domain = lowered.slice(lowered.lastIndexOf('@') + 1)
-  if (SIGNUP_EMAIL_DOMAINS.includes(domain)) return
-  throw new APIError('BAD_REQUEST', {
-    message: `Sign up is restricted to ${SIGNUP_EMAIL_DOMAINS.map((d) => `@${d}`).join(', ')} email addresses.`,
-  })
+  if (SIGNUP_EMAIL_DOMAINS.includes(domain) || SIGNUP_EMAILS.includes(lowered)) return
+  /* never echo SIGNUP_EMAILS: it would hand the allowlist to anyone who tries */
+  const allowed = SIGNUP_EMAIL_DOMAINS.length
+    ? `${SIGNUP_EMAIL_DOMAINS.map((d) => `@${d}`).join(', ')} email addresses`
+    : 'invited email addresses'
+  throw new APIError('BAD_REQUEST', { message: `Sign up is restricted to ${allowed}.` })
 }
 
 function buildAuth() {
@@ -281,13 +287,13 @@ function buildAuth() {
   }
   const prod = process.env.NODE_ENV === 'production'
   if (prod && !process.env.BETTER_AUTH_URL) {
-    throw new Error('BETTER_AUTH_URL (the public origin, e.g. https://doop.app) must be set in production')
+    throw new Error('BETTER_AUTH_URL (the public origin, e.g. https://draft.app) must be set in production')
   }
   return betterAuth({
     /* the public origin — OAuth discovery/authorize/token URLs are built on
        it, so in dev it must be the web port that proxies /api and /mcp */
     baseURL: PUBLIC_ORIGIN,
-    secret: process.env.BETTER_AUTH_SECRET || 'doop-dev-secret-not-for-production',
+    secret: process.env.BETTER_AUTH_SECRET || 'draft-dev-secret-not-for-production',
     /* prod: the public origin, plus any extras from env. dev: trust whichever
        origin the request came from (localhost, 127.0.0.1, LAN IP — all fine). */
     trustedOrigins: prod
@@ -330,8 +336,8 @@ function buildAuth() {
       sendResetPassword: async ({ user, url }) => {
         await sendMail({
           to: user.email,
-          subject: 'Reset your doop password',
-          text: `Hi ${user.name || 'there'},\n\nSomeone asked to reset the password for this doop account. If that was you, open this link (valid for 1 hour):\n\n${url}\n\nIf it wasn't you, ignore this email — nothing changes.`,
+          subject: 'Reset your draft password',
+          text: `Hi ${user.name || 'there'},\n\nSomeone asked to reset the password for this draft account. If that was you, open this link (valid for 1 hour):\n\n${url}\n\nIf it wasn't you, ignore this email — nothing changes.`,
         })
       },
     },
@@ -349,8 +355,8 @@ function buildAuth() {
       sendVerificationEmail: async ({ user, url }) => {
         await sendMail({
           to: user.email,
-          subject: 'Verify your doop email',
-          text: `Hi ${user.name || 'there'},\n\nConfirm this email address to activate your doop account:\n\n${url}\n\nIf you didn't sign up for doop, ignore this email.`,
+          subject: 'Verify your draft email',
+          text: `Hi ${user.name || 'there'},\n\nConfirm this email address to activate your draft account:\n\n${url}\n\nIf you didn't sign up for draft, ignore this email.`,
         })
       },
     },
@@ -360,7 +366,7 @@ function buildAuth() {
       user: {
         create: {
           before: async (user) => {
-            assertSignupDomainAllowed(user.email)
+            assertSignupAllowed(user.email)
           },
           after: async (user) => {
             const first = (user.name || 'Your').split(/\s+/)[0]
@@ -409,7 +415,7 @@ function buildAuth() {
          system browser reaches the desktop app (src/lib/desktopAuth.ts). The
          browser session mints a token, the app redeems it and gets the same
          session's cookie. Single use, hashed at rest, two minutes to live —
-         it travels through a doop:// URL that lands in browser history. */
+         it travels through a draft:// URL that lands in browser history. */
       oneTimeToken({ storeToken: 'hashed', expiresIn: 2 }),
       ...(oidc
         ? [

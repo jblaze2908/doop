@@ -5,7 +5,7 @@ import { posthog } from './posthog'
 import { recordCreate, recordCreates } from './history'
 
 /** Same-origin frame clipboard: survives canvas switches and browser tabs. */
-const CLIP_KEY = 'doop:frame-clipboard'
+const CLIP_KEY = 'draft:frame-clipboard'
 
 /** One copied frame, positioned relative to the top-left of the copied group
  *  so a multi-frame paste keeps the frames' layout. */

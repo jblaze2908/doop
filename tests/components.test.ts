@@ -73,7 +73,7 @@ describe('component definitions', () => {
 describe('server render injection', () => {
   it('escapes definitions so nothing closes the script element', () => {
     const script = componentScript([def({ html: '</script><img src=x onerror=alert(1)><!--\u2028' })])
-    const body = script.slice('<script data-doop-components>'.length, -'</script>'.length)
+    const body = script.slice('<script data-draft-components>'.length, -'</script>'.length)
     expect(body).not.toMatch(/<\/script|<!--/i)
     expect(body).not.toContain('\u2028')
     expect(componentScript([])).toBe('')
@@ -82,7 +82,7 @@ describe('server render injection', () => {
   it('themes fragments too: nothing inserted is scanned for anchors again', () => {
     for (const doc of ['<style>.a{}</style><div>x</div>', '<div>x</div>']) {
       const html = prepareFrameHtml(doc, 'T', [def()])
-      expect(html.startsWith('<style data-doop-theme>T</style><script data-doop-components>'), doc).toBe(true)
+      expect(html.startsWith('<style data-draft-theme>T</style><script data-draft-components>'), doc).toBe(true)
       expect(html.endsWith(doc)).toBe(true)
     }
   })
@@ -90,7 +90,7 @@ describe('server render injection', () => {
   it('puts the theme first, then the component runtime, both in <head>', () => {
     const html = prepareFrameHtml('<!doctype html><html><head><title>t</title></head></html>', 'T', [def()])
     const head = html.slice(html.indexOf('<head>') + 6)
-    expect(head.startsWith('<style data-doop-theme>T</style><script data-doop-components>')).toBe(true)
+    expect(head.startsWith('<style data-draft-theme>T</style><script data-draft-components>')).toBe(true)
     expect(head).toContain('<title>t</title>')
   })
 })

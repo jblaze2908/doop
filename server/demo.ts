@@ -1,7 +1,7 @@
 import * as actions from './actions.ts'
 
 /**
- * The "Doop" demo agent: a scripted replay that streams a pre-authored
+ * The "Draft" demo agent: a scripted replay that streams a pre-authored
  * welcome frame through the SAME machinery real agents use (status → task,
  * presence, typewriter reveal, activity feed). No LLM involved — it's the
  * product demoing itself on a new user's first canvas.
@@ -114,7 +114,7 @@ const WELCOME_HTML = `<!doctype html>
   </div>
   <div class="foot">
     <span>Reply to any task with ↩ — agents pick your feedback up mid-flight.</span>
-    <span class="sig">— Doop</span>
+    <span class="sig">— Draft</span>
   </div>
 </body>
 </html>`
@@ -123,7 +123,7 @@ const CHUNK_SIZE = 350
 const CHUNK_MS = 450
 
 async function play(canvasId: string) {
-  const actor = actions.resolveActor({ name: 'Doop', kind: 'agent' })
+  const actor = actions.resolveActor({ name: 'Draft', kind: 'agent' })
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
   await sleep(1500) // let the room render before the show starts
@@ -132,7 +132,7 @@ async function play(canvasId: string) {
   await sleep(700)
   const frame = actions.createFrame(
     canvasId,
-    { name: 'Welcome to Doop', x: 120, y: 120, width: 760, height: 560, html: '', demo: true },
+    { name: 'Welcome to Draft', x: 120, y: 120, width: 760, height: 560, html: '', demo: true },
     actor,
   )
   if (!frame) return

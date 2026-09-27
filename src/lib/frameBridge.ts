@@ -58,7 +58,7 @@ export interface ElementInfo {
 /** Inline style changes: a null or empty value removes the property. */
 export type StylePatch = Record<string, string | null>
 
-/* A request `doop:<name>` is answered by `doop:<name>-result` carrying the
+/* A request `draft:<name>` is answered by `draft:<name>-result` carrying the
    same reqId — the convention every runtime request already follows. */
 interface PendingAsk {
   win: Window
@@ -114,7 +114,7 @@ export function onFrameReady(frameId: string, cb: () => void): () => void {
  *  null when the frame is not registered or never answers. */
 export function requestFrame(
   frameId: string,
-  type: `doop:${string}`,
+  type: `draft:${string}`,
   payload: Record<string, unknown>,
 ): Promise<Record<string, unknown> | null> {
   const win = windows.get(frameId)
@@ -139,14 +139,14 @@ function infoOf(reply: Record<string, unknown> | null): ElementInfo | null {
 
 /** Computed properties of the element, or null when the selector no longer resolves. */
 export async function inspectElement(frameId: string, selector: string): Promise<ElementInfo | null> {
-  return infoOf(await requestFrame(frameId, 'doop:inspect', { selector }))
+  return infoOf(await requestFrame(frameId, 'draft:inspect', { selector }))
 }
 
 /** Write inline styles onto the element. The runtime saves the edited
  *  document through the frame's normal edit path and answers with the
  *  element's fresh properties. */
 export async function styleElement(frameId: string, selector: string, styles: StylePatch): Promise<ElementInfo | null> {
-  return infoOf(await requestFrame(frameId, 'doop:style', { selector, styles }))
+  return infoOf(await requestFrame(frameId, 'draft:style', { selector, styles }))
 }
 
 /** Replace the element's class list; saved like a style edit. */
@@ -155,7 +155,7 @@ export async function setElementClasses(
   selector: string,
   classes: string[],
 ): Promise<ElementInfo | null> {
-  return infoOf(await requestFrame(frameId, 'doop:classes', { selector, classes }))
+  return infoOf(await requestFrame(frameId, 'draft:classes', { selector, classes }))
 }
 
 /** Set (string) or remove (null) attributes — component props. Event
@@ -165,5 +165,5 @@ export async function setElementAttrs(
   selector: string,
   attrs: Record<string, string | null>,
 ): Promise<ElementInfo | null> {
-  return infoOf(await requestFrame(frameId, 'doop:attrs', { selector, attrs }))
+  return infoOf(await requestFrame(frameId, 'draft:attrs', { selector, attrs }))
 }

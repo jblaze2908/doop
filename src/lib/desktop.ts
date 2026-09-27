@@ -1,4 +1,4 @@
-/* Doop in the desktop shell (desktop/src-tauri). The shell is one webview
+/* Draft in the desktop shell (desktop/src-tauri). The shell is one webview
    with an overlay title bar; canvases open Figma-style in a tab strip the
    web app draws itself (src/components/DesktopTabs.tsx). Tabs are ordinary
    in-page navigations — this module only keeps the strip's state and the
@@ -34,7 +34,7 @@ const shellWindow = window as ShellWindow
 
 /* ---------- tab strip state ---------- */
 
-/* Tabs persist per account (`doop-open-tabs:<userId>`): on a shared machine
+/* Tabs persist per account (`draft-open-tabs:<userId>`): on a shared machine
    the next person to sign in must not see the previous account's canvas
    names, and each account gets its own tabs back — like Figma. Until the
    session resolves, tabs live only in memory. */
@@ -42,7 +42,7 @@ const shellWindow = window as ShellWindow
 let userId: string | null = null
 
 function storageKey(id: string) {
-  return `doop-open-tabs:${id}`
+  return `draft-open-tabs:${id}`
 }
 
 function load(id: string): CanvasTab[] {
@@ -154,7 +154,7 @@ export function closeActiveTab() {
 
 /* ---------- sign-in handoff from the system browser ---------- */
 
-/** Whether this shell can receive a doop:// link: shells from 0.2.1 register
+/** Whether this shell can receive a draft:// link: shells from 0.2.1 register
  *  the scheme and inject the deep-link plugin's API. Older shells have no
  *  way to get the session back, so the sign-in form keeps its in-webview
  *  attempt there. Detected by the API rather than the version so a local
@@ -182,7 +182,7 @@ export async function beginBrowserSignIn(provider: DesktopSignInProvider, to: st
   }
 }
 
-/** Step 3: the deep-link plugin delivered doop:// URLs. Redeem the one that
+/** Step 3: the deep-link plugin delivered draft:// URLs. Redeem the one that
  *  answers this app's pending sign-in — the server responds with the session
  *  cookie — and reload onto the target so every session-aware piece of the
  *  app starts from the cookie. Links answering nothing pending are ignored:
@@ -193,7 +193,7 @@ async function completeBrowserSignIn(urls: readonly string[]) {
   if (!link) return
   /* the pending record outlives a verify that never got an answer (the
      request threw: offline, server restarting) so the person can click
-     "Open doop" in the browser again; it is cleared once the server has
+     "Open draft" in the browser again; it is cleared once the server has
      ruled on the token, before the reload that follows either ruling */
   const res = await authClient.oneTimeToken.verify({ token: link.token })
   forgetPendingSignIn()
@@ -210,7 +210,7 @@ function listenForBrowserSignIn() {
   tauri?.event
     ?.listen?.<string[]>('deep-link://new-url', (e) => void completeBrowserSignIn(e.payload).catch(console.error))
     .catch(console.error)
-  /* the link that launched the app: the person quit doop while the browser
+  /* the link that launched the app: the person quit draft while the browser
      was still busy, and the callback relaunched it */
   tauri?.deepLink
     ?.getCurrent?.()

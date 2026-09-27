@@ -580,7 +580,7 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
       )}
       {updateReady ? (
         <Toast>
-          doop was updated
+          draft was updated
           <ToastAction onClick={() => location.reload()}>Reload</ToastAction>
         </Toast>
       ) : (
@@ -943,7 +943,7 @@ function SyncKeysSection({ canvasId }: { canvasId: string }) {
 
   /* key in the src query string — the one attribute tag managers never strip */
   const snippetFor = (secret: string) =>
-    `<script async src="${location.origin}/doop-sync.js?key=${secret}"></` + `script>`
+    `<script async src="${location.origin}/draft-sync.js?key=${secret}"></` + `script>`
 
   async function create() {
     if (busy || !name.trim()) return

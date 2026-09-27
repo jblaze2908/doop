@@ -1,4 +1,4 @@
-# DESIGN - doop
+# DESIGN - draft
 
 Design tokens live in `src/styles.css` as CSS custom properties, mapped into Tailwind 4 via
 `@theme`. shadcn is configured with style `radix-nova`, base color `neutral`, CSS variables on,
@@ -11,7 +11,7 @@ rather than hand-rolling primitives; it writes into `src/components/ui` per the 
 - `--surface` `#ffffff` - card/panel surfaces.
 - `--ink` `#17171b`, `--ink-soft`, `--ink-faint` - text, in descending emphasis.
 - `--line`, `--line-soft` - borders/dividers.
-- `--brand` `#e5533c` / `--accent-ink` `#c23a25` - the doop orange-red brand color and its ink
+- `--brand` `#e5533c` / `--accent-ink` `#c23a25` - the draft orange-red brand color and its ink
   variant.
 - Full shadcn semantic set also present: `--primary`, `--secondary`, `--muted`, `--accent`,
   `--destructive`, `--border`, `--input`, `--ring`, `--card`, `--popover`, `--sidebar-*`,

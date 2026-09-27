@@ -11,7 +11,7 @@ import { Input } from './ui/input'
 import { Field } from './ui/field'
 import { Textarea } from './ui/textarea'
 
-const HTML_OPEN_KEY = 'doop:inspector-html'
+const HTML_OPEN_KEY = 'draft:inspector-html'
 
 /* the export row's buttons: the standard button, tightened, and tall enough
    to hit on a phone */

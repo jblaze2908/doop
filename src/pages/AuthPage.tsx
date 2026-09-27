@@ -103,10 +103,10 @@ function GoogleMark() {
    email_verified, for instance). */
 const SSO_ERROR_MESSAGES: Record<string, string> = {
   account_not_linked:
-    'That email already has a doop account that could not be linked automatically — sign in with email/password instead.',
+    'That email already has a draft account that could not be linked automatically — sign in with email/password instead.',
   "email_doesn't_match": "The signed-in email doesn't match the account you started from — try again.",
-  email_is_missing: "Your identity provider didn't share an email address — doop needs one to sign you in.",
-  email_not_found: "Your identity provider didn't share an email address — doop needs one to sign you in.",
+  email_is_missing: "Your identity provider didn't share an email address — draft needs one to sign you in.",
+  email_not_found: "Your identity provider didn't share an email address — draft needs one to sign you in.",
   /* the desktop shell's browser handoff (src/lib/desktopAuth.ts) came back with a spent or expired token */
   desktop_handoff: 'That sign-in link has expired — start again and finish in your browser within a couple of minutes.',
 }
@@ -221,13 +221,13 @@ export function AuthPage() {
       if (isDesktopShell() && supportsBrowserSignIn()) {
         /* Identity providers refuse embedded webviews, so the desktop shell
            signs in through the system browser and gets the session handed
-           back over a doop:// link (src/lib/desktopAuth.ts). The browser
-           starts the provider round trip itself, from a doop page. */
+           back over a draft:// link (src/lib/desktopAuth.ts). The browser
+           starts the provider round trip itself, from a draft page. */
         if (!(await beginBrowserSignIn(provider, ssoCallbackURL()))) {
           setError(startFailed)
           return
         }
-        browserSignInNotice = 'Finish signing in in your browser — doop signs you in here the moment you come back.'
+        browserSignInNotice = 'Finish signing in in your browser — draft signs you in here the moment you come back.'
         setNotice(browserSignInNotice)
         return
       }

@@ -1,27 +1,27 @@
-# doop desktop
+# draft desktop
 
 A thin [Tauri](https://tauri.app) shell around the hosted app. It loads
-`https://doop.design` in a native window — there is no bundled frontend, so
+`https://draft.jaivardhansingh.com` in a native window — there is no bundled frontend, so
 every deploy is instantly "in" the desktop app and the binary only
 needs a new release when the shell itself changes (icon, menu, Tauri bump).
 
 The released installers (macOS DMG and Windows NSIS setup) talk to the hosted
-service at doop.design. Self-hosting your own doop instance? Build a shell for
+service at draft.jaivardhansingh.com. Self-hosting your own draft instance? Build a shell for
 it without patching anything:
 
 ```sh
-DOOP_APP_URL=https://doop.example.com bun run build
+DRAFT_APP_URL=https://draft.example.com bun run build
 ```
 
 The URL is baked in at compile time (`src-tauri/src/main.rs`); the in-shell
 navigation allowlist follows it automatically.
 
-Links outside doop.design open in the system browser (`src-tauri/src/main.rs`).
+Links outside draft.jaivardhansingh.com open in the system browser (`src-tauri/src/main.rs`).
 Google / Microsoft / SSO sign-in runs there too: identity providers refuse
 embedded webviews, so the page opens the provider in the browser and the
-finished sign-in returns through a `doop://auth?token=…` link (deep-link
+finished sign-in returns through a `draft://auth?token=…` link (deep-link
 plugin, scheme in `tauri.conf.json`) that the page redeems for a session — see
-`src/lib/desktopAuth.ts`. macOS only routes `doop://` to an installed bundle, so
+`src/lib/desktopAuth.ts`. macOS only routes `draft://` to an installed bundle, so
 `tauri dev` cannot receive it. To test locally, build a `.app` with
 `bunx tauri build --debug --bundles app` (a debug build still targets
 localhost:4300) and launch it. A built bundle treats localhost as a remote
@@ -29,7 +29,7 @@ origin, so temporarily add `http://localhost:4300` to `remote.urls` in
 `capabilities/default.json` for that test or the page gets no IPC (no events,
 no opener) — and take it out again before committing.
 When a deploy ships a new client bundle, long-running windows get a
-"doop was updated — Reload" toast on WebSocket reconnect (see `serverBuild`
+"draft was updated — Reload" toast on WebSocket reconnect (see `serverBuild`
 in the `init` message).
 
 ## Develop
@@ -105,7 +105,7 @@ code-signing guide). Until then, same rule as the DMG: testers only.
    gh secret set APPLE_TEAM_ID   # 10-char team id from the developer portal
    ```
 4. Tag a release. Tauri signs and notarizes during the build; the resulting
-   DMG opens with no warnings and can be linked from doop.design.
+   DMG opens with no warnings and can be linked from draft.jaivardhansingh.com.
 
 ## Icon
 

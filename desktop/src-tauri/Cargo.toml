@@ -1,7 +1,7 @@
 [package]
-name = "doop-desktop"
+name = "draft-desktop"
 version = "0.4.0"
-description = "Desktop shell for doop — a thin webview over the hosted app"
+description = "Desktop shell for draft — a thin webview over the hosted app"
 edition = "2021"
 
 [build-dependencies]
@@ -10,7 +10,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
-# doop:// links: how a sign-in finished in the system browser reaches the app
+# draft:// links: how a sign-in finished in the system browser reaches the app
 # (src/lib/desktopAuth.ts). single-instance routes a link that Windows/Linux
 # deliver by launching a second copy back into the running one.
 tauri-plugin-deep-link = "2"

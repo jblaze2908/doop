@@ -18,20 +18,20 @@
   "packages": {
     ".": {
       "release-type": "node",
-      "package-name": "doop",
+      "package-name": "draft",
       "include-component-in-tag": false,
       "exclude-paths": ["desktop"]
     },
     "desktop": {
       "release-type": "node",
-      "package-name": "doop-desktop",
+      "package-name": "draft-desktop",
       "component": "desktop",
       "include-component-in-tag": true,
       "skip-github-release": true,
       "extra-files": [
         { "type": "json", "path": "src-tauri/tauri.conf.json", "jsonpath": "$.version" },
         { "type": "toml", "path": "src-tauri/Cargo.toml", "jsonpath": "$.package.version" },
-        { "type": "toml", "path": "src-tauri/Cargo.lock", "jsonpath": "$.package[?(@.name=='doop-desktop')].version" }
+        { "type": "toml", "path": "src-tauri/Cargo.lock", "jsonpath": "$.package[?(@.name=='draft-desktop')].version" }
       ]
     }
   }

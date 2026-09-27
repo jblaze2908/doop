@@ -403,7 +403,7 @@ app.get('/bg/:file', async (req, res) => {
 /* ------------------------------------------------------------------ */
 /* One-time asset uploads: the upload_asset MCP tool mints a ticket and */
 /* the agent curls the file here (curl -T file /u/<token>), so bytes    */
-/* go disk -> doop without ever passing through the model. Mounted      */
+/* go disk -> draft without ever passing through the model. Mounted      */
 /* before express.json — the body IS the file. The token is the         */
 /* capability: unguessable, single-use, 15-minute TTL.                  */
 /* ------------------------------------------------------------------ */
@@ -506,7 +506,7 @@ app.get('/api/oidc-config', (req, res) => {
 })
 
 /* ------------------------------------------------------------------ */
-/* Design sync ingest: the doop-sync snippet on a foreign origin posts */
+/* Design sync ingest: the draft-sync snippet on a foreign origin posts */
 /* DOM snapshots here. The canvas-scoped write-only secret in the path */
 /* is the whole credential (no cookies), so this stays outside the     */
 /* /api session gate and answers its own CORS preflight. The route-    */
@@ -549,7 +549,7 @@ app.use('/api', async (req, res, next) => {
     if (!session) return res.status(401).json({ error: 'unauthorized' })
     req.user = session.user
     req.impersonatedBy = (session.session as { impersonatedBy?: string | null }).impersonatedBy ?? undefined
-    /* Viewing as someone else is read-only, full stop. Every doop mutation is
+    /* Viewing as someone else is read-only, full stop. Every draft mutation is
        a non-GET REST call — the websocket after `join` carries only cursor,
        editing and frame:drag — so this single rule covers the whole surface.
        better-auth's own routes are mounted earlier (/api/auth/*), so signing
@@ -739,7 +739,7 @@ app.patch('/api/canvases/:id', (req, res) => {
 })
 
 /* ------------------------------------------------------------------ */
-/* Collaborators: Figma-style invites. The owner invites existing doop */
+/* Collaborators: Figma-style invites. The owner invites existing draft */
 /* accounts by email; members get full edit access regardless of the   */
 /* link setting. Management is owner-only (members may remove          */
 /* themselves); the people list is visible to anyone with access.      */
@@ -776,7 +776,7 @@ app.post('/api/canvases/:id/members', async (req, res) => {
     .select({ id: authSchema.user.id, name: authSchema.user.name, email: authSchema.user.email })
     .from(authSchema.user)
     .where(eq(authSchema.user.email, email))
-  if (!row) return res.status(404).json({ error: 'no doop account with that email — ask them to sign up first' })
+  if (!row) return res.status(404).json({ error: 'no draft account with that email — ask them to sign up first' })
   if (row.id === c.ownerId) return res.status(400).json({ error: 'the owner already has access' })
   store.addMember(c.id, row.id, req.user!.id)
   res.json({ userId: row.id, name: row.name, email: row.email, owner: false })
@@ -1484,7 +1484,7 @@ wss.on('connection', (ws, upgradeReq) => {
 })
 
 server.listen(PORT, () => {
-  console.log(`⟡ doop server     http://localhost:${PORT}`)
+  console.log(`⟡ draft server     http://localhost:${PORT}`)
   console.log(`⟡ mcp endpoint      http://localhost:${PORT}/mcp`)
   console.log(`⟡ websocket         ws://localhost:${PORT}/ws`)
 })

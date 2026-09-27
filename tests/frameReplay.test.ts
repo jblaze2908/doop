@@ -32,7 +32,7 @@ describe.skipIf(!findBrowserPath())('sandboxed frame replay', () => {
     browser = await getBrowser()
     page = await browser.newPage()
     await page.goto(`${server.resolvedUrls!.local[0]}tests/fixtures/frameReplay.html`)
-    await page.waitForFunction(() => window.testReady && window.messages.some((m) => m.type === 'doop:frame-ready'))
+    await page.waitForFunction(() => window.testReady && window.messages.some((m) => m.type === 'draft:frame-ready'))
   }, 60_000)
   afterAll(async () => {
     await page?.close()
@@ -43,7 +43,7 @@ describe.skipIf(!findBrowserPath())('sandboxed frame replay', () => {
   async function render(html: string, index = 0) {
     await page.evaluate(
       (html, index) => {
-        document.querySelectorAll('iframe')[index]!.contentWindow!.postMessage({ type: 'doop:html', html }, '*')
+        document.querySelectorAll('iframe')[index]!.contentWindow!.postMessage({ type: 'draft:html', html }, '*')
       },
       html,
       index,
@@ -80,26 +80,26 @@ describe.skipIf(!findBrowserPath())('sandboxed frame replay', () => {
     // the same attribute must survive and retain its normal execution behavior.
     await child.evaluate(() => {
       const content = document.createElement('div')
-      content.setAttribute('data-doop-replay', '')
+      content.setAttribute('data-draft-replay', '')
       content.textContent = 'Preserve design content'
       document.body.appendChild(content)
       const script = document.createElement('script')
-      script.setAttribute('data-doop-replay', '')
+      script.setAttribute('data-draft-replay', '')
       script.textContent = 'window.designScriptRan = true'
       document.body.appendChild(script)
     })
     await page.evaluate(() => {
       const target = document.querySelector('iframe')!.contentWindow!
-      target.postMessage({ type: 'doop:edit', on: true }, '*')
-      target.postMessage({ type: 'doop:edit', on: false }, '*')
+      target.postMessage({ type: 'draft:edit', on: true }, '*')
+      target.postMessage({ type: 'draft:edit', on: false }, '*')
     })
-    await page.waitForFunction(() => window.messages.some((m) => m.type === 'doop:edited'))
-    const saved = await page.evaluate(() => window.messages.find((m) => m.type === 'doop:edited')!.html)
-    expect(saved).toContain('<div data-doop-replay="">Preserve design content</div>')
-    expect(saved).toContain('<script data-doop-replay="">window.designScriptRan = true</script>')
+    await page.waitForFunction(() => window.messages.some((m) => m.type === 'draft:edited'))
+    const saved = await page.evaluate(() => window.messages.find((m) => m.type === 'draft:edited')!.html)
+    expect(saved).toContain('<div data-draft-replay="">Preserve design content</div>')
+    expect(saved).toContain('<script data-draft-replay="">window.designScriptRan = true</script>')
     expect(saved).not.toContain('/dist/recorder.js')
     await page.evaluate(() => {
-      window.messages = window.messages.filter((m) => m.type !== 'doop:edited')
+      window.messages = window.messages.filter((m) => m.type !== 'draft:edited')
     })
     await request.continue()
     await captured('Initial design while loading')
@@ -128,7 +128,7 @@ describe.skipIf(!findBrowserPath())('sandboxed frame replay', () => {
       await replay.waitForFunction(() => {
         const outer = document.querySelector('iframe')?.contentDocument
         return outer
-          ?.querySelector<HTMLIFrameElement>('iframe[data-doop-frame]')
+          ?.querySelector<HTMLIFrameElement>('iframe[data-draft-frame]')
           ?.contentDocument?.body.textContent?.includes('Streamed design')
       })
     } finally {
@@ -140,13 +140,13 @@ describe.skipIf(!findBrowserPath())('sandboxed frame replay', () => {
   it('keeps recording infrastructure out of saved frame HTML', async () => {
     await page.evaluate(() => {
       const target = document.querySelector('iframe')!.contentWindow!
-      target.postMessage({ type: 'doop:edit', on: true }, '*')
-      target.postMessage({ type: 'doop:edit', on: false }, '*')
+      target.postMessage({ type: 'draft:edit', on: true }, '*')
+      target.postMessage({ type: 'draft:edit', on: false }, '*')
     })
-    await page.waitForFunction(() => window.messages.some((m) => m.type === 'doop:edited'))
-    const html = await page.evaluate(() => window.messages.find((m) => m.type === 'doop:edited')!.html)
+    await page.waitForFunction(() => window.messages.some((m) => m.type === 'draft:edited'))
+    const html = await page.evaluate(() => window.messages.find((m) => m.type === 'draft:edited')!.html)
     expect(html).toContain('Streamed design')
-    expect(html).not.toContain('data-doop-replay')
+    expect(html).not.toContain('data-draft-replay')
     expect(html).not.toContain('data-v-boot')
     expect(html).not.toContain('__PosthogExtensions__')
   })
@@ -158,7 +158,7 @@ describe.skipIf(!findBrowserPath())('sandboxed frame replay', () => {
     })
     await captured('Streamed design')
     await page.evaluate(() => window.addFrame())
-    await page.waitForFunction(() => window.messages.filter((m) => m.type === 'doop:frame-ready').length === 2)
+    await page.waitForFunction(() => window.messages.filter((m) => m.type === 'draft:frame-ready').length === 2)
     await render('<h1>Presentation frame</h1>', 1)
     await captured('Presentation frame')
   })
@@ -182,7 +182,7 @@ describe.skipIf(!findBrowserPath())('sandboxed frame replay', () => {
 
   it('bounds failed downloads and cancels pending retries when recording stops', async () => {
     await page.reload()
-    await page.waitForFunction(() => window.testReady && window.messages.some((m) => m.type === 'doop:frame-ready'))
+    await page.waitForFunction(() => window.testReady && window.messages.some((m) => m.type === 'draft:frame-ready'))
     await page.setRequestInterception(true)
     let attempts = 0
     const onRequest = (request: HTTPRequest) => {
@@ -206,7 +206,7 @@ describe.skipIf(!findBrowserPath())('sandboxed frame replay', () => {
       })
       await vi.waitFor(() => expect(attempts).toBe(4))
       const child = page.frames().find((f) => f !== page.mainFrame())!
-      await child.waitForFunction(() => !document.querySelector('script[data-doop-replay]'))
+      await child.waitForFunction(() => !document.querySelector('script[data-draft-replay]'))
       await page.evaluate(() => window.stopReplay())
       await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 600)))
       expect(attempts).toBe(4)

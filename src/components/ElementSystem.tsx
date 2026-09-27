@@ -126,7 +126,7 @@ export function ClassEditor({
           </span>
         ))}
         <input
-          list="doop-theme-classes"
+          list="draft-theme-classes"
           aria-label="Add class"
           placeholder={classes.length ? '+ class' : 'Add a class'}
           className="h-6 min-w-[88px] flex-1 rounded-md border border-dashed border-line bg-transparent px-1.5 font-mono text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-ink"
@@ -135,7 +135,7 @@ export function ClassEditor({
           onBlur={add}
           onKeyDown={(e) => e.key === 'Enter' && add()}
         />
-        <datalist id="doop-theme-classes">
+        <datalist id="draft-theme-classes">
           {suggestions
             .filter((c) => !classes.includes(c))
             .map((c) => (

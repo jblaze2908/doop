@@ -1,5 +1,5 @@
 /** The Disc-D: a half-disc with a dot resting under its stem, reading as
- *  Doop's initial — the frame and the cursor beside it. (Identity round 10.)
+ *  Draft's initial — the frame and the cursor beside it. (Identity round 10.)
  *
  *  The tile is part of the mark, so every call site gets the same lockup
  *  without having to supply its own background. */
@@ -15,11 +15,11 @@ export function Logo({ className = 'size-[30px]' }: { className?: string }) {
   )
 }
 
-/** The bare Disc-D, no tile: the glyph that stands for a Doop agent inline
+/** The bare Disc-D, no tile: the glyph that stands for a Draft agent inline
  *  next to text (presence chips, cursor pills, activity rows). Inherits the
  *  text colour unless a fill is given. The viewBox crops to the mark itself
  *  so it sits on the text baseline like a letter. */
-export function DoopMark({
+export function DraftMark({
   size = 13,
   color,
   className = 'mr-px inline-block align-[-2px]',

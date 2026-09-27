@@ -58,7 +58,7 @@ const CATALOG: BackgroundEntry[] = [
   }),
 ]
 
-const ORIGIN = 'https://doop.test'
+const ORIGIN = 'https://draft.test'
 
 describe('browseBackgrounds', () => {
   afterEach(() => setCatalogForTests([]))
@@ -162,7 +162,7 @@ describe('list_backgrounds MCP tool', () => {
   it('is registered, filters by enum, and returns css with the results', async () => {
     setCatalogForTests(CATALOG)
     const server = buildMcpServer('Test Owner', 'test-owner-id')
-    const client = new Client({ name: 'doop-backgrounds-test', version: '1.0.0' })
+    const client = new Client({ name: 'draft-backgrounds-test', version: '1.0.0' })
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
     await server.connect(serverTransport)
     await client.connect(clientTransport)
@@ -195,7 +195,7 @@ describe('list_backgrounds MCP tool', () => {
   it('tells the agent to draw CSS when the library is empty', async () => {
     setCatalogForTests([])
     const server = buildMcpServer('Test Owner', 'test-owner-id')
-    const client = new Client({ name: 'doop-backgrounds-test', version: '1.0.0' })
+    const client = new Client({ name: 'draft-backgrounds-test', version: '1.0.0' })
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
     await server.connect(serverTransport)
     await client.connect(clientTransport)
@@ -249,19 +249,19 @@ describe('fetchThumb', () => {
   })
 
   it('reads thumbnails over HTTP from BACKGROUNDS_ORIGIN when set', async () => {
-    process.env.BACKGROUNDS_ORIGIN = 'https://doop.example/'
+    process.env.BACKGROUNDS_ORIGIN = 'https://draft.example/'
     const seen: string[] = []
     globalThis.fetch = (async (input: string | URL | Request) => {
       seen.push(String(input))
       return new Response(Buffer.from('webp-bytes'), { status: 200 })
     }) as typeof fetch
     const thumb = await fetchThumb('abc')
-    expect(seen).toEqual(['https://doop.example/bg/abc-t.webp'])
+    expect(seen).toEqual(['https://draft.example/bg/abc-t.webp'])
     expect(thumb).toEqual({ data: Buffer.from('webp-bytes').toString('base64'), mime: 'image/webp' })
   })
 
   it('returns null rather than throwing when the remote origin fails', async () => {
-    process.env.BACKGROUNDS_ORIGIN = 'https://doop.example'
+    process.env.BACKGROUNDS_ORIGIN = 'https://draft.example'
     globalThis.fetch = (async () => new Response('', { status: 404 })) as typeof fetch
     expect(await fetchThumb('abc')).toBeNull()
   })

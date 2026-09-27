@@ -372,9 +372,9 @@ export function Home() {
             variant="bare"
             className="min-h-10 gap-2 p-0 font-display text-base font-extrabold text-ink hover:bg-transparent md:hidden"
             onClick={() => navigate('/')}
-            aria-label="Doop home"
+            aria-label="Draft home"
           >
-            <Logo className="size-7" /> Doop
+            <Logo className="size-7" /> Draft
           </Button>
           <label className="order-2 flex h-10 max-w-none flex-1 basis-full items-center gap-[9px] rounded-[10px] border border-line bg-surface px-[11px] text-ink-faint focus-within:border-ink-faint md:order-none md:h-[34px] md:max-w-[400px] md:basis-auto">
             <SearchIcon width={14} height={14} aria-hidden />

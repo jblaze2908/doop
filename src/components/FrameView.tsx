@@ -314,7 +314,7 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
   }
   useEffect(() => {
     function onMsg(ev: MessageEvent) {
-      if (ev.data?.type === 'doop:frame-ready' && ev.source === iframeRef.current?.contentWindow) {
+      if (ev.data?.type === 'draft:frame-ready' && ev.source === iframeRef.current?.contentWindow) {
         setRuntimeReady(true)
       }
     }
@@ -332,14 +332,14 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
   const themeCss = useFrameThemeCss()
   useEffect(() => {
     if (!runtimeReady) return
-    iframeRef.current?.contentWindow?.postMessage({ type: 'doop:theme', css: themeCss }, '*')
+    iframeRef.current?.contentWindow?.postMessage({ type: 'draft:theme', css: themeCss }, '*')
   }, [runtimeReady, themeCss])
   const theme = useStore((s) => s.canvas?.theme)
   useEffect(() => {
     if (!runtimeReady) return
     let live = true
     const post = (fonts: FrameFont[]) => {
-      if (live) iframeRef.current?.contentWindow?.postMessage({ type: 'doop:fonts', fonts }, '*')
+      if (live) iframeRef.current?.contentWindow?.postMessage({ type: 'draft:fonts', fonts }, '*')
     }
     if (theme) void themeFonts(theme).then(post)
     else post([])
@@ -350,14 +350,14 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
   const componentDefs = useComponentDefs()
   useEffect(() => {
     if (!runtimeReady) return
-    iframeRef.current?.contentWindow?.postMessage({ type: 'doop:components', defs: componentDefs }, '*')
+    iframeRef.current?.contentWindow?.postMessage({ type: 'draft:components', defs: componentDefs }, '*')
   }, [runtimeReady, componentDefs])
   /* mid-stream posts may take the runtime's spine-only morph; the post when
      the stream ends (streaming flips false) is a full morph that resyncs */
   const streaming = !!stream
   useEffect(() => {
     if (!runtimeReady || editing || suspendPost) return
-    iframeRef.current?.contentWindow?.postMessage({ type: 'doop:html', html, append: streaming }, '*')
+    iframeRef.current?.contentWindow?.postMessage({ type: 'draft:html', html, append: streaming }, '*')
   }, [runtimeReady, html, editing, suspendPost, streaming])
 
   /* ---- element comments ---- */
@@ -386,7 +386,7 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
     if (now - hoverLast.current < 40) return
     hoverLast.current = now
     hoverReq.current += 1
-    iframeRef.current?.contentWindow?.postMessage({ type: 'doop:hover', reqId: hoverReq.current, x, y }, '*')
+    iframeRef.current?.contentWindow?.postMessage({ type: 'draft:hover', reqId: hoverReq.current, x, y }, '*')
   }
 
   function clearHover() {
@@ -402,7 +402,7 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
 
   function requestCode(selector: string) {
     codeReq.current += 1
-    iframeRef.current?.contentWindow?.postMessage({ type: 'doop:code', reqId: codeReq.current, selector }, '*')
+    iframeRef.current?.contentWindow?.postMessage({ type: 'draft:code', reqId: codeReq.current, selector }, '*')
   }
 
   function closePopovers() {
@@ -425,7 +425,7 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
     probeTimer.current = window.setTimeout(() => {
       probeTimer.current = null
       probeReq.current += 1
-      iframeRef.current?.contentWindow?.postMessage({ type: 'doop:probe', reqId: probeReq.current, x, y }, '*')
+      iframeRef.current?.contentWindow?.postMessage({ type: 'draft:probe', reqId: probeReq.current, x, y }, '*')
     }, 250)
   }
 
@@ -435,7 +435,7 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
   useEffect(() => {
     if (!runtimeReady) return
     for (const c of comments) {
-      iframeRef.current?.contentWindow?.postMessage({ type: 'doop:locate', reqId: c.id, selector: c.selector }, '*')
+      iframeRef.current?.contentWindow?.postMessage({ type: 'draft:locate', reqId: c.id, selector: c.selector }, '*')
     }
   }, [runtimeReady, html, commentKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -444,7 +444,7 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
   const probeSel = probe?.selector ?? null
   useEffect(() => {
     if (!runtimeReady || !probeSel) return
-    iframeRef.current?.contentWindow?.postMessage({ type: 'doop:locate', reqId: '__probe__', selector: probeSel }, '*')
+    iframeRef.current?.contentWindow?.postMessage({ type: 'draft:locate', reqId: '__probe__', selector: probeSel }, '*')
   }, [runtimeReady, html, probeSel])
 
   /* deselecting the frame drops its element selection too, so a stale
@@ -485,7 +485,7 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
     if (live?.frameId !== frame.id || live.selector !== wantedSel) return
     selectSel.current = wantedSel
     iframeRef.current?.contentWindow?.postMessage(
-      { type: 'doop:select', reqId: selectReq.current, selector: wantedSel },
+      { type: 'draft:select', reqId: selectReq.current, selector: wantedSel },
       '*',
     )
   }, [runtimeReady, wantedSel, probeSel, frame.id])
@@ -493,10 +493,10 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
   useEffect(() => {
     function onMsg(ev: MessageEvent) {
       if (ev.source !== iframeRef.current?.contentWindow) return
-      if (ev.data?.type === 'doop:probe-result' && ev.data.reqId === probeReq.current) {
+      if (ev.data?.type === 'draft:probe-result' && ev.data.reqId === probeReq.current) {
         setProbe(ev.data.hit ?? null)
       }
-      if (ev.data?.type === 'doop:select-result' && ev.data.reqId === selectReq.current) {
+      if (ev.data?.type === 'draft:select-result' && ev.data.reqId === selectReq.current) {
         /* the answer is only acted on while the asked-for element is still
            the live selection — a surface click in the meantime has moved on */
         const live = useStore.getState().selectedElement
@@ -506,7 +506,7 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
         if (hit) setProbe(hit)
         else useStore.getState().setSelectedElement(null) // the row's element is gone from the live document
       }
-      if (ev.data?.type === 'doop:hover-result' && ev.data.reqId === hoverReq.current) {
+      if (ev.data?.type === 'draft:hover-result' && ev.data.reqId === hoverReq.current) {
         const hit = (ev.data.hit ?? null) as HoverHit | null
         /* only re-render when the outlined element actually changes */
         const key = hit ? hit.tag + JSON.stringify(hit.rect) : null
@@ -515,7 +515,7 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
           setHover(hit)
         }
       }
-      if (ev.data?.type === 'doop:active') {
+      if (ev.data?.type === 'draft:active') {
         const hit = (ev.data.hit ?? null) as ProbeHit | null
         /* rect refreshes for the same element keep the composer open;
            switching elements (or deselecting) closes it */
@@ -523,10 +523,10 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
         activeSelRef.current = hit?.selector ?? null
         setActiveHit(hit)
       }
-      if (ev.data?.type === 'doop:code-result' && ev.data.reqId === codeReq.current) {
+      if (ev.data?.type === 'draft:code-result' && ev.data.reqId === codeReq.current) {
         setCodeView(typeof ev.data.html === 'string' ? ev.data.html : null)
       }
-      if (ev.data?.type === 'doop:located' && typeof ev.data.reqId === 'string') {
+      if (ev.data?.type === 'draft:located' && typeof ev.data.reqId === 'string') {
         if (ev.data.reqId === '__probe__') {
           /* re-glue the selected element's outline after the html changed */
           const rect = ev.data.rect as ProbeHit['rect'] | null
@@ -567,10 +567,10 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
     closePopovers()
     clearHover()
     setEditing(true)
-    iframeRef.current?.contentWindow?.postMessage({ type: 'doop:edit', on: true }, '*')
+    iframeRef.current?.contentWindow?.postMessage({ type: 'draft:edit', on: true }, '*')
   }
   function exitEdit() {
-    iframeRef.current?.contentWindow?.postMessage({ type: 'doop:edit', on: false }, '*')
+    iframeRef.current?.contentWindow?.postMessage({ type: 'draft:edit', on: false }, '*')
     setEditing(false)
     setActiveHit(null)
     setComposing(false)
@@ -583,13 +583,13 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
   useEffect(() => {
     function onMsg(ev: MessageEvent) {
       if (ev.source !== iframeRef.current?.contentWindow) return
-      if (ev.data?.type === 'doop:edited' && typeof ev.data.html === 'string') {
+      if (ev.data?.type === 'draft:edited' && typeof ev.data.html === 'string') {
         const before = useStore.getState().canvas?.frames.find((f) => f.id === frame.id)?.html
         useStore.getState().patchFrameLocal(frame.id, { html: ev.data.html })
         api.updateFrame(frame.id, { html: ev.data.html }).catch(console.error)
         if (before !== undefined) recordUpdate(frame.id, { html: before }, { html: ev.data.html })
       }
-      if (ev.data?.type === 'doop:edit-esc') {
+      if (ev.data?.type === 'draft:edit-esc') {
         setEditing(false)
         setSuspendPost(true)
         window.setTimeout(() => setSuspendPost(false), 500)
@@ -613,7 +613,7 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
      is computed by the Stage from the settled (gesture-idle) zoom. */
   useEffect(() => {
     if (!runtimeReady) return
-    iframeRef.current?.contentWindow?.postMessage({ type: 'doop:zoom', zoom: raster }, '*')
+    iframeRef.current?.contentWindow?.postMessage({ type: 'draft:zoom', zoom: raster }, '*')
   }, [runtimeReady, raster])
 
   return (
@@ -724,7 +724,7 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
                 ref={iframeRef}
                 className="block border-none bg-white"
                 title={frame.name}
-                data-doop-frame=""
+                data-draft-frame=""
                 data-ready={runtimeReady ? '1' : undefined}
                 sandbox="allow-scripts"
                 srcDoc={FRAME_BOOTSTRAP}
@@ -1090,7 +1090,7 @@ function CommentThread({
         variant="bare"
         className="mt-2 min-h-[38px] md:text-[13px]"
         value={reply}
-        placeholder="Reply… (@doop to ask the agent)"
+        placeholder="Reply… (@draft to ask the agent)"
         onChange={(e) => setReply(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send()

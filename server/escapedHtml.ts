@@ -34,4 +34,4 @@ export function repairEscapedHtml(html: string): string {
 
 /** Told to the agent whenever a write was repaired, so it stops escaping. */
 export const ESCAPED_HTML_NOTE =
-  'That HTML arrived escaped (&lt;div&gt; where <div> belongs), which renders as visible source text on the canvas. Doop decoded it so the frame still shows a design — send raw markup from here on: these tools take HTML exactly as written, no escaping.'
+  'That HTML arrived escaped (&lt;div&gt; where <div> belongs), which renders as visible source text on the canvas. Draft decoded it so the frame still shows a design — send raw markup from here on: these tools take HTML exactly as written, no escaping.'

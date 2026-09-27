@@ -1,4 +1,4 @@
-# doop - Context Index
+# draft - Context Index
 
 ## Root Files
 
@@ -14,7 +14,7 @@
 ### `specs/`
 
 - [specs/INDEX.md](specs/INDEX.md) - Complete record of design specs. Feature and API designs for
-  doop (canvas, MCP server, auth, realtime).
+  draft (canvas, MCP server, auth, realtime).
 
 ### `plans/`
 

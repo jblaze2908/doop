@@ -63,7 +63,7 @@ export const workspaceMembers = pgTable(
   (t) => [primaryKey({ columns: [t.workspaceId, t.userId] }), index('workspace_members_user_idx').on(t.userId)],
 )
 
-/** An invitation to someone who has no doop account yet. Accepted
+/** An invitation to someone who has no draft account yet. Accepted
  *  automatically the moment an account with that email is created. */
 export const workspaceInvites = pgTable(
   'workspace_invites',
@@ -115,7 +115,7 @@ export const frames = pgTable(
 )
 
 /** Design-sync keys: the write-only capability behind the /ingest endpoint.
- *  An app embeds the doop-sync snippet with a key's secret, and its live
+ *  An app embeds the draft-sync snippet with a key's secret, and its live
  *  screens land on ONE canvas as frames — the secret grants no reads and no
  *  other writes, so shipping it in an internal app's bundle is safe. `id` is
  *  the public handle (stamped into synced frame HTML to match page → frame);

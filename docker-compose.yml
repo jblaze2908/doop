@@ -2,15 +2,16 @@
 # Set BETTER_AUTH_SECRET (any long random string) before running in earnest:
 #   BETTER_AUTH_SECRET=$(openssl rand -hex 32) docker compose up -d
 services:
-  doop:
+  draft:
     build: .
     ports:
       - '4400:4400'
     environment:
-      DATABASE_URL: postgres://doop:doop@db:5432/doop
+      DATABASE_URL: postgres://draft:draft@db:5432/draft
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-change-me-please-not-for-production}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:4400}
       SIGNUP_EMAIL_DOMAINS: ${SIGNUP_EMAIL_DOMAINS:-}
+      SIGNUP_EMAILS: ${SIGNUP_EMAILS:-}
       # optional — see .env.example for everything else (SMTP, ANTHROPIC_API_KEY, …)
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       CONTEXT_DEV_API_KEY: ${CONTEXT_DEV_API_KEY:-}
@@ -27,17 +28,17 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: doop
-      POSTGRES_PASSWORD: doop
-      POSTGRES_DB: doop
+      POSTGRES_USER: draft
+      POSTGRES_PASSWORD: draft
+      POSTGRES_DB: draft
     volumes:
-      - doop-pg:/var/lib/postgresql/data
+      - draft-pg:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U doop']
+      test: ['CMD-SHELL', 'pg_isready -U draft']
       interval: 5s
       timeout: 3s
       retries: 10
     restart: unless-stopped
 
 volumes:
-  doop-pg:
+  draft-pg:

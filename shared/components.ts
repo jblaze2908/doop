@@ -197,12 +197,12 @@ function buildRuntimeDefs(defs: readonly ComponentDef[]): ComponentRuntimeDef[] 
 /**
  * The instance runtime, as source: the browser frame runtime embeds it and
  * server renders inject it, so both paths render components identically.
- * `doopComponents.set(defs)` (re)defines and refreshes; `.refresh()` after a
+ * `draftComponents.set(defs)` (re)defines and refreshes; `.refresh()` after a
  * DOM morph; `.setTheme(css)` shares the canvas theme into every shadow root,
  * where document styles do not reach. Plain ES2015, no backslashes: it lives
  * inside other template strings.
  */
-export const COMPONENT_RUNTIME = `var doopComponents = (function () {
+export const COMPONENT_RUNTIME = `var draftComponents = (function () {
   var registry = {}
   var defined = []
   var sheets = {}
@@ -275,8 +275,8 @@ export const COMPONENT_RUNTIME = `var doopComponents = (function () {
   function render(el) {
     var def = registry[el.localName]
     var key = keyOf(def, el)
-    if (el.__doopKey === key) return
-    el.__doopKey = key
+    if (el.__draftKey === key) return
+    el.__draftKey = key
     var root = el.shadowRoot || el.attachShadow({ mode: 'open' })
     if (!def || def.deletedAt || depth(el) > MAX_DEPTH) {
       root.adoptedStyleSheets = [fallbackSheet]
@@ -320,7 +320,7 @@ export const COMPONENT_RUNTIME = `var doopComponents = (function () {
 
   /* server renders: the theme style element precedes this script */
   function boot(list) {
-    var st = document.querySelector('style[data-doop-theme]')
+    var st = document.querySelector('style[data-draft-theme]')
     setTheme(st ? st.textContent : '')
     set(list)
   }
@@ -347,13 +347,13 @@ function buildComponentScript(defs: readonly ComponentRuntimeDef[]): string {
   const json = JSON.stringify(defs)
     .replace(/</g, '\\u003c')
     .replace(/[\u2028\u2029]/g, (ch) => `\\u${ch.charCodeAt(0).toString(16)}`)
-  return `<script data-doop-components>${COMPONENT_RUNTIME};doopComponents.boot(${json})</script>`
+  return `<script data-draft-components>${COMPONENT_RUNTIME};draftComponents.boot(${json})</script>`
 }
 
 /** A frame document as server renders load it: theme first in <head>, then
  *  the component runtime, so instances upgrade as the parser creates them. */
 export function prepareFrameHtml(html: string, themeCss: string, defs: readonly ComponentRuntimeDef[]): string {
   /* one insertion: a second scan would find anchors inside the markup just added */
-  const theme = themeCss && !themeOptedOut(html) ? `<style data-doop-theme>${themeCss}</style>` : ''
+  const theme = themeCss && !themeOptedOut(html) ? `<style data-draft-theme>${themeCss}</style>` : ''
   return spliceHead(html, theme + componentScript(defs))
 }

@@ -18,7 +18,7 @@
       window.addEventListener('message', (ev) => window.messages.push(ev.data))
       window.addFrame = () => {
         const frame = document.createElement('iframe')
-        frame.setAttribute('data-doop-frame', '')
+        frame.setAttribute('data-draft-frame', '')
         frame.sandbox = 'allow-scripts'
         frame.srcdoc = FRAME_BOOTSTRAP
         document.body.appendChild(frame)

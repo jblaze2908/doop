@@ -22,16 +22,16 @@ describe('desktop sign-in deep links', () => {
   })
 
   it('falls back to home for a missing or foreign target', () => {
-    expect(parseDesktopAuthDeepLink(`doop://auth?token=t&challenge=${CHALLENGE}`)?.to).toBe('/')
+    expect(parseDesktopAuthDeepLink(`draft://auth?token=t&challenge=${CHALLENGE}`)?.to).toBe('/')
     expect(parseDesktopAuthDeepLink(desktopAuthDeepLink('t', CHALLENGE, '//evil.com'))?.to).toBe('/')
     expect(parseDesktopAuthDeepLink(desktopAuthDeepLink('t', CHALLENGE, 'https://evil.com'))?.to).toBe('/')
   })
 
   it('rejects other schemes, hosts, malformed URLs and missing parts', () => {
     expect(parseDesktopAuthDeepLink(`https://auth?token=t&challenge=${CHALLENGE}`)).toBeNull()
-    expect(parseDesktopAuthDeepLink(`doop://open?token=t&challenge=${CHALLENGE}`)).toBeNull()
-    expect(parseDesktopAuthDeepLink(`doop://auth?challenge=${CHALLENGE}`)).toBeNull()
-    expect(parseDesktopAuthDeepLink('doop://auth?token=t')).toBeNull()
+    expect(parseDesktopAuthDeepLink(`draft://open?token=t&challenge=${CHALLENGE}`)).toBeNull()
+    expect(parseDesktopAuthDeepLink(`draft://auth?challenge=${CHALLENGE}`)).toBeNull()
+    expect(parseDesktopAuthDeepLink('draft://auth?token=t')).toBeNull()
     expect(parseDesktopAuthDeepLink('not a url')).toBeNull()
   })
 
@@ -46,8 +46,8 @@ describe('desktop sign-in deep links', () => {
 describe('desktop sign-in start page', () => {
   it('round-trips provider, challenge and target through the browser URL', () => {
     const request = { provider: 'microsoft' as const, challenge: CHALLENGE, to: '/c/abc' }
-    const url = new URL(desktopSignInURL('https://doop.design', request))
-    expect(url.origin + url.pathname).toBe('https://doop.design/desktop/signin')
+    const url = new URL(desktopSignInURL('https://draft.jaivardhansingh.com', request))
+    expect(url.origin + url.pathname).toBe('https://draft.jaivardhansingh.com/desktop/signin')
     expect(parseDesktopSignInQuery(url.search)).toEqual(request)
   })
 

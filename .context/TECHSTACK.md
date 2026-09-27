@@ -1,4 +1,4 @@
-# TECHSTACK - doop
+# TECHSTACK - draft
 
 ## 1. Language and Runtime
 

@@ -52,7 +52,7 @@ describe.skipIf(!findBrowserPath())('element panel runtime messages', () => {
       window.edited = []
       window.addEventListener('message', (ev) => {
         if (typeof ev.data?.type !== 'string') return
-        if (ev.data.type === 'doop:edited') window.edited.push(ev.data.html)
+        if (ev.data.type === 'draft:edited') window.edited.push(ev.data.html)
         else if (ev.data.type.endsWith('-result')) window.replies.push(ev.data)
       })
     })
@@ -75,7 +75,7 @@ describe.skipIf(!findBrowserPath())('element panel runtime messages', () => {
 
   it('reports spacing, alignment, attributes and component membership', async () => {
     await post({
-      type: 'doop:components',
+      type: 'draft:components',
       defs: [
         {
           name: 'ds-chip',
@@ -87,22 +87,22 @@ describe.skipIf(!findBrowserPath())('element panel runtime messages', () => {
       ],
     })
     await post({
-      type: 'doop:html',
+      type: 'draft:html',
       html: '<html><body><div id="row" style="display:flex;align-items:center;margin:4px 8px" data-kind="x"><ds-chip label="All"></ds-chip></div></body></html>',
     })
-    await post({ type: 'doop:inspect', reqId: 1, selector: '#row' })
+    await post({ type: 'draft:inspect', reqId: 1, selector: '#row' })
     expect((await lastReply()).info).toMatchObject({
       margin: [4, 8, 4, 8],
       alignItems: 'center',
       attributes: { 'data-kind': 'x' },
       component: null,
     })
-    await post({ type: 'doop:inspect', reqId: 2, selector: '#row > ds-chip' })
+    await post({ type: 'draft:inspect', reqId: 2, selector: '#row > ds-chip' })
     expect((await lastReply()).info).toMatchObject({ component: 'ds-chip', attributes: { label: 'All' } })
   })
 
   it('edits component props as attributes and re-renders the instance', async () => {
-    await post({ type: 'doop:attrs', reqId: 3, selector: '#row > ds-chip', attrs: { label: 'Food', onclick: 'x()' } })
+    await post({ type: 'draft:attrs', reqId: 3, selector: '#row > ds-chip', attrs: { label: 'Food', onclick: 'x()' } })
     expect((await lastReply()).ok).toBe(true)
     const rendered = await page.evaluate(() => ({
       label: document.querySelector('ds-chip')!.shadowRoot!.textContent,
@@ -112,14 +112,14 @@ describe.skipIf(!findBrowserPath())('element panel runtime messages', () => {
   })
 
   it('replaces the class list, dropping invalid names', async () => {
-    await post({ type: 'doop:classes', reqId: 4, selector: '#row', classes: ['card', 'card', 'bad"name', ' row '] })
+    await post({ type: 'draft:classes', reqId: 4, selector: '#row', classes: ['card', 'card', 'bad"name', ' row '] })
     expect(await page.evaluate(() => document.querySelector('#row')!.getAttribute('class'))).toBe('card row')
   })
 
   it('holds incoming renders while an edit is waiting to save, then saves it', async () => {
-    await post({ type: 'doop:style', reqId: 5, selector: '#row', styles: { color: 'rgb(255, 0, 0)' } }, 0)
+    await post({ type: 'draft:style', reqId: 5, selector: '#row', styles: { color: 'rgb(255, 0, 0)' } }, 0)
     /* a remote render lands inside the save window — it must not wipe the edit */
-    await post({ type: 'doop:html', html: '<html><body><div id="row">remote</div></body></html>' }, 0)
+    await post({ type: 'draft:html', html: '<html><body><div id="row">remote</div></body></html>' }, 0)
     expect(await page.evaluate(() => document.querySelector('#row')!.getAttribute('style'))).toContain('rgb(255, 0, 0)')
     await new Promise((r) => setTimeout(r, 400))
     const saved = await page.evaluate(() => window.edited[window.edited.length - 1] ?? '')

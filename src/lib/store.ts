@@ -146,7 +146,7 @@ interface State {
   setStream(frameId: string, actor: { name: string; color: string } | null): void
 }
 
-const LAYERS_OPEN_KEY = 'doop:layers-open'
+const LAYERS_OPEN_KEY = 'draft:layers-open'
 
 /* Selector helpers, indexed once per frames array (every frame change makes a
    new array), so a per-frame subscriber costs O(1) per store update. */

@@ -113,7 +113,7 @@ describe('compileTheme', () => {
 })
 
 describe('spliceTheme', () => {
-  const tag = '<style data-doop-theme>X</style>'
+  const tag = '<style data-draft-theme>X</style>'
 
   it('puts the theme first in <head> for every document shape', () => {
     expect(spliceTheme('<!doctype html><html><head><title>t</title></head></html>', 'X')).toBe(
@@ -132,16 +132,16 @@ describe('spliceTheme', () => {
 
   it('opts imported documents out, idempotently', () => {
     expect(withoutTheme('<!doctype html>\n<html lang="en"><head></head></html>')).toBe(
-      '<!doctype html>\n<html data-doop-theme="off" lang="en"><head></head></html>',
+      '<!doctype html>\n<html data-draft-theme="off" lang="en"><head></head></html>',
     )
-    expect(withoutTheme('<!doctype html><p>x</p>')).toBe('<!doctype html><html data-doop-theme="off"><p>x</p>')
+    expect(withoutTheme('<!doctype html><p>x</p>')).toBe('<!doctype html><html data-draft-theme="off"><p>x</p>')
     const off = withoutTheme('<html><body></body></html>')
     expect(withoutTheme(off)).toBe(off)
     expect(spliceTheme(off, 'X')).toBe(off)
   })
 
   it('leaves opted-out frames and empty themes alone', () => {
-    const off = '<html data-doop-theme="off"><head></head></html>'
+    const off = '<html data-draft-theme="off"><head></head></html>'
     expect(themeOptedOut(off)).toBe(true)
     expect(spliceTheme(off, 'X')).toBe(off)
     expect(spliceTheme('<p>x</p>', '')).toBe('<p>x</p>')

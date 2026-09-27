@@ -1,4 +1,4 @@
-/** Doop's UI icon set: Iconoir (MIT), drawn on a 24 grid at a 1.5 stroke with
+/** Draft's UI icon set: Iconoir (MIT), drawn on a 24 grid at a 1.5 stroke with
  *  round caps and joins — light enough to sit inside the frosted chips.
  *
  *  Every icon is re-exported under the name the app already uses, wrapped to

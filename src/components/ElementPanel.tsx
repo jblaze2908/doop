@@ -53,7 +53,7 @@ import {
   ToggleField,
 } from './ui/property-field'
 
-const TAB_KEY = 'doop:element-panel-tab'
+const TAB_KEY = 'draft:element-panel-tab'
 /* the runtime answers in a frame or two; the wait lets a streaming agent's
    chunks settle before every re-read */
 const INSPECT_DELAY_MS = 120

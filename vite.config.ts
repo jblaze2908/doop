@@ -22,7 +22,7 @@ function chunkClosure(bundle: OutputBundle, file: string, into = new Set<string>
    the entry instead of after it has run. */
 function bootPreloads(): Plugin {
   return {
-    name: 'doop-boot-preloads',
+    name: 'draft-boot-preloads',
     apply: 'build',
     transformIndexHtml(_html, ctx) {
       const bundle = ctx.bundle
@@ -64,7 +64,7 @@ function bootPreloads(): Plugin {
 function precompress(): Plugin {
   let outDir = 'dist'
   return {
-    name: 'doop-precompress',
+    name: 'draft-precompress',
     apply: 'build',
     configResolved(config) {
       outDir = config.build.outDir
@@ -107,7 +107,7 @@ export default defineConfig({
     watch: {
       ignored: ['**/desktop/src-tauri/target/**'],
     },
-    /* the doop-sync snippet posts to /ingest from foreign origins; vite
+    /* the draft-sync snippet posts to /ingest from foreign origins; vite
        answers CORS preflights itself before the proxy, so its default
        same-origin policy would block what the express server (prod) allows */
     cors: true,

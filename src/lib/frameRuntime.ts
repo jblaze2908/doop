@@ -101,13 +101,13 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
   var themeCss = ''
 
   function themeOff(root) {
-    return root.getAttribute('data-doop-theme') === 'off'
+    return root.getAttribute('data-draft-theme') === 'off'
   }
 
   function addTheme(doc) {
     if (!themeCss || themeOff(doc.documentElement)) return
     var st = doc.createElement('style')
-    st.setAttribute('data-doop-theme', '')
+    st.setAttribute('data-draft-theme', '')
     st.textContent = themeCss
     doc.head.insertBefore(st, doc.head.firstChild)
   }
@@ -115,7 +115,7 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
   function setTheme(css) {
     if (css === themeCss) return
     themeCss = css
-    var live = document.head.querySelector('style[data-doop-theme]')
+    var live = document.head.querySelector('style[data-draft-theme]')
     if (live) live.parentNode.removeChild(live)
     addTheme(document)
     shareTheme()
@@ -157,7 +157,7 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
 
   /* component shadow roots see the theme only through their own sheet */
   function shareTheme() {
-    doopComponents.setTheme(themeOff(document.documentElement) ? '' : themeCss)
+    draftComponents.setTheme(themeOff(document.documentElement) ? '' : themeCss)
   }
 
   var lastHtml = ''
@@ -181,7 +181,7 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
       lastHtml = html
       activateScripts()
       shareTheme()
-      doopComponents.refresh() // the morph may have changed instance attributes
+      draftComponents.refresh() // the morph may have changed instance attributes
     } catch (e) {
       if (doc) document.documentElement.innerHTML = doc.documentElement.innerHTML
       lastHtml = doc ? html : ''
@@ -240,7 +240,7 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
   }
 
   function postActive() {
-    parent.postMessage({ type: 'doop:active', hit: activeInfo() }, '*')
+    parent.postMessage({ type: 'draft:active', hit: activeInfo() }, '*')
   }
 
   function placeCaret(x, y) {
@@ -284,7 +284,7 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
     if (boot && boot.parentNode) boot.parentNode.removeChild(boot)
     var es = root.querySelector('style[data-v-edit]')
     if (es && es.parentNode) es.parentNode.removeChild(es)
-    var themes = root.querySelectorAll('style[data-doop-theme]')
+    var themes = root.querySelectorAll('style[data-draft-theme]')
     for (var t = 0; t < themes.length; t++) themes[t].parentNode.removeChild(themes[t])
     var ran = root.querySelectorAll('[data-v-ran]')
     for (var i = 0; i < ran.length; i++) ran[i].removeAttribute('data-v-ran')
@@ -300,7 +300,7 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
   }
 
   function postEdited() {
-    parent.postMessage({ type: 'doop:edited', html: serialize() }, '*')
+    parent.postMessage({ type: 'draft:edited', html: serialize() }, '*')
     /* typing can move/grow the element — keep the parent's toolbar anchored */
     if (editing && activeEl) postActive()
   }
@@ -353,9 +353,9 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
     if (ev.key !== 'Escape') return
     if (editing) {
       setEdit(false)
-      parent.postMessage({ type: 'doop:edit-esc' }, '*')
+      parent.postMessage({ type: 'draft:edit-esc' }, '*')
     } else {
-      parent.postMessage({ type: 'doop:esc' }, '*')
+      parent.postMessage({ type: 'draft:esc' }, '*')
     }
   })
 
@@ -587,7 +587,7 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
       if (attrs[k] === null) el.removeAttribute(n)
       else el.setAttribute(n, String(attrs[k]))
     }
-    doopComponents.refresh()
+    draftComponents.refresh()
     scheduleSave()
     return true
   }
@@ -599,56 +599,56 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
     var d = ev.data
     if (!d) return
     /* any other writer to this DOM voids the spine shortcut's premise */
-    if (d.type === 'doop:style' || d.type === 'doop:classes' || d.type === 'doop:attrs' || d.type === 'doop:edit') {
+    if (d.type === 'draft:style' || d.type === 'draft:classes' || d.type === 'draft:attrs' || d.type === 'draft:edit') {
       lastHtml = ''
     }
-    if (d.type === 'doop:inspect') {
-      parent.postMessage({ type: 'doop:inspect-result', reqId: d.reqId, info: inspect(d.selector) }, '*')
+    if (d.type === 'draft:inspect') {
+      parent.postMessage({ type: 'draft:inspect-result', reqId: d.reqId, info: inspect(d.selector) }, '*')
     }
-    if (d.type === 'doop:style' && d.styles && typeof d.styles === 'object') {
+    if (d.type === 'draft:style' && d.styles && typeof d.styles === 'object') {
       var applied = applyStyle(d.selector, d.styles)
-      parent.postMessage({ type: 'doop:style-result', reqId: d.reqId, ok: applied, info: applied ? inspect(d.selector) : null }, '*')
+      parent.postMessage({ type: 'draft:style-result', reqId: d.reqId, ok: applied, info: applied ? inspect(d.selector) : null }, '*')
     }
-    if (d.type === 'doop:theme' && typeof d.css === 'string') setTheme(d.css)
-    if (d.type === 'doop:fonts' && Array.isArray(d.fonts)) setFonts(d.fonts)
-    if (d.type === 'doop:components' && Array.isArray(d.defs)) doopComponents.set(d.defs)
-    if (d.type === 'doop:classes' && Array.isArray(d.classes)) {
+    if (d.type === 'draft:theme' && typeof d.css === 'string') setTheme(d.css)
+    if (d.type === 'draft:fonts' && Array.isArray(d.fonts)) setFonts(d.fonts)
+    if (d.type === 'draft:components' && Array.isArray(d.defs)) draftComponents.set(d.defs)
+    if (d.type === 'draft:classes' && Array.isArray(d.classes)) {
       var classed = applyClasses(d.selector, d.classes)
-      parent.postMessage({ type: 'doop:classes-result', reqId: d.reqId, ok: classed, info: classed ? inspect(d.selector) : null }, '*')
+      parent.postMessage({ type: 'draft:classes-result', reqId: d.reqId, ok: classed, info: classed ? inspect(d.selector) : null }, '*')
     }
-    if (d.type === 'doop:attrs' && d.attrs && typeof d.attrs === 'object') {
+    if (d.type === 'draft:attrs' && d.attrs && typeof d.attrs === 'object') {
       var attred = applyAttrs(d.selector, d.attrs)
-      parent.postMessage({ type: 'doop:attrs-result', reqId: d.reqId, ok: attred, info: attred ? inspect(d.selector) : null }, '*')
+      parent.postMessage({ type: 'draft:attrs-result', reqId: d.reqId, ok: attred, info: attred ? inspect(d.selector) : null }, '*')
     }
-    if (d.type === 'doop:html' && typeof d.html === 'string' && !editing && !styleTimer) render(d.html, d.append)
-    if (d.type === 'doop:edit') setEdit(!!d.on)
-    if (d.type === 'doop:probe') {
-      parent.postMessage({ type: 'doop:probe-result', reqId: d.reqId, hit: probe(d.x, d.y) }, '*')
+    if (d.type === 'draft:html' && typeof d.html === 'string' && !editing && !styleTimer) render(d.html, d.append)
+    if (d.type === 'draft:edit') setEdit(!!d.on)
+    if (d.type === 'draft:probe') {
+      parent.postMessage({ type: 'draft:probe-result', reqId: d.reqId, hit: probe(d.x, d.y) }, '*')
     }
-    if (d.type === 'doop:hover') {
-      parent.postMessage({ type: 'doop:hover-result', reqId: d.reqId, hit: hoverProbe(d.x, d.y) }, '*')
+    if (d.type === 'draft:hover') {
+      parent.postMessage({ type: 'draft:hover-result', reqId: d.reqId, hit: hoverProbe(d.x, d.y) }, '*')
     }
-    if (d.type === 'doop:select') {
-      parent.postMessage({ type: 'doop:select-result', reqId: d.reqId, hit: describe(d.selector) }, '*')
+    if (d.type === 'draft:select') {
+      parent.postMessage({ type: 'draft:select-result', reqId: d.reqId, hit: describe(d.selector) }, '*')
     }
-    if (d.type === 'doop:code') {
-      parent.postMessage({ type: 'doop:code-result', reqId: d.reqId, html: elementCode(d.selector) }, '*')
+    if (d.type === 'draft:code') {
+      parent.postMessage({ type: 'draft:code-result', reqId: d.reqId, html: elementCode(d.selector) }, '*')
     }
-    if (d.type === 'doop:locate') {
+    if (d.type === 'draft:locate') {
       var found = null
       try {
         var target = d.selector ? document.querySelector(d.selector) : null
         if (target) found = designRect(target)
       } catch (e) { /* bad selector -> null */ }
-      parent.postMessage({ type: 'doop:located', reqId: d.reqId, rect: found }, '*')
+      parent.postMessage({ type: 'draft:located', reqId: d.reqId, rect: found }, '*')
     }
     /* re-rasterize crisply when the canvas is zoomed in: layout stays identical
        (viewport is scaled up by the same factor outside) but pixels are k-times denser */
-    if (d.type === 'doop:zoom' && typeof d.zoom === 'number') {
+    if (d.type === 'draft:zoom' && typeof d.zoom === 'number') {
       curZoom = d.zoom
       document.documentElement.style.zoom = String(d.zoom)
     }
   })
-  parent.postMessage({ type: 'doop:frame-ready' }, '*')
+  parent.postMessage({ type: 'draft:frame-ready' }, '*')
 })()
 </script></body></html>`

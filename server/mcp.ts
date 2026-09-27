@@ -10,7 +10,7 @@ import * as workspaces from './workspaces.ts'
 import { auth, getUserName, isBanned, PUBLIC_ORIGIN } from './auth.ts'
 import { capture, captureThrottled } from './analytics.ts'
 import { renderFrame } from './screenshot.ts'
-import { DOOP_GUIDE, GUIDE_TOPICS } from './guide.ts'
+import { DRAFT_GUIDE, GUIDE_TOPICS } from './guide.ts'
 import { describeInspiration, fetchThumb, INSPIRATION_USAGE_NOTE, searchInspiration } from './inspiration.ts'
 import { ESCAPED_HTML_NOTE, looksEscapedHtml } from './escapedHtml.ts'
 import { describeSyncFlow, getSyncFlow } from './ingest.ts'
@@ -39,9 +39,9 @@ import {
   type ComponentDef,
 } from '../shared/components.ts'
 
-const INSTRUCTIONS = `Doop is a shared multiplayer design canvas: humans and AI agents design together in real time. Canvases contain frames — artboards that render complete HTML documents live for everyone viewing.
+const INSTRUCTIONS = `Draft is a shared multiplayer design canvas: humans and AI agents design together in real time. Canvases contain frames — artboards that render complete HTML documents live for everyone viewing.
 
-You MUST call get_guide({ topic: "doop-instructions" }) once before using other Doop tools. Call it again if a long conversation may have compressed or dropped the guide text.
+You MUST call get_guide({ topic: "draft-instructions" }) once before using other Draft tools. Call it again if a long conversation may have compressed or dropped the guide text.
 
 - Context first: call get_canvas before adding or editing frames.
 - Identity: pick an agent_name and reuse the SAME name on every call — your presence and edits are attributed live.
@@ -51,10 +51,10 @@ You MUST call get_guide({ topic: "doop-instructions" }) once before using other 
 - Small edits: edit_frame_html (exact find/replace — the change morphs into the rendered frame in place). Full redesigns: set_frame_html or a new stream. Rename/move/resize: update_frame.
 - Lean reads: get_frame returns the whole document. For copy edits ("change X everywhere") call find_in_canvas — it returns each element containing the text with its source, ready for edit_frame_html. To change part of an existing frame, call get_frame_outline (one line per element, with @path locators), read the part with get_frame_section, and change it with edit_frame_html or replace_frame_section — never re-read or resend a whole document for a local edit.
 - Images: real imagery makes designs. list_backgrounds shows a page of curated hero/section/bento backgrounds (glows, grainy meshes, aurora, painterly scenes) as thumbnails — browse it when a section wants atmosphere rather than defaulting to a flat CSS gradient, judge by eye whether one fits the frame, and draw your own when none does. upload_asset stores your own file (remote file → source_url; local file → local_file=true, returns a curl command) and returns a permanent URL — use it for photos, icons and real company logos you sourced yourself, and never ship a placeholder tile, "LOGO" text or an invented wordmark instead. Never inline images as data: URIs.
-- Websites: when a request names an existing site or URL — a redesign of it, or "like acme.com" — call import_webpage FIRST so an editable HTML snapshot lands on the canvas. Leave that source frame unchanged and design in a separate frame. view_website is only for read-only inspection when the page should not be added. If Doop cannot capture the site, do not retry with view_website because it uses the same capture path. Use your own browser or web tool and work only from content you actually observe; if that is unavailable, ask the user for screenshots or an HTML export rather than inventing content.
+- Websites: when a request names an existing site or URL — a redesign of it, or "like acme.com" — call import_webpage FIRST so an editable HTML snapshot lands on the canvas. Leave that source frame unchanged and design in a separate frame. view_website is only for read-only inspection when the page should not be added. If Draft cannot capture the site, do not retry with view_website because it uses the same capture path. Use your own browser or web tool and work only from content you actually observe; if that is unavailable, ask the user for screenshots or an HTML export rather than inventing content.
 - Feedback: humans reply to your tasks; their notes arrive inside your tool results as HUMAN FEEDBACK blocks — address them before continuing.
 - Board: humans queue cards for agents. A BOARD block in a tool result means cards are waiting: read them with get_cards, claim_card one BEFORE starting it, and report back with finish_card (done, or failed with a reason).
-- Comments: call get_comments to read element-pinned comments and replies on a canvas, optionally filtered by frame; reply_to_comment answers a thread and resolve_comment closes it. Reading does not claim feedback or comments. A comment that @mentions an agent role (@doop, @ux …) is a request for an agent: forAgent and targetAgent are set on it.
+- Comments: call get_comments to read element-pinned comments and replies on a canvas, optionally filtered by frame; reply_to_comment answers a thread and resolve_comment closes it. Reading does not claim feedback or comments. A comment that @mentions an agent role (@draft, @ux …) is a request for an agent: forAgent and targetAgent are set on it.
 - Theme: a canvas can carry a theme — design tokens, Google Fonts and shared CSS injected into EVERY frame. get_canvas shows it; read it with get_theme and build frames from its classes and var(--…) tokens, never pasting it into a frame. Put a design system's shared CSS in the theme (set_theme_tokens / set_theme_css / set_theme_fonts), not in each frame.
 - Components: a canvas can carry linked components — custom elements (<ds-stat label="…">…</ds-stat>) whose template and CSS live on the canvas. get_canvas lists them; use instances instead of rewriting their markup, and create reusable pieces with set_component so a change updates every frame.
 - Guidelines: canvases can carry named style guides (brand rules, style recipes). get_canvas lists them with one-line summaries — read the relevant ones with get_guidelines BEFORE designing and follow them.
@@ -272,18 +272,18 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
   const arrive = (canvasId: string, agent_name?: string) => {
     if (agent_name) actions.heartbeatAgent(canvasId, actorFrom(agent_name))
   }
-  const server = new McpServer({ name: 'doop-canvas', version: '0.1.0' }, { instructions: INSTRUCTIONS })
+  const server = new McpServer({ name: 'draft-canvas', version: '0.1.0' }, { instructions: INSTRUCTIONS })
 
   server.registerTool(
     'get_guide',
     {
       description:
-        'Read the Doop agent guide: mandatory review checkpoints, the streaming workflow, frame sizing, design-quality doctrine, and multiplayer etiquette. Call with topic "doop-instructions" ONCE before using other Doop tools; call again if a long conversation may have compressed earlier context.',
+        'Read the Draft agent guide: mandatory review checkpoints, the streaming workflow, frame sizing, design-quality doctrine, and multiplayer etiquette. Call with topic "draft-instructions" ONCE before using other Draft tools; call again if a long conversation may have compressed earlier context.',
       inputSchema: {
         topic: z.enum(GUIDE_TOPICS).describe('Guide topic to load'),
       },
     },
-    async () => text(DOOP_GUIDE),
+    async () => text(DRAFT_GUIDE),
   )
 
   server.registerTool(
@@ -421,7 +421,7 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
         text({
           id: c.id,
           name: c.name,
-          /* demo frames (the Doop welcome show, seeded examples) are product
+          /* demo frames (the Draft welcome show, seeded examples) are product
              content, not user work — hidden so agents never mistake them for
              the canvas's established style */
           frames: c.frames.filter((f) => !f.demo).map(frameSummary),
@@ -661,7 +661,7 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
         ...(t.unresolvedFonts?.length
           ? {
               unresolved: t.unresolvedFonts,
-              note: "Doop could not fetch these from Google Fonts (a typo, or the server is offline). Check the names; if they are right, add a <link> for them in each frame's <head> instead.",
+              note: "Draft could not fetch these from Google Fonts (a typo, or the server is offline). Check the names; if they are right, add a <link> for them in each frame's <head> instead.",
             }
           : {}),
       })),
@@ -862,7 +862,7 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
     'save_decision',
     {
       description:
-        'Record a design decision your human made while talking to YOU — style feedback you carried out ("rounder corners", "less purple, more white and blue", "stop using italic serif"). Doop\'s UI feedback is captured automatically, but you are the only one who hears your own conversation, so report it with this tool AFTER you have addressed it. It lands in the canvas\'s Memory; recurring preferences become suggested style rules. Record design taste only — not one-off content edits like typo fixes or copy changes.',
+        'Record a design decision your human made while talking to YOU — style feedback you carried out ("rounder corners", "less purple, more white and blue", "stop using italic serif"). Draft\'s UI feedback is captured automatically, but you are the only one who hears your own conversation, so report it with this tool AFTER you have addressed it. It lands in the canvas\'s Memory; recurring preferences become suggested style rules. Record design taste only — not one-off content edits like typo fixes or copy changes.',
       inputSchema: {
         canvas_id: z.string(),
         decision: z
@@ -972,7 +972,7 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
     'resolve_comment',
     {
       description:
-        'Resolve an element-comment thread on a canvas, marking the request addressed. Resolving a root comment closes its whole thread; resolving a reply closes only that reply. When the thread @mentioned an agent role (@doop, @ux …), resolving it also records the exchange as a design decision in the canvas Memory (plain human-to-human notes are not). Like every mutating tool, the result also carries any pending task feedback addressed to you; get_feedback is for polling it on its own.',
+        'Resolve an element-comment thread on a canvas, marking the request addressed. Resolving a root comment closes its whole thread; resolving a reply closes only that reply. When the thread @mentioned an agent role (@draft, @ux …), resolving it also records the exchange as a design decision in the canvas Memory (plain human-to-human notes are not). Like every mutating tool, the result also carries any pending task feedback addressed to you; get_feedback is for polling it on its own.',
       inputSchema: {
         canvas_id: z.string(),
         comment_id: z.string().describe('The root comment or a reply (from get_comments)'),
@@ -1248,7 +1248,7 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
     {
       title: 'Export frame as code',
       description:
-        'Export a frame as source files. target "react" (default): a page component (<Frame>.tsx, default export) that imports one components/<Name>.tsx per linked component it uses, the canvas theme as styles/tokens.css and styles/theme.css, and the frame\'s own CSS — plain CSS, no framework. target "html": one self-contained index.html, exactly what doop renders. Write the files into the project as they are; warnings list anything that could not be carried over (scripts, inline event handlers).',
+        'Export a frame as source files. target "react" (default): a page component (<Frame>.tsx, default export) that imports one components/<Name>.tsx per linked component it uses, the canvas theme as styles/tokens.css and styles/theme.css, and the frame\'s own CSS — plain CSS, no framework. target "html": one self-contained index.html, exactly what draft renders. Write the files into the project as they are; warnings list anything that could not be carried over (scripts, inline event handlers).',
       inputSchema: {
         frame_id: z.string(),
         target: z.enum(['react', 'html']).optional().describe('default react'),
@@ -1831,7 +1831,7 @@ export async function handleMcpRequest(req: Request, res: Response) {
       .status(401)
       .set(
         'WWW-Authenticate',
-        `Bearer realm="doop", resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp"`,
+        `Bearer realm="draft", resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp"`,
       )
       .json({
         jsonrpc: '2.0',

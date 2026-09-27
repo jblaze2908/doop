@@ -3,11 +3,11 @@ import * as React from 'react'
 import { cn } from '@/lib/utils'
 import { Logo } from '../Logo'
 
-/** Logo + "Doop", the lockup used in headers, the auth card and the footer. */
+/** Logo + "Draft", the lockup used in headers, the auth card and the footer. */
 function Wordmark({
   size = 'md',
   className,
-  children = 'Doop',
+  children = 'Draft',
   ...props
 }: React.ComponentProps<'span'> & { size?: 'sm' | 'md' }) {
   return (

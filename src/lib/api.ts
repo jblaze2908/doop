@@ -21,7 +21,7 @@ export interface CanvasMember {
   owner: boolean
 }
 
-/** A write-only design-sync key: apps embed its secret in the doop-sync
+/** A write-only design-sync key: apps embed its secret in the draft-sync
  *  snippet to push their live screens onto this canvas. */
 export interface SyncKeyInfo {
   id: string

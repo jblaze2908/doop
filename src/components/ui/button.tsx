@@ -4,7 +4,7 @@ import { Slot } from '@radix-ui/react-slot'
 
 import { cn } from '@/lib/utils'
 
-/* Doop's button: a hairline-bordered surface that fills rather than moves.
+/* Draft's button: a hairline-bordered surface that fills rather than moves.
    The editorial system draws elevation with rules, not with drop shadows or
    offset blocks, so pressing a control deepens its fill instead of sinking
    it. That restraint lives in the base and every variant only re-colours it. */

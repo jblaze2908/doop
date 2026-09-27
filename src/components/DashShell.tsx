@@ -73,7 +73,7 @@ export function AccountMenu() {
           <IconGear /> Settings
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <a href="https://doop.design/docs" target="_blank" rel="noopener noreferrer">
+          <a href="https://github.com/jblaze2908/doop#readme" target="_blank" rel="noopener noreferrer">
             <IconHelp /> Help &amp; docs
           </a>
         </DropdownMenuItem>
@@ -117,7 +117,7 @@ export function ConnectCard() {
         <CodeBlock
           density="rail"
           className="mt-2"
-          text={`claude mcp add --transport http doop "${location.origin}/mcp"`}
+          text={`claude mcp add --transport http draft "${location.origin}/mcp"`}
         />
         <Button
           variant="link"

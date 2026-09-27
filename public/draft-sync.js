@@ -1,7 +1,7 @@
 /**
- * doop design sync — one tag in your app, your live screens on a doop canvas.
+ * draft design sync — one tag in your app, your live screens on a draft canvas.
  *
- *   <script async src="https://yourdoop.example/doop-sync.js?key=dk_…"></script>
+ *   <script async src="https://yourdraft.example/draft-sync.js?key=dk_…"></script>
  *
  * Runs in the USER'S browser, so it captures apps no crawler can reach
  * (SSO, VPN, localhost) exactly as the signed-in user sees them. Each
@@ -9,19 +9,19 @@
  * lets the first capture settle, then the screen freezes on the canvas.
  *
  * Options (attributes on the script tag):
- *   data-key   required — a canvas sync key from doop's share dialog
- *   data-host  override the doop origin (defaults to where this file loaded from)
+ *   data-key   required — a canvas sync key from draft's share dialog
+ *   data-host  override the draft origin (defaults to where this file loaded from)
  *   data-mask  extra CSS selector whose text is redacted before upload
  *
  * The key can also ride in the URL itself — the form that survives every
  * tag manager, since src is the one attribute injectors never strip:
- *   <script async src="https://yourdoop.example/doop-sync.js?key=dk_…"></script>
+ *   <script async src="https://yourdraft.example/draft-sync.js?key=dk_…"></script>
  * Last resort (injector rewrites the src too): set globals in the same tag:
- *   <script>window.doopSyncKey = 'dk_…'; window.doopSyncHost = 'https://yourdoop.example'</script>
+ *   <script>window.draftSyncKey = 'dk_…'; window.draftSyncHost = 'https://yourdraft.example'</script>
  *
- * Privacy: input values are always dropped, [data-doop-mask] subtrees are
- * redacted, scripts never leave the page. `window.doopSync.capture()` forces
- * a capture; add data-doop-sync-ignore to elements that should never upload.
+ * Privacy: input values are always dropped, [data-draft-mask] subtrees are
+ * redacted, scripts never leave the page. `window.draftSync.capture()` forces
+ * a capture; add data-draft-sync-ignore to elements that should never upload.
  *
  * Frames show each screen as it GREETS the user: after the first hover over
  * a menu, click, or keypress, the poked-at DOM (open dropdowns, modals,
@@ -29,18 +29,18 @@
  */
 ;(function () {
   'use strict'
-  if (window.doopSync) return
+  if (window.draftSync) return
   /* Tag managers re-create script tags when injecting, which can leave
      document.currentScript null/useless and strip data attributes — so the
      canonical install carries the key in the src query string, and the tag
      is findable by that src. Priority: data attrs, then src params, then
      the window.* globals. */
   var script = document.currentScript
-  if (!script || !(script.getAttribute('data-key') || (script.src || '').indexOf('doop-sync') !== -1)) {
+  if (!script || !(script.getAttribute('data-key') || (script.src || '').indexOf('draft-sync') !== -1)) {
     script = null
     var candidates = document.querySelectorAll('script[src]')
     for (var t = 0; t < candidates.length; t++) {
-      if (candidates[t].src.indexOf('doop-sync') !== -1) {
+      if (candidates[t].src.indexOf('draft-sync') !== -1) {
         script = candidates[t]
         break
       }
@@ -53,16 +53,16 @@
     /* unparsable src */
   }
   var KEY =
-    (script && script.getAttribute('data-key')) || (srcUrl && srcUrl.searchParams.get('key')) || window.doopSyncKey
+    (script && script.getAttribute('data-key')) || (srcUrl && srcUrl.searchParams.get('key')) || window.draftSyncKey
   var HOST =
     (script && script.getAttribute('data-host')) ||
     (srcUrl && srcUrl.searchParams.get('host')) ||
-    window.doopSyncHost ||
+    window.draftSyncHost ||
     (srcUrl && srcUrl.origin) ||
     ''
   var MASK = (script && script.getAttribute('data-mask')) || ''
   if (!KEY || !HOST) {
-    console.warn('[doop-sync] missing data-key or data-host — not capturing')
+    console.warn('[draft-sync] missing data-key or data-host — not capturing')
     return
   }
 
@@ -227,7 +227,7 @@
     var kill = root.querySelectorAll(
       'script,noscript,iframe,frame,frameset,object,embed,applet,portal,fencedframe,' +
         'link[rel="stylesheet"],link[rel="preload"],link[rel="modulepreload"],style,base,meta[http-equiv],' +
-        '[data-doop-sync-ignore]',
+        '[data-draft-sync-ignore]',
     )
     for (i = kill.length - 1; i >= 0; i--) kill[i].parentNode && kill[i].parentNode.removeChild(kill[i])
 
@@ -267,7 +267,7 @@
       inputs[i].removeAttribute('value')
       if (inputs[i].tagName === 'TEXTAREA') inputs[i].textContent = ''
     }
-    var masked = MASK ? root.querySelectorAll('[data-doop-mask],' + MASK) : root.querySelectorAll('[data-doop-mask]')
+    var masked = MASK ? root.querySelectorAll('[data-draft-mask],' + MASK) : root.querySelectorAll('[data-draft-mask]')
     for (i = 0; i < masked.length; i++) masked[i].textContent = '•••'
 
     var styles = collectCss()
@@ -288,7 +288,7 @@
         for (var l = 0; l < snap.cssLinks.length; l++) {
           inject += '<link rel="stylesheet" href="' + snap.cssLinks[l].replace(/"/g, '&quot;') + '">'
         }
-        inject += '<style data-doop-sync>\n' + results[0].replace(/<\/style/gi, '<\\/style') + '\n</style>'
+        inject += '<style data-draft-sync>\n' + results[0].replace(/<\/style/gi, '<\\/style') + '\n</style>'
         if (head) head.insertAdjacentHTML('beforeend', inject)
         return '<!doctype html>\n' + snap.root.outerHTML
       },
@@ -298,7 +298,7 @@
   /* ---- flow map: which link sits where, and where people actually went */
 
   /* Same-app link hotspots visible on this screen, in document coordinates —
-     doop draws them as connectors between the synced frames. */
+     draft draws them as connectors between the synced frames. */
   function collectLinks(page) {
     var out = []
     var anchors = document.querySelectorAll('a[href]')
@@ -354,7 +354,7 @@
      the pre-asset-inline serialization. */
   var CAPTURE_VERSION = '3'
   function memoKey(page) {
-    return '__doopSync:' + CAPTURE_VERSION + ':' + KEY.slice(-6) + ':' + page
+    return '__draftSync:' + CAPTURE_VERSION + ':' + KEY.slice(-6) + ':' + page
   }
 
   function readMemo(page) {
@@ -406,7 +406,7 @@
       body: JSON.stringify({ page: page, edges: batch }),
     })
       .then(function (r) {
-        if (r.headers.get('X-Doop-Edges') !== null) batch = []
+        if (r.headers.get('X-Draft-Edges') !== null) batch = []
         if (!r.ok) throw new Error('sync ' + r.status)
       })
       ['catch'](function () {
@@ -505,7 +505,7 @@
         return finalizeSnapshot(snap).then(function (html) {
           capturing = false
           if (html.length > MAX_BYTES) {
-            console.warn('[doop-sync] snapshot too large (' + html.length + ' bytes) — not uploading')
+            console.warn('[draft-sync] snapshot too large (' + html.length + ' bytes) — not uploading')
             return
           }
           writeMemo(page, { h: h, t: Date.now() })
@@ -525,9 +525,9 @@
               edges: edges,
             }),
           }).then(function (r) {
-            if (r.headers.get('X-Doop-Edges') !== null) edges = [] // recorded server-side — see sendEdges
+            if (r.headers.get('X-Draft-Edges') !== null) edges = [] // recorded server-side — see sendEdges
             if (!r.ok) throw new Error('sync ' + r.status)
-            if (r.headers.get('X-Doop-Synced') !== null) writeMemo(page, { s: 1, t: Date.now() }) // frozen for good
+            if (r.headers.get('X-Draft-Synced') !== null) writeMemo(page, { s: 1, t: Date.now() }) // frozen for good
             if (!usedPristine) capturedAtMutation[page] = mc
           })
         })
@@ -538,7 +538,7 @@
            SNAPSHOT upload failed drop its memo so the next capture retries
            instead of skipping. An edges-only failure keeps the memo — losing
            it would let a poked-at DOM slip past the gate above. */
-        console.warn('[doop-sync] capture failed', err)
+        console.warn('[draft-sync] capture failed', err)
         capturing = false
         if (edges.length) pendingEdges = edges.concat(pendingEdges).slice(0, 20)
         if (sentSnapshot) {
@@ -598,7 +598,7 @@
     { passive: true },
   )
 
-  window.doopSync = {
+  window.draftSync = {
     capture: function () {
       capture(true)
     },

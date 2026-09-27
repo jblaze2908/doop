@@ -29,7 +29,7 @@ let n = 0
 
 async function connect(ownerId = OWNER_ID) {
   const server = buildMcpServer('Test Owner', ownerId)
-  const client = new Client({ name: 'doop-cards-test', version: '1.0.0' })
+  const client = new Client({ name: 'draft-cards-test', version: '1.0.0' })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   await server.connect(serverTransport)
   await client.connect(clientTransport)

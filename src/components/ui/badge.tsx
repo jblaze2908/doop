@@ -4,7 +4,7 @@ import { Slot } from '@radix-ui/react-slot'
 
 import { cn } from '@/lib/utils'
 
-/* The chip: a small mono-type tag. Doop uses it for counts, roles, states and
+/* The chip: a small mono-type tag. Draft uses it for counts, roles, states and
    model names, so the tones below are the vocabulary — nothing should invent
    its own pill colour. */
 const badgeVariants = cva(

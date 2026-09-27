@@ -26,4 +26,4 @@ Status: shipped on the `tijori/design-system` fork, 2026-09-27. Code: `server/ex
 
 The native landing frame (6 components, 16 instances) exported to 16 files that pass Tijori
 web's `tsc --noEmit` (TypeScript 7, strict, `noUnusedLocals`, `verbatimModuleSyntax`) and
-`vite build`, and render 100.000% pixel-identical to doop's render at 1440×2629.
+`vite build`, and render 100.000% pixel-identical to draft's render at 1440×2629.

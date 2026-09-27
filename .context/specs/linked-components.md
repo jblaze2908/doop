@@ -2,7 +2,7 @@
 
 Status: shipped on the `tijori/design-system` fork, 2026-09-27. Code: `shared/components.ts`,
 `actions.setComponent` / `deleteComponent`, `src/components/ComponentsSection.tsx`, the
-`doop:components` handler in `src/lib/frameRuntime.ts`.
+`draft:components` handler in `src/lib/frameRuntime.ts`.
 
 ## Problem
 
@@ -20,7 +20,7 @@ props, description, version, deletedAt? }`. `name` is the custom element tag (`d
 - One runtime (`COMPONENT_RUNTIME`) runs in both paths: embedded in the frame bootstrap, and
   injected as a `<script>` after the theme `<style>` in server renders (`prepareFrameHtml`).
   Custom elements cannot be redefined, so each tag is defined once and looks its template up in a
-  registry; `doopComponents.refresh()` re-renders instances whose definition version or attributes
+  registry; `draftComponents.refresh()` re-renders instances whose definition version or attributes
   changed (after each morph).
 - The theme reaches shadow roots through a shared constructable sheet (document styles do not
   cross the shadow boundary; custom properties do).

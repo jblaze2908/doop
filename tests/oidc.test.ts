@@ -74,7 +74,7 @@ describe('boot-time refusal on partial OIDC config', () => {
      boot, but wrong for asserting one that should never come up at all -
      this spawns directly and asserts the process exits on its own. */
   it('exits rather than boot when only some of the three required vars are set', async () => {
-    const dataDir = mkdtempSync(path.join(tmpdir(), 'doop-test-'))
+    const dataDir = mkdtempSync(path.join(tmpdir(), 'draft-test-'))
     const proc = spawn(path.join(ROOT, 'node_modules', '.bin', 'tsx'), [path.join(ROOT, 'server', 'index.ts')], {
       cwd: dataDir,
       env: {

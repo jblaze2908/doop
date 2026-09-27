@@ -1,17 +1,17 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "doop",
+  "productName": "draft",
   "version": "0.4.0",
-  "identifier": "design.doop.desktop",
+  "identifier": "design.draft.desktop",
   "build": {
     "devUrl": "http://localhost:4300",
-    "frontendDist": "https://doop.design"
+    "frontendDist": "https://draft.jaivardhansingh.com"
   },
   "plugins": {
     "deep-link": {
       "desktop": {
         "schemes": [
-          "doop"
+          "draft"
         ]
       }
     }

@@ -1,7 +1,7 @@
 /* The desktop shell cannot finish a Google / Microsoft / SSO sign-in itself:
    identity providers refuse embedded webviews, so the provider round trip
    runs in the system browser and the resulting session is handed back to
-   the app over a doop:// deep link. This module holds the URL shapes both
+   the app over a draft:// deep link. This module holds the URL shapes both
    ends agree on; the flow is:
 
      1. AuthPage (in the shell) mints a random challenge, remembers it as
@@ -21,7 +21,7 @@
         the challenge matches its pending sign-in — the server sets the
         session cookie in the webview — then lands on `target`.
 
-   The challenge is what stops an unsolicited doop://auth link (minted from
+   The challenge is what stops an unsolicited draft://auth link (minted from
    someone else's browser session) from signing this app into a foreign
    account: without a matching pending sign-in the link is ignored. It also
    makes the link that launched the app safe to consume once — after the
@@ -73,7 +73,7 @@ export function parseDesktopSignInQuery(search: string): DesktopSignInRequest | 
 }
 
 /** Registered by the shell (desktop/src-tauri/tauri.conf.json, plugins.deep-link). */
-export const DESKTOP_SCHEME = 'doop'
+export const DESKTOP_SCHEME = 'draft'
 
 export interface DesktopAuthLink {
   token: string
@@ -124,7 +124,7 @@ export function parseDesktopAuthDeepLink(url: string): DesktopAuthLink | null {
  *  reload that follows a redeem (so the replayed launch URL is recognised
  *  as spent) and a relaunch of the app (so a link that arrives cold — the
  *  app was quit while the browser was busy — still redeems). */
-const PENDING_KEY = 'doop-desktop-signin'
+const PENDING_KEY = 'draft-desktop-signin'
 
 /** The browser side has this long to come back; the one-time token itself
  *  lives 2 minutes (server/auth.ts), this only bounds how long we listen. */

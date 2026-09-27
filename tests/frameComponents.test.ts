@@ -49,7 +49,7 @@ describe.skipIf(!findBrowserPath())('component runtime', () => {
     await page.evaluate(() => {
       window.edited = []
       window.addEventListener('message', (ev) => {
-        if (ev.data?.type === 'doop:edited') window.edited.push(ev.data.html)
+        if (ev.data?.type === 'draft:edited') window.edited.push(ev.data.html)
       })
     })
   }, 60_000)
@@ -65,9 +65,9 @@ describe.skipIf(!findBrowserPath())('component runtime', () => {
     }, msg)
 
   it('renders slots and props with the theme inside the shadow root', async () => {
-    await post({ type: 'doop:theme', css: THEME })
-    await post({ type: 'doop:components', defs: [stat()] })
-    await post({ type: 'doop:html', html: DOC })
+    await post({ type: 'draft:theme', css: THEME })
+    await post({ type: 'draft:components', defs: [stat()] })
+    await post({ type: 'draft:html', html: DOC })
     expect(await readInstance(page)).toEqual({
       text: 'Net worth',
       label: 'Net worth',
@@ -79,33 +79,33 @@ describe.skipIf(!findBrowserPath())('component runtime', () => {
 
   it('re-renders on attribute changes from a morph and on a new definition', async () => {
     await post({
-      type: 'doop:html',
+      type: 'draft:html',
       html: DOC.replace('label="Net worth"', 'label="Liabilities" tone="loss"'),
     })
     expect(await readInstance(page)).toMatchObject({ label: 'Liabilities', slotColor: 'rgb(255, 0, 0)' })
     await post({
-      type: 'doop:components',
+      type: 'draft:components',
       defs: [stat({ version: 2, html: '<b class="t">[{{label}}]</b><i><slot></slot></i>' })],
     })
     expect((await readInstance(page)).label).toBe('[Liabilities]')
   })
 
   it('keeps frame HTML linked: serialize() sees only the light DOM', async () => {
-    await post({ type: 'doop:edit', on: true })
-    await post({ type: 'doop:edit', on: false })
+    await post({ type: 'draft:edit', on: true })
+    await post({ type: 'draft:edit', on: false })
     const html = await page.evaluate(() => window.edited[window.edited.length - 1] ?? '')
     expect(html).toContain('<ds-stat label="Liabilities" tone="loss">₹18</ds-stat>')
     expect(html).not.toContain('<b class="t">')
   })
 
   it('shows a visible fallback for a deleted component and for runaway nesting', async () => {
-    await post({ type: 'doop:components', defs: [stat({ version: 3, deletedAt: 1 })] })
+    await post({ type: 'draft:components', defs: [stat({ version: 3, deletedAt: 1 })] })
     expect((await readInstance(page)).text).toBe('Missing component: <ds-stat> ')
     await post({
-      type: 'doop:components',
+      type: 'draft:components',
       defs: [stat({ version: 4 }), { name: 'ds-loop', html: '<ds-loop></ds-loop>', css: '', props: [], version: 1 }],
     })
-    await post({ type: 'doop:html', html: DOC.replace('</body>', '<ds-loop></ds-loop></body>') })
+    await post({ type: 'draft:html', html: DOC.replace('</body>', '<ds-loop></ds-loop></body>') })
     const deepest = await page.evaluate(() => {
       let el: Element | null | undefined = document.querySelector('ds-loop')
       let text = ''

@@ -60,12 +60,12 @@ describe.skipIf(!findBrowserPath())('frame runtime streaming', () => {
     for (let i = 0; i < DOC.length; i += 97) {
       const html = healer.push(DOC.slice(i, i + 97))
       const before = await reads()
-      await post({ type: 'doop:html', html, append: true })
+      await post({ type: 'draft:html', html, append: true })
       spineReads = (await reads()) - before
       expect(await matchesParse(html)).toBe(true)
     }
     const before = await reads()
-    await post({ type: 'doop:html', html: DOC, append: false })
+    await post({ type: 'draft:html', html: DOC, append: false })
     const fullReads = (await reads()) - before
     expect(await matchesParse(DOC)).toBe(true)
     /* the last mid-stream render vs a full resync of the same document */
@@ -74,18 +74,18 @@ describe.skipIf(!findBrowserPath())('frame runtime streaming', () => {
 
   it('falls back to a full morph when the html is not an extension of the last render', async () => {
     const other = '<!doctype html><html><head></head><body><main><h1>Different</h1></main></body></html>'
-    await post({ type: 'doop:html', html: other, append: true })
+    await post({ type: 'draft:html', html: other, append: true })
     expect(await matchesParse(other)).toBe(true)
   })
 
   it('drops the shortcut after another writer changed the DOM', async () => {
     const a = '<!doctype html><html><head></head><body><p id="x">one</p><p>two</p></body></html>'
-    await post({ type: 'doop:html', html: a, append: false })
-    await post({ type: 'doop:style', reqId: 1, selector: '#x', styles: { color: 'rgb(1, 2, 3)' } })
+    await post({ type: 'draft:html', html: a, append: false })
+    await post({ type: 'draft:style', reqId: 1, selector: '#x', styles: { color: 'rgb(1, 2, 3)' } })
     /* renders wait out the style edit's save debounce (250 ms) */
     await new Promise((r) => setTimeout(r, 400))
     const b = a.replace('</body>', '<p>three</p></body>')
-    await post({ type: 'doop:html', html: b, append: true })
+    await post({ type: 'draft:html', html: b, append: true })
     expect(await matchesParse(b)).toBe(true)
   })
 })

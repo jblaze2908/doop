@@ -8,13 +8,13 @@ import { Callout } from '../components/ui/callout'
 /* Step 1 of the desktop sign-in (src/lib/desktopAuth.ts), in the system
    browser: begin the provider round trip here so better-auth's state cookie
    and the provider's callback share a cookie jar. If this browser already
-   holds a doop session there is nothing to prove — go straight to the
+   holds a draft session there is nothing to prove — go straight to the
    handoff. Renders only a holding card: the browser leaves within moments. */
 export function DesktopSignIn({ signedIn }: { signedIn: boolean }) {
   /* read once: the query is fixed for the life of this page */
   const request = useMemo(() => parseDesktopSignInQuery(location.search), [])
   const [startError, setStartError] = useState<string | null>(null)
-  const error = request ? startError : 'This sign-in link is incomplete — go back to the doop app and try again.'
+  const error = request ? startError : 'This sign-in link is incomplete — go back to the draft app and try again.'
 
   useEffect(() => {
     if (!request) return
@@ -23,7 +23,7 @@ export function DesktopSignIn({ signedIn }: { signedIn: boolean }) {
       location.replace(callbackURL)
       return
     }
-    const failed = 'Could not start sign-in — go back to the doop app and try again.'
+    const failed = 'Could not start sign-in — go back to the draft app and try again.'
     const start =
       request.provider === 'oidc'
         ? authClient.signIn.oauth2({ providerId: 'oidc', callbackURL, errorCallbackURL: '/auth' })
@@ -45,7 +45,7 @@ export function DesktopSignIn({ signedIn }: { signedIn: boolean }) {
         {error ? (
           <Callout tone="error">{error}</Callout>
         ) : (
-          <p className="text-sm text-ink-soft">Taking you to your identity provider for the doop app.</p>
+          <p className="text-sm text-ink-soft">Taking you to your identity provider for the draft app.</p>
         )}
       </div>
     </AuthScreen>

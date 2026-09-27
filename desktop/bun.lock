@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "doop-desktop",
+      "name": "draft-desktop",
       "devDependencies": {
         "@tauri-apps/cli": "^2.9.0",
       },

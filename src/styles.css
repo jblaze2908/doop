@@ -4,7 +4,7 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Tailwind is the utility API for Doop's existing design system. Keep the
+/* Tailwind is the utility API for Draft's existing design system. Keep the
    semantic CSS variables below as the source of truth while the legacy
    component rules are migrated incrementally. */
 @theme inline {
@@ -36,7 +36,7 @@
   --ease-in-out-quad: var(--ease-in-out-quad);
   --ease-in-out-cubic: var(--ease-in-out-cubic);
   --breakpoint-xs: 30rem;
-  /* Doop's mobile boundary, in one place. `md:` is the switch between the
+  /* Draft's mobile boundary, in one place. `md:` is the switch between the
      phone layout and the desktop one, and useIsMobile() matches the same
      900px in JS — keep the two in step or the canvas will render its mobile
      sheets while the page is still in its desktop layout. */

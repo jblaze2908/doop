@@ -11,7 +11,7 @@
  */
 
 const REFERO_ENDPOINT = 'https://styles.refero.design/api/styles/search'
-const UA = { 'user-agent': 'Mozilla/5.0 (compatible; doop-design-agent)' }
+const UA = { 'user-agent': 'Mozilla/5.0 (compatible; draft-design-agent)' }
 const FETCH_TIMEOUT_MS = 15_000
 
 export interface InspirationResult {

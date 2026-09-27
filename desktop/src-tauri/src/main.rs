@@ -1,4 +1,4 @@
-// doop desktop shell: a single webview over the hosted app. The window is
+// draft desktop shell: a single webview over the hosted app. The window is
 // built in code (not tauri.conf.json) because the navigation handler below
 // needs the app handle. It opens on /auth, not /: someone launching the
 // installed app never wants the marketing landing page — /auth shows the
@@ -19,7 +19,7 @@
 // Sign-in with Google / Microsoft / SSO cannot happen in the webview —
 // identity providers refuse embedded browsers — so the page opens the
 // provider in the system browser and the finished sign-in comes back as a
-// doop://auth?token=… link (src/lib/desktopAuth.ts). The deep-link plugin
+// draft://auth?token=… link (src/lib/desktopAuth.ts). The deep-link plugin
 // registers the scheme (tauri.conf.json) and forwards each URL to the page
 // as a `deep-link://new-url` event; the shell only brings its window to the
 // front so the person sees the result of the click.
@@ -48,7 +48,7 @@ use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_opener::OpenerExt;
 
-/// Bring the (only) window forward: after a doop:// link, or when a second
+/// Bring the (only) window forward: after a draft:// link, or when a second
 /// instance was launched to deliver one.
 fn focus_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
@@ -59,20 +59,20 @@ fn focus_main_window(app: &AppHandle) {
 
 /// The hosted app this shell wraps. Self-hosters can point release builds at
 /// their own instance without patching the source:
-///   DOOP_APP_URL=https://doop.example.com npm run build
+///   DRAFT_APP_URL=https://draft.example.com npm run build
 /// (When overriding, also put the origin in capabilities/default.json or the
 /// page cannot reach the shell's IPC — external links then open in-window.)
-const APP_URL: &str = match option_env!("DOOP_APP_URL") {
+const APP_URL: &str = match option_env!("DRAFT_APP_URL") {
     Some(url) => url,
-    None => "https://doop.design",
+    None => "https://draft.jaivardhansingh.com",
 };
 
 fn base_url() -> String {
     if cfg!(debug_assertions) {
         // A second worktree runs its dev pair on other ports (vite.config.ts);
-        // DOOP_DEV_URL points a dev shell at it. Keep tauri.conf.json's devUrl
+        // DRAFT_DEV_URL points a dev shell at it. Keep tauri.conf.json's devUrl
         // in step so IPC keeps treating the pages as local.
-        option_env!("DOOP_DEV_URL")
+        option_env!("DRAFT_DEV_URL")
             .unwrap_or("http://localhost:4300")
             .trim_end_matches('/')
             .to_string()
@@ -237,7 +237,7 @@ fn main() {
             let _ = (window, event);
         })
         .setup(|app| {
-            // macOS registers doop:// from the bundle's Info.plist, so it
+            // macOS registers draft:// from the bundle's Info.plist, so it
             // only works installed; Windows and Linux can register at
             // runtime, which also makes `tauri dev` receive links.
             #[cfg(any(windows, target_os = "linux"))]
@@ -267,7 +267,7 @@ fn main() {
             // (traffic-light inset arrived with the overlay title bar, 0.1.2)
             // and the platform tells it which window framing it lives under.
             let desktop_marker = format!(
-                "window.__DOOP_DESKTOP__ = '{}'; window.__DOOP_DESKTOP_PLATFORM__ = '{}';",
+                "window.__DRAFT_DESKTOP__ = '{}'; window.__DRAFT_DESKTOP_PLATFORM__ = '{}';",
                 app.package_info().version,
                 std::env::consts::OS
             );
@@ -325,7 +325,7 @@ fn main() {
                         }
                         true
                     })
-                    .title("doop")
+                    .title("draft")
                     .inner_size(1440.0, 900.0)
                     .min_inner_size(900.0, 600.0)
                     .on_navigation(move |url| {
@@ -351,5 +351,5 @@ fn main() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("failed to start doop");
+        .expect("failed to start draft");
 }

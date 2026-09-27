@@ -45,7 +45,7 @@ function shortMessage(value: unknown): string {
 }
 
 /** Context.dev owns remote navigation, JavaScript rendering, proxy escalation,
- * and challenge handling. Doop still turns the returned DOM into a passive,
+ * and challenge handling. Draft still turns the returned DOM into a passive,
  * editable frame and renders that HTML locally for previews. */
 export async function scrapeContextWebsiteHtml(
   rawUrl: string,
@@ -143,7 +143,7 @@ export async function scrapeContextWebsiteHtml(
   }
 }
 
-/** Discover declared pages through Context.dev without asking Doop's server to
+/** Discover declared pages through Context.dev without asking Draft's server to
  * crawl arbitrary website URLs itself. The rendered seed page still supplies
  * ordinary links when a site has no sitemap. */
 export async function scrapeContextSitemap(

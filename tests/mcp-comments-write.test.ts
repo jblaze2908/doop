@@ -63,7 +63,7 @@ interface CallResult {
 
 async function connect(ownerId: string | undefined = OWNER_ID) {
   const server = buildMcpServer('Test Owner', ownerId)
-  const client = new Client({ name: 'doop-comment-write-test', version: '1.0.0' })
+  const client = new Client({ name: 'draft-comment-write-test', version: '1.0.0' })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   await server.connect(serverTransport)
   await client.connect(clientTransport)
@@ -198,17 +198,17 @@ describe('element-comment write MCP tools', () => {
       const ok = await call(client, 'reply_to_comment', {
         canvas_id: CANVAS.id,
         comment_id: 'm1',
-        text: '@Doop please tighten the hero',
+        text: '@Draft please tighten the hero',
         agent_name: 'Claude',
       })
       expect(ok.isError).toBeFalsy()
-      expect(replySpy).toHaveBeenCalledWith('m1', '@Doop please tighten the hero', 'Claude', 'agent')
+      expect(replySpy).toHaveBeenCalledWith('m1', '@Draft please tighten the hero', 'Claude', 'agent')
 
       replySpy.mockReturnValue(undefined)
       const failed = await call(client, 'reply_to_comment', {
         canvas_id: CANVAS.id,
         comment_id: 'm1',
-        text: '@Doop again',
+        text: '@Draft again',
         agent_name: 'Claude',
       })
       expect(failed.isError).toBe(true)
@@ -389,7 +389,7 @@ describe('MCP comment write tools over real action state', () => {
   })
 
   it('captures exactly one decision when a thread is resolved twice', async () => {
-    const root = seedRoot('@Doop make it 48px')
+    const root = seedRoot('@Draft make it 48px')
     expect(root.forAgent).toBe(true)
     const { client, close } = await connect()
     try {
@@ -404,7 +404,7 @@ describe('MCP comment write tools over real action state', () => {
       const decisions = actions.getDecisions(CANVAS.id)
       expect(decisions).toHaveLength(1)
       expect(decisions[0]).toMatchObject({
-        text: '@Doop make it 48px',
+        text: '@Draft make it 48px',
         source: 'comment',
         from: 'alice',
         agentName: 'Claude',

@@ -18,9 +18,9 @@ export function ConnectModal({ canvasId, onClose }: { canvasId?: string; onClose
         <ModalTitle>Connect an AI agent</ModalTitle>
         <ModalLede>
           Any MCP-capable AI can design on this canvas. The endpoint is OAuth-protected: after adding it, trigger the
-          sign-in from your client — in Claude Code type <code>/mcp</code>, pick <strong>doop</strong> and authenticate;
-          a browser window opens to approve the connection. The agent then works <em>as yours</em>, and its tasks are
-          attributed to you.
+          sign-in from your client — in Claude Code type <code>/mcp</code>, pick <strong>draft</strong> and
+          authenticate; a browser window opens to approve the connection. The agent then works <em>as yours</em>, and
+          its tasks are attributed to you.
         </ModalLede>
 
         <ConnectBody canvasId={canvasId} />
@@ -38,14 +38,14 @@ export function ConnectModal({ canvasId, onClose }: { canvasId?: string; onClose
 export function ConnectBody({ canvasId }: { canvasId?: string }) {
   const mcpUrl = `${location.origin}/mcp`
 
-  const claudeCmd = `claude mcp add --transport http doop "${mcpUrl}"`
-  const codexCmd = `codex mcp add doop --url ${mcpUrl}`
-  const jsonConfig = JSON.stringify({ mcpServers: { doop: { type: 'http', url: mcpUrl } } }, null, 2)
+  const claudeCmd = `claude mcp add --transport http draft "${mcpUrl}"`
+  const codexCmd = `codex mcp add draft --url ${mcpUrl}`
+  const jsonConfig = JSON.stringify({ mcpServers: { draft: { type: 'http', url: mcpUrl } } }, null, 2)
   /* Deliberately thin: the MCP server ships its own INSTRUCTIONS on connect and the
      rest lives behind get_guide. The only thing this prompt knows that they don't is
      which canvas the human is looking at. */
   const prompt = canvasId
-    ? `Work on Doop canvas ${canvasId}. Start with get_guide({ topic: "doop-instructions" }) and follow it.`
+    ? `Work on Draft canvas ${canvasId}. Start with get_guide({ topic: "draft-instructions" }) and follow it.`
     : ''
 
   return (
@@ -69,7 +69,7 @@ export function ConnectBody({ canvasId }: { canvasId?: string }) {
   )
 }
 
-/** Live connection status: flips the moment an outside agent (not the Doop
+/** Live connection status: flips the moment an outside agent (not the Draft
  *  demo) joins this canvas's presence, so nobody is left wondering whether the
  *  OAuth dance actually worked. */
 export function AgentArrival() {

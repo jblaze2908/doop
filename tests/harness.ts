@@ -24,7 +24,7 @@ export interface Server {
 }
 
 export async function startServer(port: number, env: Record<string, string> = {}, reuseDir?: string): Promise<Server> {
-  const dataDir = reuseDir ?? mkdtempSync(path.join(tmpdir(), 'doop-test-'))
+  const dataDir = reuseDir ?? mkdtempSync(path.join(tmpdir(), 'draft-test-'))
   const proc: ChildProcess = spawn(
     path.join(ROOT, 'node_modules', '.bin', 'tsx'),
     [path.join(ROOT, 'server', 'index.ts')],

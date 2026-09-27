@@ -203,9 +203,9 @@ export function themeFontFaces(fontFaces: string): ThemeFontFace[] {
   return out
 }
 
-/** A frame opts out with `<html data-doop-theme="off">` (imports, frames that ship their own CSS). */
+/** A frame opts out with `<html data-draft-theme="off">` (imports, frames that ship their own CSS). */
 export function themeOptedOut(html: string): boolean {
-  return /<html\b[^>]*\bdata-doop-theme\s*=\s*["']?off\b/i.test(html)
+  return /<html\b[^>]*\bdata-draft-theme\s*=\s*["']?off\b/i.test(html)
 }
 
 /** Mark a frame as opted out. Imports and synced screens ship their own
@@ -215,11 +215,11 @@ export function withoutTheme(html: string): string {
   const tag = /<html\b/i.exec(html)
   if (tag) {
     const at = tag.index + tag[0].length
-    return `${html.slice(0, at)} data-doop-theme="off"${html.slice(at)}`
+    return `${html.slice(0, at)} data-draft-theme="off"${html.slice(at)}`
   }
   const doctype = /<!doctype[^>]*>/i.exec(html)
   const at = doctype ? doctype.index + doctype[0].length : 0
-  return `${html.slice(0, at)}<html data-doop-theme="off">${html.slice(at)}`
+  return `${html.slice(0, at)}<html data-draft-theme="off">${html.slice(at)}`
 }
 
 /** Insert markup as the first thing in the document's <head>. The anchors
@@ -237,5 +237,5 @@ export function spliceHead(html: string, markup: string): string {
  *  in the browser: the frame's own styles come later and win the cascade. */
 export function spliceTheme(html: string, css: string): string {
   if (!css || themeOptedOut(html)) return html
-  return spliceHead(html, `<style data-doop-theme>${css}</style>`)
+  return spliceHead(html, `<style data-draft-theme>${css}</style>`)
 }

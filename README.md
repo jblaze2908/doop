@@ -1,16 +1,15 @@
 <p align="center">
-  <img src=".github/assets/banner.png" alt="doop — the open-source alternative to Paper.design: humans and AI agents designing together, live" width="100%">
+  <img src=".github/assets/banner.png" alt="draft — the open-source alternative to Paper.design: humans and AI agents designing together, live" width="100%">
 </p>
 
 <p align="center">
-  <a href="https://github.com/kgoedecke/doop/actions/workflows/ci.yml"><img src="https://github.com/kgoedecke/doop/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/jblaze2908/doop/actions/workflows/ci.yml"><img src="https://github.com/jblaze2908/doop/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-111110" alt="License: AGPL-3.0"></a>
-  <a href="https://doop.design"><img src="https://img.shields.io/badge/cloud-doop.design-2743EE" alt="Doop Cloud"></a>
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-111110" alt="PRs welcome"></a>
   <a href="https://discord.com/invite/3AUfXjgVe"><img src="https://img.shields.io/badge/chat-Discord-5865F2" alt="Discord"></a>
 </p>
 
-**[Doop](https://doop.design/?utm_source=github) is the open-source alternative to [Paper.design](https://paper.design) — a multiplayer
+**Draft is a fork of [doop](https://github.com/kgoedecke/doop), the open-source alternative to [Paper.design](https://paper.design) — a multiplayer
 design canvas for humans _and_ AI agents.** Every design lives on a shareable **Canvas**
 (`/c/<id>`) holding **Frames** — artboards that render real HTML in sandboxed iframes. People edit
 in the browser; AI agents edit through the built-in **MCP server**, streaming their designs in
@@ -18,7 +17,7 @@ live. Everyone sees everything as it happens: cursors, presence, frame edits, ag
 activity feed.
 
 <p align="center">
-  <img src=".github/assets/canvas.png" alt="A doop canvas: three frames of a ceramics brand — landing hero, mobile product page and brand tokens" width="100%">
+  <img src=".github/assets/canvas.png" alt="A draft canvas: three frames of a ceramics brand — landing hero, mobile product page and brand tokens" width="100%">
 </p>
 
 - **Design with agents, not prompts-and-refresh** — connect Claude Code (or any MCP client) once,
@@ -35,12 +34,12 @@ activity feed.
 ## Quickstart
 
 ```bash
-git clone https://github.com/kgoedecke/doop && cd doop
+git clone https://github.com/kgoedecke/doop && cd draft
 bun install
 bun run dev
 ```
 
-Doop builds and installs with [bun](https://bun.sh) (`bun.lock` is the only
+Draft builds and installs with [bun](https://bun.sh) (`bun.lock` is the only
 lockfile); the server itself runs on Node.
 
 - Web app: **http://localhost:4300**
@@ -59,14 +58,12 @@ BETTER_AUTH_SECRET=$(openssl rand -hex 32) docker compose up -d   # app + Postgr
 Production build without Docker: `bun run build && bun run start` (single server on :4400 serving
 everything). Set `DATABASE_URL` to use a real Postgres — same code path as PGlite.
 
-Prefer not to run anything? **[doop.design](https://doop.design)** is the hosted version.
-
 ## Hook up Claude Code
 
 One command connects Claude Code (or any MCP client) to your canvas:
 
 ```bash
-claude mcp add --transport http doop http://localhost:4300/mcp
+claude mcp add --transport http draft http://localhost:4300/mcp
 ```
 
 That triggers the standard MCP OAuth flow — a browser window opens, you approve, and from then on
@@ -81,7 +78,7 @@ the frame chip, the working strip, and the task in the Agents panel.
 
 ## Watch an agent design
 
-The first canvas after signup comes with a performance: the Doop demo agent streams a welcome
+The first canvas after signup comes with a performance: the Draft demo agent streams a welcome
 design in while you watch — status in the working strip, a task in the panel, a pulsing border on
 the frame it's building.
 
@@ -98,7 +95,7 @@ The web app requires an account (better-auth, email/password — open signup). Y
 name is your identity everywhere: cursors, presence, the activity feed, and feedback
 attribution are all server-authoritative from the session, and the WebSocket rejects
 unauthenticated joins. **Canvases are private by default**, Figma-style: only the owner
-and people they invite (Share → invite by email, existing doop accounts) can open one.
+and people they invite (Share → invite by email, existing draft accounts) can open one.
 The Share modal can also turn on link sharing per canvas ("anyone with the link can
 edit"), which restores drop-a-link collaboration for that canvas. Your home screen lists
 your own canvases plus ones shared with you (plus unowned legacy ones, claimable there).
@@ -114,8 +111,10 @@ verification and "forgot password" sends real reset links. Without it, signup st
 email is printed to the server log, links included — the flows still work in development.
 
 Set `SIGNUP_EMAIL_DOMAINS=jointhetroops.com` to restrict new accounts to one email domain, or use a
-comma-separated list for several domains. Matching is case-insensitive and exact; existing accounts
-are unaffected. Leave it unset to keep public signup open.
+comma-separated list for several domains. `SIGNUP_EMAILS=you@example.com,friend@example.com` allows
+exact addresses instead (or as well), for a private instance where a shared domain like gmail.com
+would open signup to everyone. Matching is case-insensitive and exact; existing accounts are
+unaffected. Leave both unset to keep public signup open.
 
 Set `REQUIRE_EMAIL_VERIFICATION=false` to let people in before they verify — the link is still
 emailed, it just stops gating sign-in. Admin promotion is deliberately not part of that trade:
@@ -197,7 +196,7 @@ verified. Everything else (allowlist, admin promotion) follows the SSO rules abo
 ## Agent auth (MCP OAuth)
 
 The `/mcp` endpoint requires OAuth. Adding the server in Claude Code / Codex triggers
-the standard MCP OAuth flow: a browser window opens, you sign in to Doop and approve,
+the standard MCP OAuth flow: a browser window opens, you sign in to Draft and approve,
 and the client stores a bearer token. Every tool call then carries your identity —
 agent tasks show "for ⟨you⟩" in the Tasks panel, and presence tooltips name the owner.
 Unauthenticated calls get a 401 with `WWW-Authenticate` discovery pointers
@@ -216,15 +215,15 @@ Any container host works; Railway/Fly are the least friction:
    the PGlite fallback is embedded/single-process and only suits a single instance with a
    persistent volume mounted at `/app/data`.
 3. Set `BETTER_AUTH_SECRET` (long random string) and `BETTER_AUTH_URL` (the public origin,
-   e.g. `https://doop.example.com`). Extra allowed origins: `TRUSTED_ORIGINS` (comma-separated).
+   e.g. `https://draft.example.com`). Extra allowed origins: `TRUSTED_ORIGINS` (comma-separated).
 4. Health check: `GET /healthz`. The server trusts one proxy hop (`trust proxy`), so
    TLS termination at the platform edge works out of the box.
 
 Local sanity check of the exact production image:
 
 ```bash
-docker build -t doop .
-docker run -p 4400:4400 -e BETTER_AUTH_URL=http://localhost:4400 -e BETTER_AUTH_SECRET=dev-only doop
+docker build -t draft .
+docker run -p 4400:4400 -e BETTER_AUTH_URL=http://localhost:4400 -e BETTER_AUTH_SECRET=dev-only draft
 ```
 
 ## Connect an AI agent
@@ -238,13 +237,13 @@ http://localhost:4300/mcp
 Claude Code:
 
 ```bash
-claude mcp add --transport http doop http://localhost:4300/mcp
+claude mcp add --transport http draft http://localhost:4300/mcp
 ```
 
 Generic MCP config:
 
 ```json
-{ "mcpServers": { "doop": { "type": "http", "url": "http://localhost:4300/mcp" } } }
+{ "mcpServers": { "draft": { "type": "http", "url": "http://localhost:4300/mcp" } } }
 ```
 
 Then tell the agent something like:
@@ -258,16 +257,16 @@ Then tell the agent something like:
 Screenshots render in your system Chrome/Chromium via `puppeteer-core` (set `CHROME_PATH` if it isn't
 auto-detected). Humans can hit the same renderer at `GET /api/frames/:id/screenshot.png?scale=2`.
 For website viewing/imports, setting `CONTEXT_DEV_API_KEY` makes Context.dev acquire the rendered
-HTML while Doop still sanitizes it and renders the preview locally; without the key, Doop navigates
+HTML while Draft still sanitizes it and renders the preview locally; without the key, Draft navigates
 to the public page directly in Chromium.
 
 ### Design sync: push an app's live screens onto a canvas
 
-Server-side import can't reach apps behind SSO or a VPN. The **doop-sync snippet** flips the capture
+Server-side import can't reach apps behind SSO or a VPN. The **draft-sync snippet** flips the capture
 to the user's browser: mint a write-only key in a canvas's Share dialog, drop one tag into the app —
 
 ```html
-<script async src="https://your-doop-origin/doop-sync.js?key=dk_…"></script>
+<script async src="https://your-draft-origin/draft-sync.js?key=dk_…"></script>
 ```
 
 — and every distinct screen people visit lands on that canvas as a frame (one row per app), imported
@@ -278,8 +277,8 @@ normalized (`/orders/8231` → `/orders/:id`) so each screen maps to one
 frame; captures are serialized from the CSSOM (so styled-components/emotion output survives), and
 same-origin webfonts and small images are inlined as data: URIs — fonts require CORS inside the
 sandboxed frame, and intranet URLs would never render for viewers outside the network. Scripts are
-stripped client- and server-side, input values are always dropped, and anything marked `data-doop-mask`
-is redacted before upload (`data-doop-sync-ignore` excludes an element entirely). The key is the whole
+stripped client- and server-side, input values are always dropped, and anything marked `data-draft-mask`
+is redacted before upload (`data-draft-sync-ignore` excludes an element entirely). The key is the whole
 credential: it can only write frames to its one canvas, so revoking it in the Share dialog cuts the
 app off instantly. Endpoint: `POST /ingest/<key>` (CORS-open, no cookies).
 
@@ -408,7 +407,7 @@ It does not claim task feedback or comments, or mark anything resolved.
 inheriting the root's element anchor. `resolve_comment({ canvas_id, comment_id, agent_name })`
 closes it, and resolving an `@mention` thread also records the exchange in canvas Memory. Both
 require the same canvas access as every other MCP tool. A comment that `@mentions` an agent role
-(`@doop`, `@ux`, `@copy`, `@brand`, `@a11y`, `@polish` — see [`shared/agents.ts`](shared/agents.ts))
+(`@draft`, `@ux`, `@copy`, `@brand`, `@a11y`, `@polish` — see [`shared/agents.ts`](shared/agents.ts))
 comes back with `forAgent: true` and the role in `targetAgent`: a request for an agent to pick up.
 
 ## What's in the box
@@ -441,7 +440,7 @@ src/             React + Vite + zustand client on :4300
 
 ### Styling
 
-Doop's look is a component system, not a stylesheet. `src/components/ui/` holds the
+Draft's look is a component system, not a stylesheet. `src/components/ui/` holds the
 primitives — `Button`, `Input`, `Badge`, `Card`, `Panel`, `Modal`, `Menu`, `Toolbar`,
 `Segmented`, `Dash*` and the rest — each a Tailwind + [CVA](https://cva.style) recipe bound
 to the tokens in `styles.css`. Screens compose those; they don't re-describe borders,
@@ -470,9 +469,9 @@ schema changes go through drizzle migrations (`npx drizzle-kit generate` after e
 
 ## License
 
-Doop is open source under the [GNU AGPL v3](LICENSE). In short: use it, self-host it,
+Draft is open source under the [GNU AGPL v3](LICENSE). In short: use it, self-host it,
 modify it — but if you offer a modified version as a service, you must publish your
 changes under the same license.
 
-The **doop name and logo are trademarks** and are not covered by the code license —
+The **draft name and logo are trademarks** and are not covered by the code license —
 please rebrand derived services.

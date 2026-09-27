@@ -32,7 +32,7 @@ export const FRAME_REPLAY_RUNTIME = `
     replayAttempts++
     var script = document.createElement('script')
     replayScript = script
-    script.setAttribute('data-doop-replay', '')
+    script.setAttribute('data-draft-replay', '')
     script.src = replayUrl
     script.onload = function () {
       script.remove()
@@ -53,7 +53,7 @@ export const FRAME_REPLAY_RUNTIME = `
     document.documentElement.appendChild(script)
   }
   window.addEventListener('message', function (ev) {
-    if (ev.source !== parent || !ev.data || ev.data.type !== 'doop:replay') return
+    if (ev.source !== parent || !ev.data || ev.data.type !== 'draft:replay') return
     var d = ev.data
     if (d.generation !== replayGeneration || !d.options) {
       if (replayStop) replayStop()

@@ -352,7 +352,7 @@ function postComment(
 ): ElementComment | undefined {
   const clean = text.trim()
   if (!clean) return undefined
-  /* @doop, @brand, @a11y… — the mention flags the comment as a request for an agent */
+  /* @draft, @brand, @a11y… — the mention flags the comment as a request for an agent */
   const mentioned = mentionedRole(clean)
   const list = commentLog.get(frame.canvasId) ?? []
   /* strictly increasing per canvas: thread order is reconstructed from `at`

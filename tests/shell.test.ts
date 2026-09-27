@@ -1,18 +1,18 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { desktopPlatform, hasInsetTrafficLights, isDesktopShell, shellVersion } from '../src/lib/shell'
 
-type Markers = { __DOOP_DESKTOP__?: unknown; __DOOP_DESKTOP_PLATFORM__?: unknown }
+type Markers = { __DRAFT_DESKTOP__?: unknown; __DRAFT_DESKTOP_PLATFORM__?: unknown }
 const g = globalThis as Markers
 
 function shell(version: unknown, platform?: unknown) {
-  g.__DOOP_DESKTOP__ = version
-  if (platform === undefined) delete g.__DOOP_DESKTOP_PLATFORM__
-  else g.__DOOP_DESKTOP_PLATFORM__ = platform
+  g.__DRAFT_DESKTOP__ = version
+  if (platform === undefined) delete g.__DRAFT_DESKTOP_PLATFORM__
+  else g.__DRAFT_DESKTOP_PLATFORM__ = platform
 }
 
 afterEach(() => {
-  delete g.__DOOP_DESKTOP__
-  delete g.__DOOP_DESKTOP_PLATFORM__
+  delete g.__DRAFT_DESKTOP__
+  delete g.__DRAFT_DESKTOP_PLATFORM__
 })
 
 describe('outside the shell', () => {
@@ -24,7 +24,7 @@ describe('outside the shell', () => {
   })
 
   it('ignores a platform marker without a version marker', () => {
-    g.__DOOP_DESKTOP_PLATFORM__ = 'windows'
+    g.__DRAFT_DESKTOP_PLATFORM__ = 'windows'
     expect(desktopPlatform()).toBeNull()
   })
 })

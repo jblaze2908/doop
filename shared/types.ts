@@ -99,7 +99,7 @@ export interface WorkspaceMember {
   addedAt: number
 }
 
-/** An outstanding invite to an email with no doop account yet. */
+/** An outstanding invite to an email with no draft account yet. */
 export interface WorkspaceInvite {
   id: string
   email: string

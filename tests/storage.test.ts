@@ -9,7 +9,7 @@ let tmp: string
 let storage: typeof import('../server/storage.ts')
 
 beforeAll(async () => {
-  tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'doop-storage-'))
+  tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'draft-storage-'))
   vi.spyOn(process, 'cwd').mockReturnValue(tmp)
   storage = await import('../server/storage.ts')
 })

@@ -8,7 +8,7 @@ import { Callout } from '../components/ui/callout'
 
 /* Step 2 of the desktop sign-in (src/lib/desktopAuth.ts): the system browser
    lands here signed in, after the identity provider. Mint a one-time token
-   from this session and hand it to the app over the doop:// scheme. The
+   from this session and hand it to the app over the draft:// scheme. The
    token is single-use and expires within minutes, so the link is safe to
    leave in the browser's history. The challenge travels along unchanged: the
    app only redeems a link that answers the sign-in it started. */
@@ -44,16 +44,16 @@ export function DesktopHandoff() {
         </h1>
         {failed ? (
           <Callout tone="error">
-            Could not hand the sign-in over to the doop app. Go back to the app and try again.
+            Could not hand the sign-in over to the draft app. Go back to the app and try again.
           </Callout>
         ) : (
           <>
             <p className="text-sm text-ink-soft">
-              Sending you back to the doop app… You can close this tab afterwards.
+              Sending you back to the draft app… You can close this tab afterwards.
             </p>
             {link && (
               <Button asChild className="mt-1">
-                <a href={link}>Open doop</a>
+                <a href={link}>Open draft</a>
               </Button>
             )}
           </>

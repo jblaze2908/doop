@@ -150,7 +150,7 @@ export function ShareModal({
               <Input
                 className="flex-1 rounded-[10px] bg-paper focus:ring-0"
                 autoFocus
-                placeholder="Invite by email (doop account)"
+                placeholder="Invite by email (draft account)"
                 value={email}
                 disabled={busy}
                 onChange={(event) => setEmail(event.target.value)}

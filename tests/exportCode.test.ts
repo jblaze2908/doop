@@ -159,7 +159,7 @@ describe('exportFrameCode', () => {
   it('compiles under strict TypeScript with React types', () => {
     const { frame, canvas } = canvasWith(FRAME)
     const out = exportFrameCode(frame, canvas, 'react')
-    const dir = mkdtempSync(path.join(tmpdir(), 'doop-export-'))
+    const dir = mkdtempSync(path.join(tmpdir(), 'draft-export-'))
     try {
       for (const f of out.files) {
         mkdirSync(path.dirname(path.join(dir, f.path)), { recursive: true })
@@ -203,8 +203,8 @@ describe('exportFrameCode', () => {
     const out = exportFrameCode(frame, canvas, 'html')
     expect(out.files).toHaveLength(1)
     const html = out.files[0]!.content
-    expect(html).toContain('<style data-doop-theme>')
-    expect(html).toContain('<script data-doop-components>')
+    expect(html).toContain('<style data-draft-theme>')
+    expect(html).toContain('<script data-draft-components>')
     expect(html).toContain('<ds-card title="Net worth"')
   })
 })

@@ -1,11 +1,11 @@
 import { TimeoutError, type HTTPResponse, type Page } from 'puppeteer-core'
 
-/** A site refused, challenged, or never completed a visit from Doop's
+/** A site refused, challenged, or never completed a visit from Draft's
  * automated browser. Different callers need different recovery instructions:
  * connected agents may have their own browser, users get the plain reason. */
 export class WebsiteCaptureUnavailableError extends Error {
   constructor(readonly reason: string) {
-    super(`${reason}, so Doop could not capture the page. Try another public URL or use screenshots as references.`)
+    super(`${reason}, so Draft could not capture the page. Try another public URL or use screenshots as references.`)
     this.name = 'WebsiteCaptureUnavailableError'
   }
 }
@@ -29,12 +29,12 @@ function header(response: HTTPResponse, name: string): string | undefined {
 export function assertWebsiteResponseAccessible(response: HTTPResponse | null): void {
   if (!response) return
   if (header(response, 'cf-mitigated')?.toLowerCase() === 'challenge') {
-    throw new WebsiteCaptureUnavailableError("A Cloudflare challenge blocked Doop's automated browser")
+    throw new WebsiteCaptureUnavailableError("A Cloudflare challenge blocked Draft's automated browser")
   }
 
   const status = response.status()
   if ([401, 403, 407, 423, 429].includes(status)) {
-    throw new WebsiteCaptureUnavailableError(`The website blocked Doop's automated browser (HTTP ${status})`)
+    throw new WebsiteCaptureUnavailableError(`The website blocked Draft's automated browser (HTTP ${status})`)
   }
   if (status >= 400) {
     const statusText = response.statusText().trim()
@@ -91,10 +91,10 @@ export async function navigateWebsitePage(
   if (navigationError) {
     if (navigationError instanceof TimeoutError) {
       if (!behavior.tolerateTimeout) {
-        throw new WebsiteCaptureUnavailableError("The page did not finish loading in Doop's automated browser")
+        throw new WebsiteCaptureUnavailableError("The page did not finish loading in Draft's automated browser")
       }
     } else {
-      throw new WebsiteCaptureUnavailableError("The page could not load in Doop's automated browser")
+      throw new WebsiteCaptureUnavailableError("The page could not load in Draft's automated browser")
     }
   }
   return tracker.latest()

@@ -1,4 +1,4 @@
-# RELEASE - doop
+# RELEASE - draft
 
 ## Versioning (release-please)
 
@@ -31,7 +31,7 @@ in `.github/actions/setup-desktop`:
 
 - Push a tag matching `desktop-v*` -> `dmg-macos` builds a universal (Apple Silicon + Intel) DMG
   with `bunx tauri build --target universal-apple-darwin --bundles dmg`, `nsis-windows` builds
-  `doop_<version>_x64-setup.exe` with `bunx tauri build --bundles nsis`, and a final `release`
+  `draft_<version>_x64-setup.exe` with `bunx tauri build --bundles nsis`, and a final `release`
   job (`needs` both) attaches the two to one GitHub Release - so a tag is never published with
   only one installer.
 - `workflow_dispatch` or a PR touching the workflow file itself -> same builds, uploaded as
@@ -42,7 +42,7 @@ in `.github/actions/setup-desktop`:
   approve it via System Settings -> Privacy & Security.
 - The Windows installer is unsigned (no Authenticode certificate configured): SmartScreen warns on
   first run and users click "More info" -> "Run anyway".
-- The shell tells the page its platform via `window.__DOOP_DESKTOP_PLATFORM__` (read in
+- The shell tells the page its platform via `window.__DRAFT_DESKTOP_PLATFORM__` (read in
   `src/lib/shell.ts`); only macOS gets the overlay title bar / traffic-light inset.
 - Desktop app version is tracked separately from the root `package.json` and bumped by
   release-please (see above); after the release PR merges, tag as `desktop-vX.Y.Z`.

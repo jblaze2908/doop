@@ -89,7 +89,7 @@ describe('multi-frame copy and paste', () => {
   })
 
   it('still reads a single-frame clip written before multi-frame copy', async () => {
-    store.set('doop:frame-clipboard', JSON.stringify({ name: 'old', html: '<p>old</p>', width: 200, height: 100 }))
+    store.set('draft:frame-clipboard', JSON.stringify({ name: 'old', html: '<p>old</p>', width: 200, height: 100 }))
     expect(clipboard.hasFrameClip()).toBe(true)
     clipboard.pasteFrameCentered('c1')
     await flush()

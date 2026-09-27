@@ -20,7 +20,7 @@ const INTERNAL_DOMAINS: string[] = (import.meta.env.VITE_POSTHOG_INTERNAL_DOMAIN
   .map((d: string) => d.trim().toLowerCase())
   .filter(Boolean)
 const isInternalEmail = (email: string) => INTERNAL_DOMAINS.some((d) => email.toLowerCase().endsWith(`@${d}`))
-export const NO_REPLAY_KEY = 'doop:internal-no-replay'
+export const NO_REPLAY_KEY = 'draft:internal-no-replay'
 
 type Call = (ph: PostHog) => void
 const MAX_QUEUED = 500

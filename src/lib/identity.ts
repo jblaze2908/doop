@@ -11,7 +11,7 @@ let cached: { clientId: string; name: string } | null = null
 /* another tab renaming us lands here; everything else goes through setName */
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (e) => {
-    if (e.key === 'doop:clientId' || e.key === 'doop:name') cached = null
+    if (e.key === 'draft:clientId' || e.key === 'draft:name') cached = null
   })
 }
 
@@ -24,20 +24,20 @@ export function getIdentity(): { clientId: string; name: string } {
 }
 
 function readIdentity(): { clientId: string; name: string } {
-  let clientId = localStorage.getItem('doop:clientId')
+  let clientId = localStorage.getItem('draft:clientId')
   if (!clientId) {
     clientId = nanoid(12)
-    localStorage.setItem('doop:clientId', clientId)
+    localStorage.setItem('draft:clientId', clientId)
   }
-  let name = localStorage.getItem('doop:name')
+  let name = localStorage.getItem('draft:name')
   if (!name) {
     name = randomName()
-    localStorage.setItem('doop:name', name)
+    localStorage.setItem('draft:name', name)
   }
   return { clientId, name }
 }
 
 export function setName(name: string) {
   cached = null
-  localStorage.setItem('doop:name', name)
+  localStorage.setItem('draft:name', name)
 }

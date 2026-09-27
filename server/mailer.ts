@@ -29,7 +29,7 @@ export async function sendMail(opts: { to: string; subject: string; text: string
     return
   }
   await transport.sendMail({
-    from: process.env.EMAIL_FROM || 'doop <no-reply@localhost>',
+    from: process.env.EMAIL_FROM || 'draft <no-reply@localhost>',
     to: opts.to,
     subject: opts.subject,
     text: opts.text,

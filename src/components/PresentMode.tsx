@@ -17,10 +17,10 @@ export function PresentMode({ frameId, onClose }: { frameId: string; onClose: ()
   useEffect(() => {
     function onMsg(ev: MessageEvent) {
       if (ev.source !== iframeRef.current?.contentWindow) return
-      if (ev.data?.type === 'doop:frame-ready') setReady(true)
+      if (ev.data?.type === 'draft:frame-ready') setReady(true)
       /* Escape with focus inside the frame (after clicking into it) never
          reaches this window as a key event; the runtime relays it */
-      if (ev.data?.type === 'doop:esc') onClose()
+      if (ev.data?.type === 'draft:esc') onClose()
     }
     window.addEventListener('message', onMsg)
     return () => window.removeEventListener('message', onMsg)
@@ -29,18 +29,18 @@ export function PresentMode({ frameId, onClose }: { frameId: string; onClose: ()
   const themeCss = useThemeCss()
   useEffect(() => {
     if (!ready) return
-    iframeRef.current?.contentWindow?.postMessage({ type: 'doop:theme', css: themeCss }, '*')
+    iframeRef.current?.contentWindow?.postMessage({ type: 'draft:theme', css: themeCss }, '*')
   }, [ready, themeCss])
   const componentDefs = useComponentDefs()
   useEffect(() => {
     if (!ready) return
-    iframeRef.current?.contentWindow?.postMessage({ type: 'doop:components', defs: componentDefs }, '*')
+    iframeRef.current?.contentWindow?.postMessage({ type: 'draft:components', defs: componentDefs }, '*')
   }, [ready, componentDefs])
 
   const html = frame?.html ?? ''
   useEffect(() => {
     if (!ready) return
-    iframeRef.current?.contentWindow?.postMessage({ type: 'doop:html', html }, '*')
+    iframeRef.current?.contentWindow?.postMessage({ type: 'draft:html', html }, '*')
   }, [ready, html])
 
   useEffect(() => {
@@ -89,7 +89,7 @@ export function PresentMode({ frameId, onClose }: { frameId: string; onClose: ()
           ref={iframeRef}
           className="block border-none bg-white"
           title={frame.name}
-          data-doop-frame=""
+          data-draft-frame=""
           sandbox="allow-scripts"
           srcDoc={FRAME_BOOTSTRAP}
           style={{ width: frame.width, height: frame.height, transform: `scale(${scale})`, transformOrigin: '0 0' }}

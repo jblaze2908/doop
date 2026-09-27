@@ -18,7 +18,7 @@ const obCopy =
  * completed steps stay checked across canvases and sessions.
  */
 
-const LS_KEY = 'doop:onboarding'
+const LS_KEY = 'draft:onboarding'
 
 interface Progress {
   dismissed?: boolean
@@ -48,8 +48,8 @@ export function Onboarding() {
 
   /* live detection — flips only ever go false -> true */
   const live = useMemo(() => {
-    const demoDone = tasks.some((t) => t.agentName === 'Doop' && t.endedAt)
-    /* "connected" means an OUTSIDE agent over MCP — the Doop demo agent (and
+    const demoDone = tasks.some((t) => t.agentName === 'Draft' && t.endedAt)
+    /* "connected" means an OUTSIDE agent over MCP — the Draft demo agent (and
        any agent working under a role name) doesn't count towards the setup steps */
     const realAgent = (t: { agentName: string }) => t.agentName !== '' && !roleByAgentName(t.agentName)
     const agentHere = Object.values(presences).some((p) => p.kind === 'agent' && !roleByAgentName(p.name))
@@ -85,14 +85,14 @@ export function Onboarding() {
     }, console.error)
   }
 
-  const mcpCmd = `claude mcp add --transport http doop "${location.origin}/mcp"`
-  const prompt = `You are connected to Doop, a shared multiplayer design canvas, via the "doop" MCP server. Work on canvas ${location.pathname.split('/')[2] ?? ''}. Start with get_guide({ topic: "doop-instructions" }), then design something beautiful on a new frame. Stream it with append_frame_html and review your work with get_frame_screenshot.`
+  const mcpCmd = `claude mcp add --transport http draft "${location.origin}/mcp"`
+  const prompt = `You are connected to Draft, a shared multiplayer design canvas, via the "draft" MCP server. Work on canvas ${location.pathname.split('/')[2] ?? ''}. Start with get_guide({ topic: "draft-instructions" }), then design something beautiful on a new frame. Stream it with append_frame_html and review your work with get_frame_screenshot.`
 
   const checklist = (
     <>
       <Step done={!!progress.watched} label="Watch an agent design">
         {!progress.watched && (
-          <p className={obHint}>The Doop agent is drawing your welcome frame — watch the canvas.</p>
+          <p className={obHint}>The Draft agent is drawing your welcome frame — watch the canvas.</p>
         )}
       </Step>
 
@@ -103,7 +103,7 @@ export function Onboarding() {
               {copied === 'cmd' ? '✓ copied' : 'copy the Claude Code command'}
             </Button>
             <p className={obHint}>
-              Run it in a terminal, then inside Claude Code type <code>/mcp</code>, pick <strong>doop</strong> and
+              Run it in a terminal, then inside Claude Code type <code>/mcp</code>, pick <strong>draft</strong> and
               authenticate (a browser window opens). This step checks itself off when your agent first reads the canvas.
             </p>
           </>

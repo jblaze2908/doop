@@ -4,7 +4,7 @@ import { describeSyncFlow } from '../server/ingest.ts'
 import type { Frame } from '../shared/types.ts'
 
 /**
- * Design-sync ingest: the doop-sync snippet's endpoint and the key-management
+ * Design-sync ingest: the draft-sync snippet's endpoint and the key-management
  * REST, exercised against the real server. The page-interval throttle is
  * disabled via env so consecutive writes to the same page can be asserted.
  */
@@ -95,7 +95,7 @@ describe('design sync ingest', () => {
     expect(frame.name).toBe('Orders')
     expect(frame.width).toBe(1440)
     expect(frame.html).toContain('one')
-    expect(frame.html).toContain('doop-sync-page')
+    expect(frame.html).toContain('draft-sync-page')
     expect(frame.html).toContain('Content-Security-Policy')
     /* the app's base is kept, the snapshot's own base and scripts are not */
     expect(frame.html).toContain('base href="https://intranet.example/orders/1"')
@@ -210,7 +210,7 @@ describe('design sync ingest', () => {
   })
 
   it('marks recorded edges in a response header; the rate-limit 429 omits it', async () => {
-    /* the snippet requeues its edge batch unless X-Doop-Edges proves the
+    /* the snippet requeues its edge batch unless X-Draft-Edges proves the
        server stored it — the per-key rate limit fires before recording */
     const canvas = await (await owner.post('/api/canvases', { name: 'Rate limited' })).json()
     const key = await (await owner.post(`/api/canvases/${canvas.id}/sync-keys`, { name: 'burst' })).json()
@@ -222,15 +222,15 @@ describe('design sync ingest', () => {
       })
     const first = await post()
     expect(first.status).toBe(200)
-    expect(first.headers.get('x-doop-edges')).toBe('1')
-    expect(first.headers.get('access-control-expose-headers')).toContain('X-Doop-Edges')
+    expect(first.headers.get('x-draft-edges')).toBe('1')
+    expect(first.headers.get('access-control-expose-headers')).toContain('X-Draft-Edges')
     let limited: Response | null = null
     for (let i = 0; i < 32 && !limited; i++) {
       const res = await post()
       if (res.status === 429) limited = res
     }
     expect(limited).not.toBeNull()
-    expect(limited!.headers.get('x-doop-edges')).toBeNull() // not recorded — snippet must retry
+    expect(limited!.headers.get('x-draft-edges')).toBeNull() // not recorded — snippet must retry
   })
 
   it('rejects malformed payloads', async () => {
@@ -341,8 +341,8 @@ describe('design sync freeze', () => {
     expect((await first.json()).created).toBe(true)
 
     const second = await post('<html><body><h1>v2</h1></body></html>', [{ from: '/home', to: '/about' }])
-    expect(second.headers.get('x-doop-synced')).toBe('1')
-    expect(second.headers.get('x-doop-edges')).toBe('1') // navigations still count
+    expect(second.headers.get('x-draft-synced')).toBe('1')
+    expect(second.headers.get('x-draft-edges')).toBe('1') // navigations still count
     expect((await second.json()).frozen).toBe(true)
 
     const got = await (await owner.get(`/api/canvases/${canvas.id}`)).json()

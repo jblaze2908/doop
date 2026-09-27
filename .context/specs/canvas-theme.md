@@ -1,7 +1,7 @@
 # Canvas theme
 
 Status: shipped on the `tijori/design-system` fork, 2026-09-27. Code: `shared/theme.ts`,
-`server/theme.ts`, `actions.setTheme`, `src/components/ThemeSection.tsx`, the `doop:theme`
+`server/theme.ts`, `actions.setTheme`, `src/components/ThemeSection.tsx`, the `draft:theme`
 handler in `src/lib/frameRuntime.ts`.
 
 ## Problem
@@ -16,11 +16,11 @@ token change meant editing every frame, and agents re-read that CSS on every `ge
   Google Fonts css2 specs whose `@font-face` rules are fetched once at set time into `fontFaces`.
 - Compiled sheet = `:root{tokens}` + `fontFaces` + `css` (`compileTheme`, memoized per theme
   object — a theme is replaced, never mutated).
-- Injection: a `<style data-doop-theme>` first in `<head>`, so the frame's own styles win the
+- Injection: a `<style data-draft-theme>` first in `<head>`, so the frame's own styles win the
   cascade. Browser: the runtime adds it to every parsed document before the morph and
   `serialize()` strips it. Server: `spliceTheme` in `loadFramePage`. Not an adopted sheet —
   adopted sheets cascade after the document's own styles, so the theme would beat the frame.
-- Opt-out per frame: `<html data-doop-theme="off">`. Webpage imports and design-sync snapshots
+- Opt-out per frame: `<html data-draft-theme="off">`. Webpage imports and design-sync snapshots
   get it automatically (`withoutTheme`): they ship their own complete CSS.
 - Render caches (`previews.ts`, `thumbs.ts`) key on `renderStamp` = frame `updatedAt` + theme
   `version`.

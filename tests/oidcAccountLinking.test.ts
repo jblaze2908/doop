@@ -6,7 +6,7 @@ import { Client, startServer, type Server } from './harness.ts'
 
 /**
  * Drives the real callback leg of an OIDC sign-in against better-auth's
- * actual code (no mocking of doop or better-auth) - only the third-party
+ * actual code (no mocking of draft or better-auth) - only the third-party
  * IdP is faked, which is unavoidable without a real Zitadel/Okta/etc to
  * point at. The fake IdP signs its ID tokens (RS256) and publishes a
  * jwks_uri, matching what a spec-compliant OIDC discovery document always
