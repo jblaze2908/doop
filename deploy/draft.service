@@ -9,7 +9,7 @@ User=root
 WorkingDirectory=/opt/draft
 Environment=DEPLOY_DIR=/opt/draft
 Environment=DRAFT_ENV_FILE=/etc/draft/draft.env
-Environment=DEPLOY_BRANCH=tijori/design-system
+Environment=DEPLOY_BRANCH=main
 Environment=DRAFT_HEALTH_URL=http://172.17.0.1:8320/healthz
 # The client build plus the Chromium layer takes several minutes on 2 vCPU.
 TimeoutStartSec=25min
