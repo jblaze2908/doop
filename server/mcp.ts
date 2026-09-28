@@ -11,6 +11,7 @@ import { auth, getUserName, isBanned, PUBLIC_ORIGIN } from './auth.ts'
 import { capture, captureThrottled } from './analytics.ts'
 import { measureFrameHeight, renderFrame } from './screenshot.ts'
 import { utilitiesFor } from './utilities.ts'
+import { KIT_NAMES, KITS, kitTheme } from './kits.ts'
 import { GUIDE_DOCS, GUIDE_TOPICS } from './guide.ts'
 import { describeInspiration, fetchThumb, INSPIRATION_USAGE_NOTE, searchInspiration } from './inspiration.ts'
 import { ESCAPED_HTML_NOTE, looksEscapedHtml } from './escapedHtml.ts'
@@ -132,6 +133,7 @@ const BATCHABLE_TOOLS = [
   'set_theme_tokens',
   'set_theme_fonts',
   'set_theme_css',
+  'apply_kit',
   'set_guidelines',
   'save_decision',
   'set_status',
@@ -707,6 +709,25 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
     },
     async ({ canvas_id, tokens, mode, agent_name }) =>
       themeWrite(canvas_id, agent_name, { tokens: { list: tokens, mode } }, (t) => ({ tokens: t.tokens.length })),
+  )
+
+  server.registerTool(
+    'apply_kit',
+    {
+      description: `Start a canvas theme from a starter kit in one call: a palette, a type pairing, a base stylesheet and Tailwind utilities, all under the same token names every recipe (get_guide "recipes") uses. It replaces the canvas's tokens, fonts and theme CSS; adjust tokens to the brief afterwards with set_theme_tokens. Kits: ${KIT_NAMES.map((k) => `${k} — ${KITS[k].mood}`).join('; ')}.`,
+      inputSchema: {
+        canvas_id: z.string(),
+        kit: z.enum(KIT_NAMES),
+        agent_name: agentName,
+      },
+    },
+    async ({ canvas_id, kit, agent_name }) =>
+      themeWrite(canvas_id, agent_name, kitTheme(kit), (t) => ({
+        kit,
+        tokens: t.tokens.map((x) => x.name),
+        fonts: t.fonts,
+        utilities: t.utilities ?? 'none',
+      })),
   )
 
   server.registerTool(

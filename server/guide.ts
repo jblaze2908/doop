@@ -7,6 +7,7 @@ import { AGENT_ROLES } from '../shared/agents.ts'
 
 export const GUIDE_TOPICS = [
   'draft-instructions',
+  'recipes',
   'collaboration',
   'design-brief',
   'images',
@@ -164,6 +165,11 @@ one-line direction. Post it with set_status and save_decision. search_inspiratio
 real pages when it is available; if it errors, skip it. The full ritual and taste
 doctrine: get_guide({ topic: "design-brief" }).
 
+Fastest path on a fresh canvas: apply_kit with the kit closest to your mood (editorial,
+product-dark, mineral, signage, candlelit), adjust its tokens to the brief with
+set_theme_tokens, and build sections from get_guide({ topic: "recipes" }) — every recipe uses
+the kit's token classes, so restyling is a token change, not a rewrite.
+
 ## Streaming — how to write designs
 
 Viewers watch designs assemble live. Stream with append_frame_html:
@@ -251,7 +257,8 @@ complex selectors).
 
 ## More topics — load when the task needs them
 
-get_guide({ topic }) with: "collaboration" (comments, @mention roles, board cards),
+get_guide({ topic }) with: "recipes" (Tailwind section patterns for any kit), "collaboration"
+(comments, @mention roles, board cards),
 "design-brief" (the full brief ritual and taste doctrine), "images" (sourcing photos,
 icons, logos and backgrounds), "lean-reads" (outline, section read and replace),
 "components" (linked components), "style-guides" (style guides and pinned references),
@@ -489,8 +496,104 @@ image and upload it wherever they need (a CMS media library, a social post, an o
 The URL re-renders on change, so an embedded link stays current as the frame iterates.
 `
 
+const TOPIC_RECIPES = `## Recipes — sections to start from
+
+Every recipe uses only the kit token classes (bg-surface, bg-surface-2, text-ink, text-ink-2,
+text-ink-3, border-line, bg-accent, text-accent, text-on-accent, font-display, font-body,
+rounded-card, shadow-card), so it works with any kit from apply_kit. Change the copy, the
+column counts and the sizes to fit the brief; keep the structure when it serves.
+
+**Nav**
+<header class="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
+  <a class="font-display text-xl font-semibold text-ink">Name</a>
+  <nav class="hidden gap-8 text-sm text-ink-2 md:flex"><a>Product</a><a>Pricing</a><a>Docs</a></nav>
+  <a class="rounded-full bg-accent px-4 py-2 text-sm font-medium text-on-accent">Get started</a>
+</header>
+
+**Hero, split**
+<section class="mx-auto grid max-w-6xl items-center gap-12 px-6 py-24 md:grid-cols-2">
+  <div>
+    <p class="text-xs font-medium uppercase tracking-[0.12em] text-accent">Eyebrow</p>
+    <h1 class="mt-4 font-display text-6xl leading-[1.02] tracking-tight text-ink">Headline that says the one thing</h1>
+    <p class="mt-6 max-w-md text-lg text-ink-2">One or two sentences of specific, human copy.</p>
+    <div class="mt-8 flex gap-3">
+      <a class="rounded-full bg-accent px-6 py-3 font-medium text-on-accent">Primary action</a>
+      <a class="rounded-full border border-line px-6 py-3 font-medium text-ink">Secondary</a>
+    </div>
+  </div>
+  <div class="aspect-[4/3] rounded-card bg-surface-2 shadow-card"><!-- product visual --></div>
+</section>
+
+**Logo or "works with" row**
+<section class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-8 border-y border-line px-6 py-8 text-ink-3">…real marks…</section>
+
+**Feature grid**
+<section class="mx-auto max-w-6xl px-6 py-24">
+  <h2 class="max-w-xl font-display text-4xl text-ink">Section headline</h2>
+  <div class="mt-12 grid gap-6 md:grid-cols-3">
+    <article class="rounded-card border border-line bg-surface-2 p-6">
+      <div class="size-10 rounded-lg bg-accent/15"></div>
+      <h3 class="mt-5 text-lg font-semibold text-ink">Feature</h3>
+      <p class="mt-2 text-sm leading-relaxed text-ink-2">What it does, in one specific line.</p>
+    </article>
+  </div>
+</section>
+
+**Bento**: grid gap-4 md:grid-cols-3 with one tile md:col-span-2 md:row-span-2; tiles are
+rounded-card bg-surface-2 p-8, one of them bg-accent text-on-accent.
+
+**Stats row**
+<dl class="mx-auto grid max-w-6xl gap-8 px-6 py-16 md:grid-cols-4">
+  <div><dt class="text-sm text-ink-3">Label</dt><dd class="mt-1 font-display text-5xl text-ink">48%</dd></div>
+</dl>
+
+**Pricing**
+<section class="mx-auto grid max-w-5xl gap-6 px-6 py-24 md:grid-cols-3">
+  <div class="flex flex-col rounded-card border border-line bg-surface-2 p-8">
+    <h3 class="font-semibold text-ink">Plan</h3>
+    <p class="mt-4 font-display text-5xl text-ink">$24<span class="font-body text-base text-ink-3"> / mo</span></p>
+    <ul class="mt-6 space-y-2 text-sm text-ink-2"><li>Included thing</li></ul>
+    <a class="mt-8 rounded-full border border-line py-3 text-center font-medium text-ink">Choose</a>
+  </div>
+  <!-- the recommended plan: border-accent shadow-card, and its button bg-accent text-on-accent -->
+</section>
+
+**Testimonial**
+<figure class="mx-auto max-w-3xl px-6 py-24 text-center">
+  <blockquote class="font-display text-3xl leading-snug text-ink">“A quote with a concrete result.”</blockquote>
+  <figcaption class="mt-6 text-sm text-ink-2">Name, role at a real company</figcaption>
+</figure>
+
+**FAQ**: a max-w-3xl list of <details class="border-b border-line py-5"> with
+<summary class="cursor-pointer font-medium text-ink"> and an answer in text-ink-2.
+
+**CTA band**
+<section class="mx-6 my-24 rounded-card bg-accent px-10 py-16 text-on-accent md:mx-auto md:max-w-6xl">
+  <h2 class="font-display text-4xl">The closing ask</h2>
+  <a class="mt-8 inline-block rounded-full bg-surface px-6 py-3 font-medium text-ink">Action</a>
+</section>
+
+**Footer**: mx-auto grid max-w-6xl gap-10 border-t border-line px-6 py-14 text-sm text-ink-2
+md:grid-cols-4, a column title in text-ink font-medium.
+
+**App shell** (screens, fixed size)
+<div class="grid h-full grid-cols-[240px_1fr] bg-surface">
+  <aside class="border-r border-line p-4"><a class="flex items-center gap-3 rounded-lg bg-accent/10 px-3 py-2 text-sm font-medium text-accent">Active</a></aside>
+  <main class="p-8"><h1 class="text-2xl font-semibold text-ink">Page title</h1></main>
+</div>
+
+**Table**: a rounded-card border border-line bg-surface-2 wrapper; th in text-xs uppercase
+tracking-wide text-ink-3; td py-3 border-t border-line; numbers tabular-nums text-right.
+
+**Form field**
+<label class="block text-sm font-medium text-ink">Label
+  <input class="mt-2 w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-ink placeholder:text-ink-3" placeholder="…">
+</label>
+`
+
 export const GUIDE_DOCS: Record<GuideTopic, string> = {
   'draft-instructions': DRAFT_GUIDE,
+  recipes: TOPIC_RECIPES,
   collaboration: TOPIC_COLLABORATION,
   'design-brief': TOPIC_DESIGN_BRIEF,
   images: TOPIC_IMAGES,
