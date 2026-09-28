@@ -10,15 +10,7 @@ import { AgentIcon } from '../components/AgentIcon'
 import { ShareModal } from '../components/ShareModal'
 import { CreateDesignSystemModal, CreateWorkspaceModal, MoveCanvasModal } from '../components/WorkspaceModals'
 import { Swatches } from '../components/Swatches'
-import {
-  AccountMenu,
-  ConnectCard,
-  IconGrid,
-  IconList,
-  IconShare,
-  IconUser,
-  IconWorkspace,
-} from '../components/DashShell'
+import { AccountMenu, IconGrid, IconList, IconShare, IconUser, IconWorkspace } from '../components/DashShell'
 import { posthog } from '../lib/posthog'
 import { closeTab, openCanvasTab, pruneTabs } from '../lib/desktop'
 import { useHomeFeed } from '../lib/homeFeed'
@@ -390,9 +382,6 @@ export function Home() {
             </div>
           </>
         )}
-
-        <div className="min-h-6 flex-1" />
-        <ConnectCard />
       </DashSidebar>
 
       <DashMain>

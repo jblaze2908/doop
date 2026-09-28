@@ -5,7 +5,7 @@ import { api, errorMessage } from '../lib/api'
 import { useHomeFeed } from '../lib/homeFeed'
 import { authClient } from '../lib/auth'
 import { posthog } from '../lib/posthog'
-import { AccountMenu, ConnectCard, IconBack, IconChevron, IconGear, IconShare } from '../components/DashShell'
+import { AccountMenu, IconBack, IconChevron, IconGear, IconShare } from '../components/DashShell'
 import { Avatar } from '../components/ui/avatar'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
@@ -103,8 +103,6 @@ export function Workspace({ workspaceId }: { workspaceId: string }) {
             General
           </DashNavItem>
         </nav>
-        <div className="min-h-6 flex-1" />
-        <ConnectCard />
       </DashSidebar>
 
       <DashMain>

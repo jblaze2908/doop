@@ -5,7 +5,7 @@ import { api, errorMessage, type DesignSystemDetail } from '../lib/api'
 import { openCanvasTab } from '../lib/desktop'
 import { useHomeFeed } from '../lib/homeFeed'
 import { timeAgo } from '../lib/time'
-import { AccountMenu, ConnectCard, IconBack, IconChevron } from '../components/DashShell'
+import { AccountMenu, IconBack, IconChevron } from '../components/DashShell'
 import { Swatches } from '../components/Swatches'
 import { ConfirmDialog } from '../components/ui/alert-dialog'
 import { Badge } from '../components/ui/badge'
@@ -114,8 +114,6 @@ export function DesignSystemPage({ systemId }: { systemId: string }) {
         >
           <IconBack /> Back to canvases
         </Button>
-        <div className="min-h-6 flex-1" />
-        <ConnectCard />
       </DashSidebar>
 
       <DashMain>

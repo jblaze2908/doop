@@ -3,7 +3,7 @@ import { api } from '../lib/api'
 import { posthog } from '../lib/posthog'
 import { openCanvasTab } from '../lib/desktop'
 import { AccountSettings } from '../components/AccountSettings'
-import { AccountMenu, ConnectCard, IconBack, IconChevron, IconUser } from '../components/DashShell'
+import { AccountMenu, IconBack, IconChevron, IconUser } from '../components/DashShell'
 import { Button } from '../components/ui/button'
 import { Wordmark } from '../components/ui/wordmark'
 import {
@@ -49,9 +49,6 @@ export function Settings() {
             Your account
           </DashNavItem>
         </nav>
-
-        <div className="min-h-6 flex-1" />
-        <ConnectCard />
       </DashSidebar>
 
       <DashMain>
