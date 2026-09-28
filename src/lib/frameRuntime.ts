@@ -97,26 +97,34 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
      <head>, where the server's screenshots splice it too: an adopted sheet
      would cascade AFTER the frame's own styles, and the frame must win.
      It is added to every parsed document before the morph, so the morph
-     leaves it in place, and serialize() drops it. */
+     leaves it in place, and serialize() drops it. Tailwind utilities go
+     LAST in <head> instead: a utility must beat the frame's own resets. */
   var themeCss = ''
+  var utilityCss = ''
 
   function themeOff(root) {
     return root.getAttribute('data-draft-theme') === 'off'
   }
 
-  function addTheme(doc) {
-    if (!themeCss || themeOff(doc.documentElement)) return
+  function themeStyle(doc, attr, css) {
     var st = doc.createElement('style')
-    st.setAttribute('data-draft-theme', '')
-    st.textContent = themeCss
-    doc.head.insertBefore(st, doc.head.firstChild)
+    st.setAttribute(attr, '')
+    st.textContent = css
+    return st
   }
 
-  function setTheme(css) {
-    if (css === themeCss) return
+  function addTheme(doc) {
+    if (themeOff(doc.documentElement)) return
+    if (themeCss) doc.head.insertBefore(themeStyle(doc, 'data-draft-theme', themeCss), doc.head.firstChild)
+    if (utilityCss) doc.head.appendChild(themeStyle(doc, 'data-draft-utilities', utilityCss))
+  }
+
+  function setTheme(css, utilities) {
+    if (css === themeCss && utilities === utilityCss) return
     themeCss = css
-    var live = document.head.querySelector('style[data-draft-theme]')
-    if (live) live.parentNode.removeChild(live)
+    utilityCss = utilities
+    var live = document.head.querySelectorAll('style[data-draft-theme],style[data-draft-utilities]')
+    for (var i = 0; i < live.length; i++) live[i].parentNode.removeChild(live[i])
     addTheme(document)
     shareTheme()
   }
@@ -157,7 +165,7 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
 
   /* component shadow roots see the theme only through their own sheet */
   function shareTheme() {
-    draftComponents.setTheme(themeOff(document.documentElement) ? '' : themeCss)
+    draftComponents.setTheme(themeOff(document.documentElement) ? '' : themeCss + utilityCss)
   }
 
   var lastHtml = ''
@@ -284,7 +292,7 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
     if (boot && boot.parentNode) boot.parentNode.removeChild(boot)
     var es = root.querySelector('style[data-v-edit]')
     if (es && es.parentNode) es.parentNode.removeChild(es)
-    var themes = root.querySelectorAll('style[data-draft-theme]')
+    var themes = root.querySelectorAll('style[data-draft-theme],style[data-draft-utilities]')
     for (var t = 0; t < themes.length; t++) themes[t].parentNode.removeChild(themes[t])
     var ran = root.querySelectorAll('[data-v-ran]')
     for (var i = 0; i < ran.length; i++) ran[i].removeAttribute('data-v-ran')
@@ -609,7 +617,7 @@ export const FRAME_BOOTSTRAP = `<!doctype html>
       var applied = applyStyle(d.selector, d.styles)
       parent.postMessage({ type: 'draft:style-result', reqId: d.reqId, ok: applied, info: applied ? inspect(d.selector) : null }, '*')
     }
-    if (d.type === 'draft:theme' && typeof d.css === 'string') setTheme(d.css)
+    if (d.type === 'draft:theme' && typeof d.css === 'string') setTheme(d.css, typeof d.utilities === 'string' ? d.utilities : '')
     if (d.type === 'draft:fonts' && Array.isArray(d.fonts)) setFonts(d.fonts)
     if (d.type === 'draft:components' && Array.isArray(d.defs)) draftComponents.set(d.defs)
     if (d.type === 'draft:classes' && Array.isArray(d.classes)) {

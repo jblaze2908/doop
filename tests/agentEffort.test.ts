@@ -30,25 +30,30 @@ interface CallResult {
   isError?: boolean
 }
 
-async function connect() {
+async function connectRaw() {
   const server = buildMcpServer('Test Owner', OWNER_ID)
   const client = new Client({ name: 'draft-effort-test', version: '1.0.0' })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   await server.connect(serverTransport)
   await client.connect(clientTransport)
+  return {
+    client,
+    close: async () => {
+      await client.close()
+      await server.close()
+    },
+  }
+}
+
+async function connect() {
+  const { client, close } = await connectRaw()
   const call = async (name: string, args: Record<string, unknown>) => {
     const r = (await client.callTool({ name, arguments: { agent_name: 'Claude', ...args } }, undefined, {
       timeout: 60_000,
     })) as unknown as CallResult
     return { texts: r.content.filter((b) => b.type === 'text').map((b) => b.text ?? ''), isError: r.isError }
   }
-  return {
-    call,
-    close: async () => {
-      await client.close()
-      await server.close()
-    },
-  }
+  return { call, close }
 }
 
 function frame(html: string, width = 1200, height = 900): Frame {
@@ -57,6 +62,15 @@ function frame(html: string, width = 1200, height = 900): Frame {
 
 /** PNG width/height from the IHDR chunk. */
 const pngSize = (buf: Buffer) => ({ width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) })
+
+/** JPEG width/height from the first baseline/progressive frame header. */
+function jpegSize(buf: Buffer) {
+  for (let i = 2; i < buf.length; i += 2 + buf.readUInt16BE(i + 2)) {
+    const marker = buf[i + 1]
+    if (marker === 0xc0 || marker === 0xc2) return { width: buf.readUInt16BE(i + 7), height: buf.readUInt16BE(i + 5) }
+  }
+  throw new Error('no JPEG frame header')
+}
 
 beforeEach(() => {
   actions.wire(
@@ -165,12 +179,28 @@ describe('batch', () => {
 })
 
 describe.skipIf(!findBrowserPath())('fit and crop (real Chrome)', () => {
-  it('returns a review-size JPEG by default and full resolution on request', async () => {
-    const f = frame('<div style="height:900px;background:#123"></div>', 1440, 900)
-    const { call, close } = await connect()
+  it('caps a review screenshot at 1024 wide, and a tall page at 1568 high', async () => {
+    const { client, close } = await connectRaw()
     try {
-      const client = await call('get_frame_screenshot', { frame_id: f.id })
-      expect(client.texts[0]).toContain('review size')
+      const size = async (f: Frame, args: Record<string, unknown> = {}) => {
+        const r = (await client.callTool(
+          { name: 'get_frame_screenshot', arguments: { frame_id: f.id, ...args } },
+          undefined,
+          {
+            timeout: 60_000,
+          },
+        )) as unknown as { content: Array<{ type: string; data?: string; mimeType?: string }> }
+        const img = r.content.find((b) => b.type === 'image')!
+        return { mime: img.mimeType, ...jpegSize(Buffer.from(img.data ?? '', 'base64')) }
+      }
+      expect(await size(frame('<div style="height:900px"></div>', 1440, 900))).toEqual({
+        mime: 'image/jpeg',
+        width: 1024,
+        height: 640,
+      })
+      const tall = await size(frame('<div style="height:5000px"></div>', 1440, 5000))
+      expect(tall.height).toBe(1568)
+      expect(tall.width).toBeGreaterThan(440)
     } finally {
       await close()
     }

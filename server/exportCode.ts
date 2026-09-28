@@ -319,7 +319,7 @@ function componentFile(def: ComponentDef, defs: Map<string, ComponentDef>, warni
 /** utilityCss: the canvas's Tailwind sheet (server/utilities.ts), '' when it has not opted in. */
 export function exportFrameCode(frame: Frame, canvas: Canvas, target: 'react' | 'html', utilityCss = ''): CodeExport {
   if (target === 'html') {
-    const html = prepareFrameHtml(frame.html, compileTheme(canvas.theme) + utilityCss, runtimeDefs(canvas.components))
+    const html = prepareFrameHtml(frame.html, compileTheme(canvas.theme), runtimeDefs(canvas.components), utilityCss)
     return { target, entry: 'index.html', files: [{ path: 'index.html', content: html }], warnings: [] }
   }
   const defs = new Map(liveComponents(canvas.components).map((d) => [d.name, d]))

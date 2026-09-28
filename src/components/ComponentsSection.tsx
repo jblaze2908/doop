@@ -11,7 +11,7 @@ import {
 import { useStore } from '../lib/store'
 import type { Frame } from '../../shared/types'
 import { api, errorMessage } from '../lib/api'
-import { useComponentDefs, useThemeCss } from '../lib/theme'
+import { useComponentDefs, useThemeCss, useUtilityCss } from '../lib/theme'
 import { timeAgo } from '../lib/time'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -86,6 +86,7 @@ function ComponentPreview({ def }: { def: ComponentDef }) {
     `<!doctype html><html><head></head><body style="margin:0;padding:10px;background:transparent">${sampleInstance(def)}</body></html>`,
     useThemeCss(),
     useComponentDefs(),
+    useUtilityCss(),
   )
   return (
     <span className="block h-[72px] w-full overflow-hidden rounded-[8px] border border-line bg-white">

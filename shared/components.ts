@@ -6,7 +6,7 @@
  * (serialize() only ever sees the light DOM).
  */
 
-import { spliceHead, themeOptedOut } from './theme.ts'
+import { spliceHead, spliceHeadEnd, themeOptedOut } from './theme.ts'
 
 export interface ComponentProp {
   name: string
@@ -318,11 +318,16 @@ export const COMPONENT_RUNTIME = `var draftComponents = (function () {
     themeSheet.replaceSync(css || '')
   }
 
-  /* server renders: the theme style element precedes this script */
+  /* server renders: the theme style precedes this script; the utilities
+     style closes the head, so it is parsed only after this runs */
   function boot(list) {
     var st = document.querySelector('style[data-draft-theme]')
     setTheme(st ? st.textContent : '')
     set(list)
+    document.addEventListener('DOMContentLoaded', function () {
+      var ut = document.querySelector('style[data-draft-utilities]')
+      if (ut) setTheme((st ? st.textContent : '') + ut.textContent)
+    })
   }
 
   return { set: set, refresh: function () { refresh(document) }, setTheme: setTheme, boot: boot }
@@ -352,8 +357,17 @@ function buildComponentScript(defs: readonly ComponentRuntimeDef[]): string {
 
 /** A frame document as server renders load it: theme first in <head>, then
  *  the component runtime, so instances upgrade as the parser creates them. */
-export function prepareFrameHtml(html: string, themeCss: string, defs: readonly ComponentRuntimeDef[]): string {
+export function prepareFrameHtml(
+  html: string,
+  themeCss: string,
+  defs: readonly ComponentRuntimeDef[],
+  utilityCss = '',
+): string {
+  const optedOut = themeOptedOut(html)
+  /* utilities end <head> so they beat the frame's own resets; the theme leads it so the frame beats the theme */
+  const withUtilities =
+    utilityCss && !optedOut ? spliceHeadEnd(html, `<style data-draft-utilities>${utilityCss}</style>`) : html
   /* one insertion: a second scan would find anchors inside the markup just added */
-  const theme = themeCss && !themeOptedOut(html) ? `<style data-draft-theme>${themeCss}</style>` : ''
-  return spliceHead(html, theme + componentScript(defs))
+  const theme = themeCss && !optedOut ? `<style data-draft-theme>${themeCss}</style>` : ''
+  return spliceHead(withUtilities, theme + componentScript(defs))
 }

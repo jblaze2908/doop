@@ -44,10 +44,11 @@ function aliases(theme: CanvasTheme): string {
   return `@theme inline reference { ${lines.join(' ')} }`
 }
 
-/* unlayered on purpose: layered utilities would lose to any unlayered rule,
-   so a theme's `* { padding: 0 }` reset would cancel every p-4 */
+/* Tailwind's own layers for its variables and preflight, so canvas tokens and
+   frame CSS beat both; utilities unlayered, since layered ones would lose to
+   any unlayered rule (a frame's `* { padding: 0 }` would cancel every p-4) */
 const input = (theme: CanvasTheme) =>
-  `@import "tailwindcss/theme.css"; @import "tailwindcss/utilities.css"; ${aliases(theme)}`
+  `@layer theme, base; @import "tailwindcss/theme.css" layer(theme); @import "tailwindcss/preflight.css" layer(base); @import "tailwindcss/utilities.css"; ${aliases(theme)}`
 
 const CLASS_ATTR = /\sclass\s*=\s*(?:"([^"]*)"|'([^']*)')/gi
 const classCache = new Map<string, { at: number; classes: string[] }>()

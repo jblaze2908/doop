@@ -156,8 +156,11 @@ function parseJson(raw: string | undefined): unknown {
   }
 }
 
-/** Long edge of a review screenshot (get_frame_screenshot without scale). */
-const REVIEW_EDGE = 1024
+/** Review screenshots (no scale): at most 1024 px wide, and no taller than the
+ *  1568 px the API downscales to anyway — a long-edge cap made tall pages too
+ *  small to read and agents made it up in crops (measured: 3–4× the images). */
+const REVIEW_WIDTH = 1024
+const REVIEW_HEIGHT = 1568
 
 const REVIEW_NUDGE =
   'You have not seen this design yet. Call get_frame_screenshot on it now, judge it against the review checkpoints (fit, spacing, hierarchy, contrast, alignment, realism), and fix any issues before moving on.'
@@ -1675,13 +1678,13 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
           .union([z.literal(1), z.literal(2)])
           .optional()
           .describe(
-            'Full resolution at 1x or 2x. Omit for the review size (long edge 1024 px, JPEG): cheaper to look at, enough to judge layout',
+            'Full resolution at 1x or 2x. Omit for the review size (at most 1024 px wide, JPEG): enough to judge layout and far cheaper to keep in context',
           ),
         selector: z
           .string()
           .optional()
           .describe(
-            'CSS selector of ONE element (e.g. "section.pricing") to capture at full size instead of the whole frame — use it to check a section closely',
+            'CSS selector of ONE element (e.g. "section.pricing") to capture instead of the whole frame — only for a detail the whole-frame view leaves unclear',
           ),
         agent_name: agentName.optional(),
       },
@@ -1692,9 +1695,10 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
       arrive(f.canvasId, agent_name)
       try {
         /* image tokens scale with pixels and stay in the agent's context for every
-           later turn, so the default is a review-size JPEG; crops stay full size */
-        const review = scale === undefined && !selector
-        const factor = review ? Math.min(1, REVIEW_EDGE / Math.max(f.width, f.height)) : (scale ?? 1)
+           later turn, so the default (crops too) is a review-size JPEG */
+        const review = scale === undefined
+        const tall = selector ? 1 : REVIEW_HEIGHT / f.height
+        const factor = review ? Math.min(1, REVIEW_WIDTH / f.width, tall) : scale
         const image = await renderFrame(f, factor, { selector, type: review ? 'jpeg' : 'png', quality: 85 })
         return withFeedback(
           {
@@ -1702,7 +1706,7 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
               { type: 'image' as const, data: image.toString('base64'), mimeType: review ? 'image/jpeg' : 'image/png' },
               {
                 type: 'text' as const,
-                text: `Screenshot of “${f.name}”${selector ? ` — ${selector}` : ''} (${f.width}×${f.height}${review ? ', review size — pass selector for a full-size crop of one part' : `@${scale ?? 1}x`}, html ${f.html.length} bytes)`,
+                text: `Screenshot of “${f.name}”${selector ? ` — ${selector}` : ''} (${f.width}×${f.height}${review ? ', review size' : `@${scale}x`}, html ${f.html.length} bytes)`,
               },
             ],
           },

@@ -93,4 +93,15 @@ describe('server render injection', () => {
     expect(head.startsWith('<style data-draft-theme>T</style><script data-draft-components>')).toBe(true)
     expect(head).toContain('<title>t</title>')
   })
+
+  it("ends <head> with the utilities, after the frame's own styles", () => {
+    const html = prepareFrameHtml('<html><head><style>x</style></head><body></body></html>', 'T', [], 'U')
+    expect(html).toBe(
+      '<html><head><style data-draft-theme>T</style><style>x</style><style data-draft-utilities>U</style></head><body></body></html>',
+    )
+    expect(prepareFrameHtml('<style>x</style><div></div>', '', [], 'U')).toBe(
+      '<style>x</style><div></div><style data-draft-utilities>U</style>',
+    )
+    expect(prepareFrameHtml('<html data-draft-theme="off"><head></head></html>', 'T', [], 'U')).not.toContain('U')
+  })
 })

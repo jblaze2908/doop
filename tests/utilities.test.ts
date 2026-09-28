@@ -61,7 +61,7 @@ describe('canvas Tailwind utilities', () => {
     expect(await utilitiesFor(canvasId)).toBe('')
   })
 
-  it('maps tokens to classes without circular variables and emits no layers', async () => {
+  it('maps tokens to classes without circular variables, utilities unlayered', async () => {
     store.setTheme(canvasId, theme())
     frame('<div class="flex p-4 bg-vellum font-display rounded-card"></div>')
     const css = await utilitiesFor(canvasId)
@@ -70,7 +70,8 @@ describe('canvas Tailwind utilities', () => {
     expect(css).toMatch(/\.font-display\s*\{\s*font-family: var\(--font-display\)/)
     expect(css).toMatch(/\.rounded-card\s*\{\s*border-radius: var\(--radius-card\)/)
     expect(css).not.toContain('--font-display: var(--font-display)')
-    expect(css).not.toContain('@layer')
+    expect(css).toContain('@layer theme, base;')
+    expect(css).not.toContain('@layer utilities')
   })
 
   it('grows as frames add classes and starts over when the theme changes', async () => {
@@ -123,8 +124,25 @@ describe('canvas Tailwind utilities', () => {
     'applies in real renders, even over an unlayered * { padding: 0 } reset',
     async () => {
       store.setTheme(canvasId, theme())
-      const f = frame('<!doctype html><html><body><div class="h-[321px] pb-[50px]"></div></body></html>')
+      const f = frame(
+        '<!doctype html><html><body><div class="pb-[50px]"><div class="h-[321px]"></div></div></body></html>',
+      )
       expect(await measureFrameHeight(f)).toBeGreaterThanOrEqual(371)
+    },
+    60_000,
+  )
+
+  it.skipIf(!findBrowserPath())(
+    "beats the frame's own reset for :where() utilities, and brings preflight",
+    async () => {
+      store.setTheme(canvasId, theme({ css: '' }))
+      const spaced = frame(
+        '<!doctype html><html><head><style>*{margin:0}</style></head><body><div class="space-y-[40px]"><div class="h-[10px]"></div><div class="h-[10px]"></div></div></body></html>',
+      )
+      expect(await measureFrameHeight(spaced)).toBeGreaterThanOrEqual(60)
+      /* no reset of its own: preflight zeroes the body and h1 margins */
+      const bare = frame('<!doctype html><html><body><h1 class="text-[20px] leading-[20px]">x</h1></body></html>')
+      expect(await measureFrameHeight(bare)).toBeLessThan(30)
     },
     60_000,
   )

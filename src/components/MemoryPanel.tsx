@@ -13,7 +13,7 @@ import { MarkdownBlock, Modal, ModalActions, ModalLede, ModalSpacer, ModalTitle 
 import { ConfirmDialog } from './ui/alert-dialog'
 import { isThemeEmpty } from '../../shared/theme'
 import { prepareFrameHtml } from '../../shared/components'
-import { useComponentDefs, useThemeCss } from '../lib/theme'
+import { useComponentDefs, useThemeCss, useUtilityCss } from '../lib/theme'
 import { ThemeSection } from './ThemeSection'
 import { ComponentsSection } from './ComponentsSection'
 
@@ -172,7 +172,7 @@ export function MemoryPanel() {
 function RefThumb({ reference }: { reference: MemoryReference }) {
   const w = 264 // panel content width
   const scale = w / reference.width
-  const html = prepareFrameHtml(reference.html, useThemeCss(), useComponentDefs())
+  const html = prepareFrameHtml(reference.html, useThemeCss(), useComponentDefs(), useUtilityCss())
   return (
     <span
       className="block w-full overflow-hidden rounded-[8px] border border-line bg-white"
@@ -202,6 +202,7 @@ function RefModal({
 }) {
   const themeCss = useThemeCss()
   const componentDefs = useComponentDefs()
+  const utilityCss = useUtilityCss()
   if (!reference) {
     return (
       <Modal size="xl" onClose={onClose}>
@@ -217,7 +218,7 @@ function RefModal({
   }
   const w = Math.min(696, window.innerWidth - 110)
   const scale = Math.min(1, w / reference.width)
-  const html = prepareFrameHtml(reference.html, themeCss, componentDefs)
+  const html = prepareFrameHtml(reference.html, themeCss, componentDefs, utilityCss)
   return (
     <Modal size="xl" onClose={onClose}>
       <>

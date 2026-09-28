@@ -235,6 +235,14 @@ export function spliceHead(html: string, markup: string): string {
   return html.slice(0, at) + markup + html.slice(at)
 }
 
+/** Insert markup as the last thing in <head> (before <body> when there is no
+ *  </head>), so it follows the frame's own styles in cascade order. */
+export function spliceHeadEnd(html: string, markup: string): string {
+  const anchor = /<\/head\s*>/i.exec(html) ?? /<body\b/i.exec(html)
+  if (!anchor) return html + markup
+  return html.slice(0, anchor.index) + markup + html.slice(anchor.index)
+}
+
 /** Put the theme first in the frame's <head>, where the frame runtime puts it
  *  in the browser: the frame's own styles come later and win the cascade. */
 export function spliceTheme(html: string, css: string): string {

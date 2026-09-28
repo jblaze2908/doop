@@ -58,12 +58,28 @@ describe.skipIf(!findBrowserPath())('frame runtime theme', () => {
     expect(await page.evaluate(() => document.querySelectorAll('style[data-draft-theme]').length)).toBe(1)
   })
 
+  it("puts utilities after the frame's own styles, so a utility beats the frame's reset", async () => {
+    await post({
+      type: 'draft:theme',
+      css: ':root{--ink:rgb(1, 2, 3)} p{color:var(--ink)}',
+      utilities: '.u{color:rgb(9, 9, 9)}',
+    })
+    await post({
+      type: 'draft:html',
+      html: '<!doctype html><html><head><style>*{color:rgb(255, 0, 0)}</style></head><body><p class="u">again</p></body></html>',
+    })
+    expect(await colorOf('p')).toBe('rgb(9, 9, 9)')
+    expect(await page.evaluate(() => document.head.lastElementChild?.hasAttribute('data-draft-utilities'))).toBe(true)
+    await post({ type: 'draft:html', html: '<!doctype html><html><head></head><body><p>again</p></body></html>' })
+  })
+
   it('never serializes the theme into the frame html', async () => {
     await post({ type: 'draft:edit', on: true })
     await post({ type: 'draft:edit', on: false })
     const html = await page.evaluate(() => window.edited[window.edited.length - 1] ?? '')
     expect(html).toContain('<p>again</p>')
     expect(html).not.toContain('data-draft-theme')
+    expect(html).not.toContain('data-draft-utilities')
   })
 
   it('respects a frame that opts out, and a cleared theme', async () => {

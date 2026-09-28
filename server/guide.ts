@@ -145,9 +145,9 @@ and fix real issues before moving on:
 Prefer targeted fixes over rewrites. Never delete and restart a mostly-good frame — the
 humans watching lose work they may have been reacting to.
 
-Screenshots come at review size (long edge 1024 px). Review a tall page section by
-section: pass selector (e.g. "section.pricing") to get_frame_screenshot for a full-size
-crop of that element instead of the whole frame shrunk to fit.
+Screenshots come at review size (at most 1024 px wide): one whole-frame shot is enough
+to judge layout, rhythm and contrast. Crop with selector (e.g. "section.pricing") only
+when a detail is unclear in it — every image stays in your context for the rest of the task.
 
 ## Round trips — batch what does not depend on a result
 
@@ -231,8 +231,8 @@ rounded-2xl bg-surface px-8 py-6" — instead of writing CSS: Draft generates th
 classes each frame uses. Theme tokens become classes: a colour token --ink is text-ink,
 bg-ink and border-ink; a font token --font-display is font-display; a shadow token
 --shadow-card is shadow-card. Arbitrary values work: w-[1240px], text-[136px],
-tracking-[-0.03em]. Write a <style> block only for what classes cannot say (keyframes,
-complex selectors).
+tracking-[-0.03em]. Tailwind's preflight reset is included, so write no reset of your own.
+Write a <style> block only for what classes cannot say (keyframes, complex selectors).
 
 ## Design quality
 
