@@ -123,6 +123,53 @@ async function loadFramePage(frame: Frame): Promise<IsolatedPage> {
   }
 }
 
+/** Past this a frame page is stuck (a script that never yields, a resource that
+ *  never settles) — a normal load and capture takes about a second. Without it a
+ *  stuck render held an agent's call for minutes, long enough to expire its presence. */
+export const FRAME_PAGE_DEADLINE_MS = 20_000
+
+export class FramePageTimeout extends Error {
+  constructor(ms: number) {
+    super(
+      `rendering the frame took over ${ms / 1000} s and was stopped — usually a script that never yields or an asset that never loads. Try again; if it repeats, look for those in the frame.`,
+    )
+  }
+}
+
+/** Load the frame in its own browser context, run fn on it, close it — within
+ *  the deadline. A stuck page's context is torn down, which is what frees it. */
+async function withFramePage<T>(
+  frame: Frame,
+  fn: (page: Page) => Promise<T>,
+  deadlineMs = FRAME_PAGE_DEADLINE_MS,
+): Promise<T> {
+  let loaded: IsolatedPage | undefined
+  let expired = false
+  const work = loadFramePage(frame).then((l) => {
+    loaded = l
+    if (expired) throw new FramePageTimeout(deadlineMs)
+    return fn(l.page)
+  })
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      expired = true
+      reject(new FramePageTimeout(deadlineMs))
+    }, deadlineMs)
+  })
+  try {
+    return await Promise.race([work, deadline])
+  } finally {
+    clearTimeout(timer)
+    if (!expired) await loaded?.close()
+    else {
+      void loaded?.close()
+      /* a load that lands after the deadline closes as soon as it does */
+      work.catch(() => {}).finally(() => void loaded?.close())
+    }
+  }
+}
+
 export interface FrameInspection {
   document: { title: string; width: number; height: number; htmlChars: number }
   design: {
@@ -147,9 +194,7 @@ export interface FrameInspection {
 /** A compact, rendered representation for agents. It intentionally relies on
  * visible text, semantics, geometry and computed styles rather than classes. */
 export async function inspectFrame(frame: Frame): Promise<FrameInspection> {
-  const loaded = await loadFramePage(frame)
-  const { page } = loaded
-  try {
+  return withFramePage(frame, async (page) => {
     /* tsx/esbuild annotates nested functions with __name; page.evaluate
        serializes the callback without that runtime helper. A tiny in-page
        identity shim keeps the evaluated code independent of the loader. */
@@ -340,9 +385,7 @@ export async function inspectFrame(frame: Frame): Promise<FrameInspection> {
       design: inspection.design,
       elements: inspection.elements,
     }
-  } finally {
-    await loaded.close()
-  }
+  })
 }
 
 /** Where one element sits on the rendered frame, cut to what viewers can see
@@ -373,31 +416,31 @@ export async function renderFrame(
   frame: Frame,
   /* output pixel density — fractional values downscale huge frames */
   scale: number = 1,
-  opts: { type?: 'png' | 'jpeg'; quality?: number; maxHeight?: number; selector?: string } = {},
+  opts: { type?: 'png' | 'jpeg'; quality?: number; maxHeight?: number; selector?: string; deadlineMs?: number } = {},
 ): Promise<Buffer> {
-  const loaded = await loadFramePage(frame)
-  const { page } = loaded
-  try {
-    await page.setViewport({
-      width: Math.max(1, Math.round(frame.width)),
-      height: Math.max(1, Math.round(frame.height)),
-      deviceScaleFactor: scale,
-    })
-    const type = opts.type ?? 'png'
-    const clip = opts.selector
-      ? await elementClip(page, frame, opts.selector)
-      : opts.maxHeight && frame.height > opts.maxHeight
-        ? { x: 0, y: 0, width: Math.round(frame.width), height: Math.round(opts.maxHeight) }
-        : undefined
-    const buf = await page.screenshot({
-      type,
-      ...(type === 'jpeg' ? { quality: opts.quality ?? 90 } : {}),
-      ...(clip ? { clip } : {}),
-    })
-    return Buffer.from(buf)
-  } finally {
-    await loaded.close()
-  }
+  return withFramePage(
+    frame,
+    async (page) => {
+      await page.setViewport({
+        width: Math.max(1, Math.round(frame.width)),
+        height: Math.max(1, Math.round(frame.height)),
+        deviceScaleFactor: scale,
+      })
+      const type = opts.type ?? 'png'
+      const clip = opts.selector
+        ? await elementClip(page, frame, opts.selector)
+        : opts.maxHeight && frame.height > opts.maxHeight
+          ? { x: 0, y: 0, width: Math.round(frame.width), height: Math.round(opts.maxHeight) }
+          : undefined
+      const buf = await page.screenshot({
+        type,
+        ...(type === 'jpeg' ? { quality: opts.quality ?? 90 } : {}),
+        ...(clip ? { clip } : {}),
+      })
+      return Buffer.from(buf)
+    },
+    opts.deadlineMs,
+  )
 }
 
 /** Tallest a fitted frame gets: past this a page is a document, not a design. */
@@ -407,13 +450,12 @@ const MAX_FIT_HEIGHT = 30_000
  *  when it overflows, else the bottom of its lowest element, so a frame shrinks
  *  as well as grows. One page load (~0.2–0.5 s), run once per full write. */
 export async function measureFrameHeight(frame: Frame): Promise<number> {
-  const loaded = await loadFramePage(frame)
-  try {
-    await loaded.page.setViewport({
+  return withFramePage(frame, async (page) => {
+    await page.setViewport({
       width: Math.max(1, Math.round(frame.width)),
       height: Math.max(1, Math.round(frame.height)),
     })
-    const height = await loaded.page.evaluate(() => {
+    const height = await page.evaluate(() => {
       const root = document.documentElement
       if (root.scrollHeight > innerHeight + 1) return root.scrollHeight
       /* descendants, not body: in quirks mode (no doctype) body fills the viewport */
@@ -426,7 +468,5 @@ export async function measureFrameHeight(frame: Frame): Promise<number> {
       return Math.ceil(bottom + parseFloat(body.paddingBottom) + parseFloat(body.marginBottom))
     })
     return Math.min(MAX_FIT_HEIGHT, Math.max(1, height))
-  } finally {
-    await loaded.close()
-  }
+  })
 }

@@ -382,3 +382,47 @@ describe('hierarchy', () => {
     }
   })
 })
+
+describe('agent nudges on a system’s canvases', () => {
+  it('counts the system’s style guides as read once read or written on its draft', async () => {
+    const author = await connect()
+    try {
+      const made = await author.call('create_design_system', { name: 'Guided' })
+      const draftId = (made.json.draftCanvas as { id: string }).id
+      await author.call('set_guidelines', { canvas_id: draftId, name: 'brand', markdown: '# Brand' })
+      await author.call('publish_design_system', { system_id: (made.json.designSystem as { id: string }).id })
+      const page = await author.call('create_canvas', {
+        name: 'Page',
+        design_system_id: (made.json.designSystem as { id: string }).id,
+      })
+      const pageId = page.json.id as string
+
+      const raw = async (agent: string) => {
+        const server = buildMcpServer('Test Owner', OWNER)
+        const client = new Client({ name: 'nudge', version: '1' })
+        const [a, b] = InMemoryTransport.createLinkedPair()
+        await server.connect(b)
+        await client.connect(a)
+        const r = (await client.callTool({
+          name: 'create_frame',
+          arguments: {
+            canvas_id: pageId,
+            name: agent,
+            width: 400,
+            height: 300,
+            html: '<div></div>',
+            agent_name: agent,
+          },
+        })) as unknown as CallResult
+        await client.close()
+        await server.close()
+        return r.content.map((c) => c.text ?? '').join('\n')
+      }
+      /* the author wrote the guide on the draft; another agent has read nothing */
+      expect(await raw('Claude')).not.toContain('style guides you have not read')
+      expect(await raw('Other')).toContain('style guides you have not read: brand')
+    } finally {
+      await author.close()
+    }
+  })
+})

@@ -243,8 +243,14 @@ function withGuidelinesNudge<T extends { content: { type: 'text' | 'image'; [k: 
         text: `${COMPONENTS_NOTE} Components here: ${live.map((d) => `<${d.name}>`).join(', ')}.`,
       })
   }
-  const docs = design.guidelines
-  if (docs.length === 0 || actions.hasSeenGuidelines(canvasId, actor.name)) return result
+  if (design.guidelines.length === 0 || actions.hasSeenGuidelines(canvasId, actor.name)) return result
+  /* a design system's guides count as read once read, or written, on its draft canvas */
+  const link = design.link
+  const docs =
+    link && actions.hasSeenGuidelines(link.system.sourceCanvasId, actor.name)
+      ? design.guidelines.filter((d) => !link.snapshot.guidelines.includes(d))
+      : design.guidelines
+  if (docs.length === 0) return result
   result.content.push({
     type: 'text' as const,
     text: `This canvas has style guides you have not read: ${docs.map((d) => d.name).join(', ')}. Call get_guidelines({ canvas_id, name }) for each relevant one NOW and make your design follow them.`,
