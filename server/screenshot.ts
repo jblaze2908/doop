@@ -344,11 +344,35 @@ export async function inspectFrame(frame: Frame): Promise<FrameInspection> {
   }
 }
 
+/** Where one element sits on the rendered frame, cut to what viewers can see
+ *  (frames do not scroll). Throws with a message fit for the agent. */
+async function elementClip(page: Page, frame: Frame, selector: string) {
+  const box = await page.evaluate((sel) => {
+    let el: Element | null
+    try {
+      el = document.querySelector(sel)
+    } catch {
+      return 'invalid' as const
+    }
+    if (!el) return null
+    const r = el.getBoundingClientRect()
+    return { x: r.left + scrollX, y: r.top + scrollY, width: r.width, height: r.height }
+  }, selector)
+  if (box === 'invalid') throw new Error(`"${selector}" is not a valid CSS selector`)
+  if (!box) throw new Error(`no element matches "${selector}"`)
+  const x = Math.max(0, box.x)
+  const y = Math.max(0, box.y)
+  const right = Math.min(frame.width, box.x + box.width)
+  const bottom = Math.min(frame.height, box.y + box.height)
+  if (right <= x || bottom <= y) throw new Error(`"${selector}" is outside the frame's visible area`)
+  return { x, y, width: right - x, height: bottom - y }
+}
+
 export async function renderFrame(
   frame: Frame,
   /* output pixel density — fractional values downscale huge frames */
   scale: number = 1,
-  opts: { type?: 'png' | 'jpeg'; quality?: number; maxHeight?: number } = {},
+  opts: { type?: 'png' | 'jpeg'; quality?: number; maxHeight?: number; selector?: string } = {},
 ): Promise<Buffer> {
   const loaded = await loadFramePage(frame)
   const { page } = loaded
@@ -359,8 +383,9 @@ export async function renderFrame(
       deviceScaleFactor: scale,
     })
     const type = opts.type ?? 'png'
-    const clip =
-      opts.maxHeight && frame.height > opts.maxHeight
+    const clip = opts.selector
+      ? await elementClip(page, frame, opts.selector)
+      : opts.maxHeight && frame.height > opts.maxHeight
         ? { x: 0, y: 0, width: Math.round(frame.width), height: Math.round(opts.maxHeight) }
         : undefined
     const buf = await page.screenshot({
@@ -369,6 +394,37 @@ export async function renderFrame(
       ...(clip ? { clip } : {}),
     })
     return Buffer.from(buf)
+  } finally {
+    await loaded.close()
+  }
+}
+
+/** Tallest a fitted frame gets: past this a page is a document, not a design. */
+const MAX_FIT_HEIGHT = 30_000
+
+/** The height a scrolling page needs at the frame's width: the scroll height
+ *  when it overflows, else the bottom of its lowest element, so a frame shrinks
+ *  as well as grows. One page load (~0.2–0.5 s), run once per full write. */
+export async function measureFrameHeight(frame: Frame): Promise<number> {
+  const loaded = await loadFramePage(frame)
+  try {
+    await loaded.page.setViewport({
+      width: Math.max(1, Math.round(frame.width)),
+      height: Math.max(1, Math.round(frame.height)),
+    })
+    const height = await loaded.page.evaluate(() => {
+      const root = document.documentElement
+      if (root.scrollHeight > innerHeight + 1) return root.scrollHeight
+      /* descendants, not body: in quirks mode (no doctype) body fills the viewport */
+      let bottom = 0
+      for (const el of document.body.querySelectorAll('*')) {
+        const r = el.getBoundingClientRect()
+        if (r.height > 0 && getComputedStyle(el).position !== 'fixed') bottom = Math.max(bottom, r.bottom + scrollY)
+      }
+      const body = getComputedStyle(document.body)
+      return Math.ceil(bottom + parseFloat(body.paddingBottom) + parseFloat(body.marginBottom))
+    })
+    return Math.min(MAX_FIT_HEIGHT, Math.max(1, height))
   } finally {
     await loaded.close()
   }

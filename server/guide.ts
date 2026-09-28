@@ -5,7 +5,18 @@
 
 import { AGENT_ROLES } from '../shared/agents.ts'
 
-export const GUIDE_TOPICS = ['draft-instructions'] as const
+export const GUIDE_TOPICS = [
+  'draft-instructions',
+  'collaboration',
+  'design-brief',
+  'images',
+  'lean-reads',
+  'components',
+  'style-guides',
+  'redesigns',
+  'export',
+] as const
+export type GuideTopic = (typeof GUIDE_TOPICS)[number]
 
 /** The taste doctrine the MCP guide serves to connected agents. */
 export const DESIGN_QUALITY = `- Commit to ONE clear aesthetic direction per frame and execute it precisely.
@@ -66,6 +77,8 @@ Skip the brief only when the canvas already dictates the style — established f
 style guides or pinned references — or when the human handed you a complete design
 system. Then those are the brief; follow them.`
 
+/* The core every agent loads first; everything else is a topic it loads when a
+   task needs it, so the up-front read stays small. */
 export const DRAFT_GUIDE = `# Draft Agent Guide
 
 ## The room you're in
@@ -74,40 +87,6 @@ Draft is a live multiplayer canvas. Humans and other agents may be present RIGHT
 your edits render for them the moment you make them, your presence appears under your
 agent_name, and every action lands in a visible activity feed. Work like a considerate
 colleague, not a batch job.
-
-## Comments and @mentions
-
-Humans pin comments to elements inside frames. A comment that @mentions one of these
-roles is a request for an agent — get_comments shows it with forAgent: true and the
-role's name in targetAgent:
-
-${AGENT_ROLES.map((r) => `- **${r.name}** (@${r.id}) — ${r.blurb}`).join('\n')}
-
-Treat the role as the brief for the request: a comment for @a11y wants an accessibility
-pass on that element, @copy wants the words fixed. If a human asks you to handle their
-comments, these are the ones to pick up.
-
-Use get_comments({ canvas_id }) to read element-pinned comments and replies, including
-their frame, selector, snippet, author, thread links, and claim/failure/resolution state.
-Add frame_id to focus on one frame. Resolved comments are included by default to preserve
-conversation context; include_resolved: false returns only unresolved entries. The result
-is newest first and covers the retained history (up to 100 entries per canvas).
-
-Answer a thread with reply_to_comment({ canvas_id, comment_id, text, agent_name }) — the
-reply inherits the root's element anchor. Close the thread with resolve_comment once the
-request is carried out; resolving an @mention thread also records the exchange in the
-canvas Memory. Reading does not claim work or resolve it; task feedback is separate
-(get_feedback).
-
-## Board cards
-
-Humans queue cards on the canvas board; a card's text is the whole request. When cards
-are waiting, your tool results carry a BOARD block. Read the board with
-get_cards({ canvas_id }), oldest first, then claim_card({ canvas_id, card_id, agent_name })
-BEFORE starting: the card moves to In progress under your name and no other agent can
-take it. Work it like any request (set_status, build, review with get_frame_screenshot),
-then finish_card with outcome "done" — or "failed" with a reason the human can act on.
-A failed card waits for a human to retry it.
 
 ## Narrate your work — set_status
 
@@ -140,14 +119,18 @@ and picking it up assigns it to you. When you see one:
 - Pass your agent_name on every call, including get_canvas, get_frame and
   get_frame_screenshot — open requests can only reach agents that identify themselves.
 
+Comments, @mentions and board cards reach you through their own tools — get_guide({ topic:
+"collaboration" }) when you work on them.
+
 ## Review checkpoints — MANDATORY
 
 After creating a frame or finishing a significant edit, you MUST call get_frame_screenshot
 and judge the render like a senior designer. Evaluate each item, give a one-line verdict,
 and fix real issues before moving on:
 
-- **Fit**: content clipped at the frame edge, or a large dead zone below? Resize the frame
-  (update_frame width/height) or rework the layout — frames do not scroll for viewers.
+- **Fit**: content clipped at the frame edge, or a large dead zone below? A page that
+  scrolls should use height "fit" (Draft sizes it); otherwise resize with update_frame or
+  rework the layout — frames do not scroll for viewers.
 - **Spacing**: uneven gaps, cramped clusters, hero content with no room to breathe.
 - **Hierarchy**: can you tell heading from body from caption at a glance?
 - **Contrast**: text you would squint at; elements dissolving into their background.
@@ -161,9 +144,18 @@ and fix real issues before moving on:
 Prefer targeted fixes over rewrites. Never delete and restart a mostly-good frame — the
 humans watching lose work they may have been reacting to.
 
+To check one part closely, pass selector (e.g. "section.pricing") to get_frame_screenshot:
+a full-size crop of that element instead of the whole frame shrunk to fit.
+
 ## Design brief — before your first frame
 
-${DESIGN_BRIEF}
+When the canvas has no established style (no frames, style guides or pinned references),
+commit to a five-line brief before designing: the mood (a physical scene, not your first
+instinct), the palette with roles (one ground, ONE accent, 5–6 hexes), type (a
+characterful display face with a quiet body face, and the scale), the hero device, and a
+one-line direction. Post it with set_status and save_decision. search_inspiration shows
+real pages when it is available; if it errors, skip it. The full ritual and taste
+doctrine: get_guide({ topic: "design-brief" }).
 
 ## Streaming — how to write designs
 
@@ -173,6 +165,9 @@ Viewers watch designs assemble live. Stream with append_frame_html:
   then each following section — roughly 1–4 KB each. Every chunk renders on the canvas
   the moment it arrives, so each call should leave the frame in a sensible visual state.
 - start=true on the first chunk (clears the frame), done=true on the last.
+- Chunks are appended to the end of the document. A wrapper that spans sections is fine
+  only if it opens in the first chunk and closes in the last; every chunk in between must
+  be balanced — one stray closing tag moves every later chunk outside the wrapper.
 - **Review the hero before building on it.** After streaming the first major section
   (usually nav + hero), call get_frame_screenshot and judge it — the design system
   (palette, type, spacing) commits there, and humans watching react to the hero first.
@@ -193,11 +188,114 @@ Viewers watch designs assemble live. Stream with append_frame_html:
 - A frame renders a complete HTML document in a sandboxed iframe. Inline <style> and
   <script> work; Google Fonts via <link> work.
 - Always reset: * { margin: 0; box-sizing: border-box; } and design to the exact frame size.
-- Size frames to their content: mobile screen 390×844, desktop page 1280×800, card or
-  component 480×360, square social post 640×640. Set width/height on create_frame, or
-  adjust later with update_frame.
+- Size frames to their content: mobile screen 390×844, desktop screen 1280×800, card or
+  component 480×360, square social post 640×640. A page that scrolls (landing page, docs,
+  long form) gets height "fit" on create_frame: Draft measures the rendered document after
+  every write, streamed chunks included, and sizes the frame to it — never guess a height.
+  Screens keep their fixed viewport size.
 
-## Images — source, then upload
+## Canvas theme — one stylesheet for every frame
+
+A canvas can carry a theme: design tokens (CSS custom properties on :root), Google
+Fonts and shared CSS. Draft injects it into EVERY frame, first in <head>, so a frame's
+own <style> still wins where it needs to. get_canvas reports it; get_theme reads it.
+
+- Designing on a themed canvas: use the theme's classes and var(--…) tokens directly.
+  Never paste the theme's CSS, :root tokens or font <link>s into a frame — frames carry
+  only what is unique to them.
+- Building a design system: put it in the theme, not in each frame. set_theme_tokens for
+  palette, type scale, spacing, radii and shadows; set_theme_fonts for Google Fonts
+  (css2 specs like "Inter:wght@400;600"); set_theme_css for resets and component classes.
+  A token change then restyles every frame at once.
+- A frame that must ignore the theme (an import, a page that ships its own full CSS)
+  opts out with <html data-draft-theme="off">.
+
+## Design quality
+
+- One clear aesthetic direction per frame, executed precisely.
+- Type does the heavy lifting: strong size contrast between display and label text; avoid
+  Inter, Roboto and Arial unless the brief wants a system feel.
+- One ground and one strong accent. Avoid the clichés that read as AI output: purple
+  gradients on white, neon on charcoal, terracotta on warm off-white, glassmorphism,
+  shadows on everything.
+- Deliberate white space: tight inside groups, generous between them.
+- Realistic, specific copy — never lorem ipsum. Real logos only, never placeholders
+  (get_guide({ topic: "images" })).
+
+## Multiplayer etiquette
+
+- Call get_canvas before adding or editing anything. Note each frame's updatedBy and
+  updatedAt: a frame touched seconds ago by someone else is probably mid-edit — do not
+  edit or delete another actor's frame unless asked to (human feedback you picked up
+  counts as being asked).
+- Put new work in new frames beside existing ones; omit x/y to auto-place.
+- Keep the SAME agent_name for your whole session. It is your identity in the room.
+
+## More topics — load when the task needs them
+
+get_guide({ topic }) with: "collaboration" (comments, @mention roles, board cards),
+"design-brief" (the full brief ritual and taste doctrine), "images" (sourcing photos,
+icons, logos and backgrounds), "lean-reads" (outline, section read and replace),
+"components" (linked components), "style-guides" (style guides and pinned references),
+"redesigns" (auditing an existing page, two directions), "export" (code and image export).
+`
+
+const TOPIC_COLLABORATION = `## Comments and @mentions
+
+Humans pin comments to elements inside frames. A comment that @mentions one of these
+roles is a request for an agent — get_comments shows it with forAgent: true and the
+role's name in targetAgent:
+
+${AGENT_ROLES.map((r) => `- **${r.name}** (@${r.id}) — ${r.blurb}`).join('\n')}
+
+Treat the role as the brief for the request: a comment for @a11y wants an accessibility
+pass on that element, @copy wants the words fixed. If a human asks you to handle their
+comments, these are the ones to pick up.
+
+Use get_comments({ canvas_id }) to read element-pinned comments and replies, including
+their frame, selector, snippet, author, thread links, and claim/failure/resolution state.
+Add frame_id to focus on one frame. Resolved comments are included by default to preserve
+conversation context; include_resolved: false returns only unresolved entries. The result
+is newest first and covers the retained history (up to 100 entries per canvas).
+
+Answer a thread with reply_to_comment({ canvas_id, comment_id, text, agent_name }) — the
+reply inherits the root's element anchor. Close the thread with resolve_comment once the
+request is carried out; resolving an @mention thread also records the exchange in the
+canvas Memory. Reading does not claim work or resolve it; task feedback is separate
+(get_feedback).
+
+## Board cards
+
+Humans queue cards on the canvas board; a card's text is the whole request. When cards
+are waiting, your tool results carry a BOARD block. Read the board with
+get_cards({ canvas_id }), oldest first, then claim_card({ canvas_id, card_id, agent_name })
+BEFORE starting: the card moves to In progress under your name and no other agent can
+take it. Work it like any request (set_status, build, review with get_frame_screenshot),
+then finish_card with outcome "done" — or "failed" with a reason the human can act on.
+A failed card waits for a human to retry it.
+`
+
+const TOPIC_DESIGN_BRIEF = `## Design brief — before your first frame
+
+${DESIGN_BRIEF}
+
+## Design quality
+
+${DESIGN_QUALITY}
+- Reference sites: when a request names a site or URL — a redesign of it, or "like
+  acme.com" — call import_webpage on the relevant public page FIRST. It imports that
+  one URL as an editable HTML snapshot/frame on the canvas. Design from what is actually
+  there: its real copy, nav labels, product facts and imagery direction. A redesign that
+  invents content is wrong even when it looks good. Leave the imported source frame as
+  is so humans can compare against it; design in your own frame. Use view_website only
+  when you need a screenshot and visible text for read-only inspection without adding
+  anything to the canvas. If Draft cannot capture the site, do not retry it
+  through view_website. Use your own browser or web-access tool and work only from content
+  you actually observe; otherwise ask the user for screenshots or an HTML export instead
+  of inventing the page.
+`
+
+const TOPIC_IMAGES = `## Images — source, then upload
 
 Real imagery is what separates an appealing design from a wireframe. Frames can load
 any public image URL. Source images in this order:
@@ -245,8 +343,9 @@ any public image URL. Source images in this order:
 
 Never inline images as data: URIs in frame HTML; they bloat every get_frame and
 edit round-trip.
+`
 
-## Lean reads — outline, section, replace
+const TOPIC_LEAN_READS = `## Lean reads — outline, section, replace
 
 get_frame returns the whole document; on a big frame that is thousands of tokens per
 read. For copy edits across frames ("change X everywhere"), call find_in_canvas: it
@@ -263,24 +362,9 @@ match, ready for edit_frame_html. For a change to part of an existing frame:
 
 Paths shift when elements are inserted or removed before them, so re-outline after a
 structural edit instead of reusing old paths.
+`
 
-## Canvas theme — one stylesheet for every frame
-
-A canvas can carry a theme: design tokens (CSS custom properties on :root), Google
-Fonts and shared CSS. Draft injects it into EVERY frame, first in <head>, so a frame's
-own <style> still wins where it needs to. get_canvas reports it; get_theme reads it.
-
-- Designing on a themed canvas: use the theme's classes and var(--…) tokens directly.
-  Never paste the theme's CSS, :root tokens or font <link>s into a frame — frames carry
-  only what is unique to them.
-- Building a design system: put it in the theme, not in each frame. set_theme_tokens for
-  palette, type scale, spacing, radii and shadows; set_theme_fonts for Google Fonts
-  (css2 specs like "Inter:wght@400;600"); set_theme_css for resets and component classes.
-  A token change then restyles every frame at once.
-- A frame that must ignore the theme (an import, a page that ships its own full CSS)
-  opts out with <html data-draft-theme="off">.
-
-## Components — build screens from linked instances
+const TOPIC_COMPONENTS = `## Components — build screens from linked instances
 
 A canvas can carry linked components: custom elements whose template and CSS live on
 the canvas, not in frames. get_canvas and list_components list them with their props
@@ -301,8 +385,9 @@ and slots.
   component_usages shows where it is used.
 - delete_component leaves instances in place, rendered as a visible "missing component"
   box, so nothing disappears silently.
+`
 
-## Style guides — read before designing
+const TOPIC_STYLE_GUIDES = `## Style guides — read before designing
 
 Canvases can carry named style guides: markdown packs of brand and style rules
 (palettes, fonts, layout recipes, asset URLs) that every frame on the canvas must
@@ -332,8 +417,9 @@ conversation is invisible to the canvas unless you report it. After you
 address design feedback from your own chat ("rounder corners", "more white
 and blue"), call save_decision with the human's words. Design taste only —
 never one-off content edits like typos or copy tweaks.
+`
 
-## Redesigns — audit first, then two drafts
+const TOPIC_REDESIGNS = `## Redesigns — audit first, then two drafts
 
 When a request redesigns an existing page or site, do not restyle from vibes — audit,
 commit to directions, then deliver a choice:
@@ -364,23 +450,9 @@ commit to directions, then deliver a choice:
   "go wild", "rebrand"), deliver ONE draft at that scope.
 - If the canvas already carries a redesign doc for the source, read it with
   get_guidelines and follow its directions instead of re-auditing.
+`
 
-## Design quality
-
-${DESIGN_QUALITY}
-- Reference sites: when a request names a site or URL — a redesign of it, or "like
-  acme.com" — call import_webpage on the relevant public page FIRST. It imports that
-  one URL as an editable HTML snapshot/frame on the canvas. Design from what is actually
-  there: its real copy, nav labels, product facts and imagery direction. A redesign that
-  invents content is wrong even when it looks good. Leave the imported source frame as
-  is so humans can compare against it; design in your own frame. Use view_website only
-  when you need a screenshot and visible text for read-only inspection without adding
-  anything to the canvas. If Draft cannot capture the site, do not retry it
-  through view_website. Use your own browser or web-access tool and work only from content
-  you actually observe; otherwise ask the user for screenshots or an HTML export instead
-  of inventing the page.
-
-## Exporting frames as code
+const TOPIC_EXPORT = `## Exporting frames as code
 
 export_frame_code turns a frame into source files. target "react" (default) gives a page
 component (default export), one components/<Name>.tsx per linked component the page uses
@@ -397,13 +469,16 @@ CURRENT html (/i/<frameId>.png?scale=2; use .jpg?quality=90 for JPEG, append &do
 for an attachment). The export_frame tool returns the same URLs on demand. Use it when a human asks to publish a design elsewhere: download the
 image and upload it wherever they need (a CMS media library, a social post, an og:image).
 The URL re-renders on change, so an embedded link stays current as the frame iterates.
-
-## Multiplayer etiquette
-
-- Call get_canvas before adding or editing anything. Note each frame's updatedBy and
-  updatedAt: a frame touched seconds ago by someone else is probably mid-edit — do not
-  edit or delete another actor's frame unless asked to (human feedback you picked up
-  counts as being asked).
-- Put new work in new frames beside existing ones; omit x/y to auto-place.
-- Keep the SAME agent_name for your whole session. It is your identity in the room.
 `
+
+export const GUIDE_DOCS: Record<GuideTopic, string> = {
+  'draft-instructions': DRAFT_GUIDE,
+  collaboration: TOPIC_COLLABORATION,
+  'design-brief': TOPIC_DESIGN_BRIEF,
+  images: TOPIC_IMAGES,
+  'lean-reads': TOPIC_LEAN_READS,
+  components: TOPIC_COMPONENTS,
+  'style-guides': TOPIC_STYLE_GUIDES,
+  redesigns: TOPIC_REDESIGNS,
+  export: TOPIC_EXPORT,
+}

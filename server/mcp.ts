@@ -9,8 +9,8 @@ import { canAccessCanvas } from './access.ts'
 import * as workspaces from './workspaces.ts'
 import { auth, getUserName, isBanned, PUBLIC_ORIGIN } from './auth.ts'
 import { capture, captureThrottled } from './analytics.ts'
-import { renderFrame } from './screenshot.ts'
-import { DRAFT_GUIDE, GUIDE_TOPICS } from './guide.ts'
+import { measureFrameHeight, renderFrame } from './screenshot.ts'
+import { GUIDE_DOCS, GUIDE_TOPICS } from './guide.ts'
 import { describeInspiration, fetchThumb, INSPIRATION_USAGE_NOTE, searchInspiration } from './inspiration.ts'
 import { ESCAPED_HTML_NOTE, looksEscapedHtml } from './escapedHtml.ts'
 import { describeSyncFlow, getSyncFlow } from './ingest.ts'
@@ -47,6 +47,7 @@ You MUST call get_guide({ topic: "draft-instructions" }) once before using other
 - Identity: pick an agent_name and reuse the SAME name on every call — your presence and edits are attributed live.
 - Narrate: call set_status with a one-line summary when you start a task and whenever your focus shifts — people watching the canvas see it live next to your name.
 - Creating: create_frame, then stream the design with append_frame_html one complete section at a time (~1–4 KB chunks; start=true on the first, done=true on the last). Each chunk renders the moment it arrives — viewers watch you work.
+- Sizing: a page that scrolls (landing page, docs) gets height "fit" on create_frame — Draft sizes it to the rendered document after every write; screens keep fixed sizes. To inspect one part, get_frame_screenshot with selector returns a full-size crop.
 - Review: after every create or significant edit you MUST call get_frame_screenshot and fix what looks wrong before moving on.
 - Small edits: edit_frame_html (exact find/replace — the change morphs into the rendered frame in place). Full redesigns: set_frame_html or a new stream. Rename/move/resize: update_frame.
 - Variants: duplicate_frame copies a frame and applies find/replace edits to the copy in one call (dark mode, another headline, a narrower width) — never re-send a whole document to make a variant.
@@ -95,10 +96,28 @@ function themeSummary(theme: CanvasTheme) {
   }
 }
 
+/* Frames an agent sized with height "fit": every write re-measures them, each
+   streamed chunk included, so a page grows on the canvas as it streams. Per
+   process and in memory: after a restart the agent asks again. */
+const fitFrames = new Set<string>()
+const heightInput = z
+  .union([z.number(), z.literal('fit')])
+  .optional()
+  .describe('Pixels, or "fit" to size the frame to its rendered content after every write (pages that scroll)')
+
+/** Size a fitted frame to its rendered document. One headless render
+ *  (~0.2–0.5 s) per write, only for frames opted in; a failed render keeps the height. */
+async function fitHeight(frameId: string, actor: Actor): Promise<Frame | undefined> {
+  const f = store.getFrame(frameId)
+  if (!f || !fitFrames.has(frameId)) return f
+  const height = await measureFrameHeight(f).catch(() => undefined)
+  return height && height !== f.height ? actions.updateFrame(frameId, { height }, actor) : f
+}
+
 const REVIEW_NUDGE =
   'You have not seen this design yet. Call get_frame_screenshot on it now, judge it against the review checkpoints (fit, spacing, hierarchy, contrast, alignment, realism), and fix any issues before moving on.'
 
-import type { Actor } from '../shared/types.ts'
+import type { Actor, Frame } from '../shared/types.ts'
 
 /** Reaches agents whose session predates set_status (or who skipped the guide). */
 function withStatusNudge<T extends { content: { type: 'text' | 'image'; [k: string]: unknown }[] }>(
@@ -279,12 +298,12 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
     'get_guide',
     {
       description:
-        'Read the Draft agent guide: mandatory review checkpoints, the streaming workflow, frame sizing, design-quality doctrine, and multiplayer etiquette. Call with topic "draft-instructions" ONCE before using other Draft tools; call again if a long conversation may have compressed earlier context.',
+        'Read the Draft agent guide. "draft-instructions" is the core (review checkpoints, streaming, frame sizing, theme, design quality, etiquette): load it ONCE before using other Draft tools, and again if a long conversation may have compressed it. Other topics load when a task needs them; the core lists them.',
       inputSchema: {
         topic: z.enum(GUIDE_TOPICS).describe('Guide topic to load'),
       },
     },
-    async () => text(DRAFT_GUIDE),
+    async ({ topic }) => text(GUIDE_DOCS[topic]),
   )
 
   server.registerTool(
@@ -292,7 +311,7 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
     {
       title: 'Search design inspiration',
       description:
-        'Search a curated gallery of real, well-designed live websites by category and SEE thumbnails of each, with pre-distilled style facts (one-line mood north star, named palette, fonts). Call it FIRST when writing a design brief — it is the required inspiration step, especially for landing pages: query the page archetype plus the register you want ("law firm landing page, editorial", "dark fintech dashboard"), not just the product noun. Study the thumbnails, pick the ONE exemplar that fits the brief best and follow it — do not blend several — and name it in the brief. Do not embed these screenshots in a frame.',
+        'Search a curated gallery of real, well-designed live websites by category and SEE thumbnails of each, with pre-distilled style facts (one-line mood north star, named palette, fonts). Useful when writing a design brief, especially for landing pages: query the page archetype plus the register you want ("law firm landing page, editorial", "dark fintech dashboard"), not just the product noun. Study the thumbnails, pick the ONE exemplar that fits the brief best and follow it — do not blend several — and name it in the brief. Do not embed these screenshots in a frame. If it errors, skip it: the brief does not depend on it.',
       inputSchema: {
         query: z
           .string()
@@ -330,7 +349,10 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
         const result = { content }
         return canvas_id ? withFeedback(result, canvas_id, actorFrom(agent_name)) : result
       } catch (e) {
-        return err(e instanceof Error ? e.message : 'inspiration search failed')
+        /* the brief does not depend on it: say so, or agents retry or stall */
+        return err(
+          `${e instanceof Error ? e.message : 'inspiration search failed'}. Inspiration is unavailable here — skip this step and write the brief from the design-quality principles.`,
+        )
       }
     },
   )
@@ -1149,14 +1171,19 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
         x: z.number().optional(),
         y: z.number().optional(),
         width: z.number().optional().describe('Default 640'),
-        height: z.number().optional().describe('Default 480'),
+        height: heightInput,
         agent_name: agentName,
       },
     },
     async ({ canvas_id, name, html, x, y, width, height, agent_name }) => {
       if (!canvasFor(canvas_id)) return noCanvas(canvas_id)
-      const frame = actions.createFrame(canvas_id, { name, html, x, y, width, height }, actorFrom(agent_name))
-      if (!frame) return noCanvas(canvas_id)
+      const actor = actorFrom(agent_name)
+      const fit = height === 'fit'
+      /* a fitted page starts at a desktop viewport so a stream has room before its first measure */
+      const created = actions.createFrame(canvas_id, { name, html, x, y, width, height: fit ? 900 : height }, actor)
+      if (!created) return noCanvas(canvas_id)
+      if (fit) fitFrames.add(created.id)
+      const frame = (html && (await fitHeight(created.id, actor))) || created
       const result = withEscapeNote(
         frame.html.length > 0
           ? textWithNudge({ ok: true, frame: frameSummary(frame) }, REVIEW_NUDGE)
@@ -1187,22 +1214,25 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
         x: z.number().optional(),
         y: z.number().optional(),
         width: z.number().optional().describe("Default: the source's width"),
-        height: z.number().optional().describe("Default: the source's height"),
+        height: heightInput,
         agent_name: agentName,
       },
     },
     async ({ frame_id, name, edits, x, y, width, height, agent_name }) => {
       if (!frameFor(frame_id)) return noFrame(frame_id)
       const actor = actorFrom(agent_name)
-      const copied = actions.duplicateFrame(frame_id, { name, edits, x, y, width, height }, actor)
-      if (!copied.ok) return err(copied.error)
-      const summary = { ok: true, frame: frameSummary(copied.frame) }
-      /* an untouched copy renders exactly like its source; an edited one is new work to review */
-      return withFeedback(
-        edits?.length ? textWithNudge(summary, REVIEW_NUDGE) : text(summary),
-        copied.frame.canvasId,
+      const fit = height === 'fit' || (height === undefined && fitFrames.has(frame_id))
+      const copied = actions.duplicateFrame(
+        frame_id,
+        { name, edits, x, y, width, height: height === 'fit' ? undefined : height },
         actor,
       )
+      if (!copied.ok) return err(copied.error)
+      if (fit) fitFrames.add(copied.frame.id)
+      const frame = (await fitHeight(copied.frame.id, actor)) ?? copied.frame
+      const summary = { ok: true, frame: frameSummary(frame) }
+      /* an untouched copy renders exactly like its source; an edited one is new work to review */
+      return withFeedback(edits?.length ? textWithNudge(summary, REVIEW_NUDGE) : text(summary), frame.canvasId, actor)
     },
   )
 
@@ -1234,8 +1264,9 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
     },
     async ({ frame_id, html, agent_name }) => {
       if (!frameFor(frame_id)) return noFrame(frame_id)
-      const frame = actions.updateFrame(frame_id, { html }, actorFrom(agent_name))
-      if (!frame) return noFrame(frame_id)
+      const written = actions.updateFrame(frame_id, { html }, actorFrom(agent_name))
+      if (!written) return noFrame(frame_id)
+      const frame = (await fitHeight(frame_id, actorFrom(agent_name))) ?? written
       return withGuidelinesNudge(
         withStatusNudge(
           withFeedback(
@@ -1559,22 +1590,28 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
           .union([z.literal(1), z.literal(2)])
           .optional()
           .describe('Device scale factor: 1 (default) or 2 for a retina-resolution image'),
+        selector: z
+          .string()
+          .optional()
+          .describe(
+            'CSS selector of ONE element (e.g. "section.pricing") to capture at full size instead of the whole frame — use it to check a section closely',
+          ),
         agent_name: agentName.optional(),
       },
     },
-    async ({ frame_id, scale, agent_name }) => {
+    async ({ frame_id, scale, selector, agent_name }) => {
       const f = frameFor(frame_id)
       if (!f) return noFrame(frame_id)
       arrive(f.canvasId, agent_name)
       try {
-        const png = await renderFrame(f, scale ?? 1)
+        const png = await renderFrame(f, scale ?? 1, { selector })
         return withFeedback(
           {
             content: [
               { type: 'image' as const, data: png.toString('base64'), mimeType: 'image/png' },
               {
                 type: 'text' as const,
-                text: `Screenshot of “${f.name}” (${f.width}×${f.height}@${scale ?? 1}x, html ${f.html.length} bytes)`,
+                text: `Screenshot of “${f.name}”${selector ? ` — ${selector}` : ''} (${f.width}×${f.height}@${scale ?? 1}x, html ${f.html.length} bytes)`,
               },
             ],
           },
@@ -1604,14 +1641,16 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
     },
     async ({ frame_id, html_chunk, start, done, agent_name }) => {
       if (!frameFor(frame_id)) return noFrame(frame_id)
-      const frame = actions.appendFrameHtml(frame_id, html_chunk, actorFrom(agent_name), { start, done })
-      if (!frame) return noFrame(frame_id)
+      const written = actions.appendFrameHtml(frame_id, html_chunk, actorFrom(agent_name), { start, done })
+      if (!written) return noFrame(frame_id)
+      const frame = (await fitHeight(frame_id, actorFrom(agent_name))) ?? written
+      const fitted = fitFrames.has(frame_id) ? { height: frame.height } : {}
       const result = done
         ? textWithNudge(
-            { ok: true, streaming: false, htmlBytes: frame.html.length },
+            { ok: true, streaming: false, htmlBytes: frame.html.length, ...fitted },
             `Stream complete. ${REVIEW_NUDGE}`,
           )
-        : text({ ok: true, streaming: true, htmlBytes: frame.html.length })
+        : text({ ok: true, streaming: true, htmlBytes: frame.html.length, ...fitted })
       /* nudge only on the first chunk — mid-stream results should stay lean.
          The escape check rides along: the opening chunk decides the stream. */
       const nudged = start
@@ -1645,17 +1684,16 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
       if (count > 1)
         return err(`old_str occurs ${count} times — include more surrounding context so it matches exactly once.`)
       /* a function replacement: a string one would expand $& / $1 inside new_str */
-      const frame = actions.updateFrame(
+      const written = actions.updateFrame(
         frame_id,
         { html: f.html.replace(old_str, () => new_str) },
         actorFrom(agent_name),
       )!
+      const frame = (await fitHeight(frame_id, actorFrom(agent_name))) ?? written
+      /* no review nudge: a find/replace is a small edit, and the guide asks for a
+         screenshot after significant ones — repeating it on every tweak is noise */
       return withStatusNudge(
-        withFeedback(
-          textWithNudge({ ok: true, frame: frameSummary(frame) }, REVIEW_NUDGE),
-          frame.canvasId,
-          actorFrom(agent_name),
-        ),
+        withFeedback(text({ ok: true, frame: frameSummary(frame) }), frame.canvasId, actorFrom(agent_name)),
         frame.canvasId,
         actorFrom(agent_name),
       )
@@ -1793,11 +1831,13 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
       } catch (e) {
         return err(e instanceof Error ? e.message : 'bad locator')
       }
-      const frame = actions.updateFrame(frame_id, { html: next }, actorFrom(agent_name))
-      if (!frame) return noFrame(frame_id)
+      const written = actions.updateFrame(frame_id, { html: next }, actorFrom(agent_name))
+      if (!written) return noFrame(frame_id)
+      const frame = (await fitHeight(frame_id, actorFrom(agent_name))) ?? written
+      const fitted = fitFrames.has(frame_id) ? { height: frame.height } : {}
       return withStatusNudge(
         withFeedback(
-          textWithNudge({ ok: true, replaced: where, htmlChars: frame.html.length }, REVIEW_NUDGE),
+          text({ ok: true, replaced: where, htmlChars: frame.html.length, ...fitted }),
           frame.canvasId,
           actorFrom(agent_name),
         ),
@@ -1817,15 +1857,22 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
         x: z.number().optional(),
         y: z.number().optional(),
         width: z.number().optional(),
-        height: z.number().optional(),
+        height: heightInput,
         agent_name: agentName,
       },
     },
-    async ({ frame_id, agent_name, ...patch }) => {
-      const clean = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined))
-      if (!Object.keys(clean).length) return err('nothing to update')
+    async ({ frame_id, agent_name, height, ...patch }) => {
       if (!frameFor(frame_id)) return noFrame(frame_id)
-      const frame = actions.updateFrame(frame_id, clean, actorFrom(agent_name))
+      if (height === 'fit') fitFrames.add(frame_id)
+      else if (height !== undefined) fitFrames.delete(frame_id)
+      const clean = Object.fromEntries(
+        Object.entries({ ...patch, height: height === 'fit' ? undefined : height }).filter(([, v]) => v !== undefined),
+      )
+      if (!Object.keys(clean).length && height !== 'fit') return err('nothing to update')
+      const actor = actorFrom(agent_name)
+      if (Object.keys(clean).length && !actions.updateFrame(frame_id, clean, actor)) return noFrame(frame_id)
+      /* a width change reflows the page, so a fitted frame re-measures after it */
+      const frame = await fitHeight(frame_id, actor)
       if (!frame) return noFrame(frame_id)
       return withFeedback(text({ ok: true, frame: frameSummary(frame) }), frame.canvasId, actorFrom(agent_name))
     },
@@ -1841,6 +1888,7 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
       if (!frameFor(frame_id)) return noFrame(frame_id)
       const frame = actions.deleteFrame(frame_id, actorFrom(agent_name))
       if (!frame) return noFrame(frame_id)
+      fitFrames.delete(frame_id)
       return text({ ok: true, deleted: frame.name })
     },
   )

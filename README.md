@@ -302,17 +302,20 @@ Steering happens at three layers (the same architecture paper.design uses, plus 
 
 1. **Server `instructions`** at MCP initialize — a compact contract: load the guide, get context
    first, stream designs, review with screenshots, keep one `agent_name`.
-2. **`get_guide` tool** — the deep playbook (mandatory review checkpoints, streaming workflow,
-   frame sizing, design-quality doctrine, multiplayer etiquette), loaded once per session and
-   re-loadable after context compaction. Source: `server/guide.ts`.
-3. **Result nudges** — `create_frame` / `set_frame_html` / final `append_frame_html` results tell
-   the agent it hasn't _seen_ its design yet and to call `get_frame_screenshot` before moving on.
+2. **`get_guide` tool** — a small core playbook (`draft-instructions`: review checkpoints,
+   streaming, frame sizing, theme, design quality, etiquette) loaded once per session, plus topics
+   loaded only when a task needs them (`collaboration`, `design-brief`, `images`, `lean-reads`,
+   `components`, `style-guides`, `redesigns`, `export`). Source: `server/guide.ts`.
+3. **Result nudges** — `create_frame` / `set_frame_html` / final `append_frame_html` /
+   edited `duplicate_frame` results tell the agent it hasn't _seen_ its design yet and to call
+   `get_frame_screenshot` before moving on. Small edits (`edit_frame_html`,
+   `replace_frame_section`) do not repeat it.
 
 ### MCP tools
 
 | Tool                   | What it does                                                                                                        |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `get_guide`            | The agent playbook — agents are instructed to load this first                                                       |
+| `get_guide`            | The agent playbook: a core loaded first, topics on demand                                                           |
 | `set_status`           | Broadcast a one-line "what I'm working on" — shown live in the working-now strip, avatar tooltip, and activity feed |
 | `get_feedback`         | Fetch & claim open human feedback requests — for agents whose job is to poll the canvas periodically                |
 | `get_cards`            | Read the board: queued, in-progress and failed cards humans left for agents, oldest first, without claiming         |
@@ -326,9 +329,9 @@ Steering happens at three layers (the same architecture paper.design uses, plus 
 | `get_canvas`           | Canvas layout: every frame's position/size/meta                                                                     |
 | `view_website`         | Inspect one public page read-only; returns a desktop screenshot and visible text without changing the canvas        |
 | `import_webpage`       | Import one public URL onto a canvas as an editable HTML snapshot/frame                                              |
-| `create_frame`         | Add a frame with HTML (auto-placed if no x/y)                                                                       |
+| `create_frame`         | Add a frame with HTML (auto-placed if no x/y); `height: "fit"` sizes a scrolling page to its content                |
 | `get_frame`            | Read a frame including its HTML                                                                                     |
-| `get_frame_screenshot` | Render the frame headlessly and return a PNG — lets agents _see_ and iterate on their design                        |
+| `get_frame_screenshot` | Render the frame headlessly and return a PNG; `selector` returns a full-size crop of one element                    |
 | `set_frame_html`       | Replace a frame's design in one shot — renders live for everyone                                                    |
 | `duplicate_frame`      | Copy a frame, optionally resized and with find/replace edits applied — a variant in one call                        |
 | `append_frame_html`    | **Stream** a design in chunks (`start=true` first, `done=true` last) — viewers watch it build up                    |
