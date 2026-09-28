@@ -14,6 +14,7 @@ vi.mock('../server/db/persist.ts', () => ({
   saveCanvasSoon: () => {},
   saveCanvasTheme: () => {},
   saveFrame: () => {},
+  saveComponent: () => {},
 }))
 
 const actions = await import('../server/actions.ts')
@@ -87,6 +88,20 @@ describe('canvas Tailwind utilities', () => {
     const fresh = await utilitiesFor(canvasId)
     expect(fresh).toContain('.m-3')
     expect(fresh).not.toContain('.p-4')
+  })
+
+  it('builds the classes component templates use', async () => {
+    store.setTheme(canvasId, theme())
+    store.putComponent(canvasId, {
+      name: 'ds-chip',
+      html: '<span class="grid-cols-7"><slot></slot></span>',
+      css: '',
+      props: [],
+      version: 1,
+      updatedAt: Date.now(),
+      updatedBy: 'test',
+    })
+    expect(await utilitiesFor(canvasId)).toContain('.grid-cols-7')
   })
 
   it('pushes a changed sheet to viewers', async () => {

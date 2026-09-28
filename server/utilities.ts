@@ -4,7 +4,7 @@ import path from 'node:path'
 import { compile } from 'tailwindcss'
 import { store } from './store.ts'
 import type { CanvasTheme, ThemeToken } from '../shared/theme.ts'
-import type { Frame, ServerMessage } from '../shared/types.ts'
+import type { ServerMessage } from '../shared/types.ts'
 
 /**
  * Tailwind utilities for canvases that opt in (theme.utilities = 'tailwind').
@@ -53,15 +53,22 @@ const input = (theme: CanvasTheme) =>
 const CLASS_ATTR = /\sclass\s*=\s*(?:"([^"]*)"|'([^']*)')/gi
 const classCache = new Map<string, { at: number; classes: string[] }>()
 
-/** The class names a frame uses, cached per frame render stamp. */
-function classesOf(f: Frame): string[] {
-  const hit = classCache.get(f.id)
-  if (hit?.at === f.updatedAt) return hit.classes
+/** The class names in a frame or component template, cached per key and edit stamp. */
+function classesOf(key: string, at: number, html: string): string[] {
+  const hit = classCache.get(key)
+  if (hit?.at === at) return hit.classes
   const found = new Set<string>()
-  for (const m of f.html.matchAll(CLASS_ATTR)) for (const c of (m[1] ?? m[2] ?? '').split(/\s+/)) if (c) found.add(c)
+  for (const m of html.matchAll(CLASS_ATTR)) for (const c of (m[1] ?? m[2] ?? '').split(/\s+/)) if (c) found.add(c)
   const classes = [...found]
-  classCache.set(f.id, { at: f.updatedAt, classes })
+  classCache.set(key, { at, classes })
   return classes
+}
+
+/* component templates render in every frame's shadow roots, so their classes count too */
+function* sources(canvasId: string): Generator<string[]> {
+  const c = store.getCanvas(canvasId)
+  for (const f of c?.frames ?? []) yield classesOf(f.id, f.updatedAt, f.html)
+  for (const d of c?.components ?? []) if (!d.deletedAt) yield classesOf(`${canvasId}/${d.name}`, d.updatedAt, d.html)
 }
 
 interface Sheet {
@@ -89,14 +96,14 @@ async function sheetFor(canvasId: string, theme: CanvasTheme): Promise<Sheet> {
 }
 
 /** The canvas's utility stylesheet ('' when it has not opted in). Cost: a
- *  class scan of frames whose html changed, then an incremental build. */
+ *  class scan of frames and components whose html changed, then an incremental build. */
 export async function utilitiesFor(canvasId: string): Promise<string> {
   const theme = store.getCanvas(canvasId)?.theme
   if (theme?.utilities !== 'tailwind') return ''
   const sheet = await sheetFor(canvasId, theme)
   const added: string[] = []
-  for (const f of store.getCanvas(canvasId)?.frames ?? []) {
-    for (const c of classesOf(f)) {
+  for (const classes of sources(canvasId)) {
+    for (const c of classes) {
       if (!sheet.seen.has(c)) {
         sheet.seen.add(c)
         added.push(c)

@@ -266,6 +266,7 @@ class Store {
     c.updatedAt = def.updatedAt
     persist.saveComponent(canvasId, def)
     persist.saveCanvas(c)
+    this.changed(canvasId)
     return def
   }
 
@@ -303,6 +304,7 @@ class Store {
     c.updatedAt = now
     persist.saveGuideline(canvasId, doc)
     persist.saveCanvas(c)
+    this.changed(canvasId)
     return doc
   }
 
@@ -338,6 +340,7 @@ class Store {
     c.updatedAt = Date.now()
     persist.deleteGuideline(canvasId, name)
     persist.saveCanvas(c)
+    this.changed(canvasId)
     return true
   }
 
