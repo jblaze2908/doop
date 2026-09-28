@@ -252,7 +252,7 @@ describe('hierarchy', () => {
       await owner.call('publish_design_system', { system_id: idOf(team) })
       await owner.call('publish_design_system', { system_id: idOf(mine) })
 
-      const listed = (await owner.call('list_canvases', {})).json as unknown as { id: string }[]
+      const listed = (await owner.call('list_canvases', {})).json.canvases as { id: string }[]
       expect(listed.map((c) => c.id)).not.toContain(draftId)
       expect(workspaces.summaryFor(workspaces.getWorkspace(ws.id)!, OWNER).canvasCount).toBe(0)
       expect(store.getCanvas(draftId)?.workspaceId).toBe(ws.id)

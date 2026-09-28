@@ -168,7 +168,7 @@ const REVIEW_HEIGHT = 1568
 const REVIEW_NUDGE =
   'You have not seen this design yet. Call get_frame_screenshot on it now, judge it against the review checkpoints (fit, spacing, hierarchy, contrast, alignment, realism), and fix any issues before moving on.'
 
-import type { Actor, Canvas, Frame } from '../shared/types.ts'
+import type { Actor, Canvas, Frame, WorkspaceSummary } from '../shared/types.ts'
 import type { DesignSystemMeta } from '../shared/designSystem.ts'
 
 /** Reaches agents whose session predates set_status (or who skipped the guide). */
@@ -370,6 +370,21 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
   const noCanvas = (id: string) => err(`no canvas with id ${id} accessible to this account`)
   const noFrame = (id: string) => err(`no frame with id ${id} accessible to this account`)
   const noComment = (id: string) => err(`no comment with id ${id} on this canvas`)
+  const workspaceRow = (w: WorkspaceSummary) => ({
+    id: w.id,
+    name: w.name,
+    role: w.role,
+    members: w.memberCount,
+    canvases: w.canvasCount,
+    ...(w.defaultDesignSystemId
+      ? {
+          defaultDesignSystem: {
+            id: w.defaultDesignSystemId,
+            name: designSystems.getSystem(w.defaultDesignSystemId)?.name,
+          },
+        }
+      : {}),
+  })
   /* Reads count as arrival: presence (and with it every "your agent is
      connected" confirmation in the UI) must appear on an agent's FIRST
      canvas-scoped call, not only once it mutates something. */
@@ -454,13 +469,14 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
     'list_canvases',
     {
       description:
-        "List the connected user's design canvases with their ids, names and frame counts — personal ones, ones shared with them, and every canvas in their workspaces (workspace_id / workspace_name set).",
+        "List the connected user's workspaces (every one they belong to, empty ones included, with their role and default design system) and design canvases (ids, names, frame counts): personal ones, ones shared with them, and every canvas in their workspaces (workspace_id / workspace_name set).",
       inputSchema: {},
     },
     /* '' matches no ownerId: a session without a user sees nothing */
     async () =>
-      text(
-        workspaces.canvasesFor(ownerId ?? '').map((m) => ({
+      text({
+        workspaces: workspaces.listFor(ownerId ?? '').map(workspaceRow),
+        canvases: workspaces.canvasesFor(ownerId ?? '').map((m) => ({
           ...m,
           ...(m.workspaceId
             ? { workspace_id: m.workspaceId, workspace_name: workspaces.getWorkspace(m.workspaceId)?.name }
@@ -469,7 +485,29 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
           frameCount: store.getCanvas(m.id)?.frames.filter((f) => !f.demo).length ?? m.frameCount,
           guidelinesCount: store.getGuidelines(m.id).length,
         })),
-      ),
+      }),
+  )
+
+  server.registerTool(
+    'create_workspace',
+    {
+      description:
+        'Create a shared workspace owned by the connected user, for canvases and design systems a team shares. Only when the human asks for a new one: list_canvases shows the workspaces they already have. Members are invited from the workspace page in the app.',
+      inputSchema: {
+        name: z.string().describe('Workspace name, e.g. "Acme Design"'),
+        agent_name: agentName.optional(),
+      },
+    },
+    async ({ name }) => {
+      if (!ownerId) return err('workspaces need a signed-in account')
+      const clean = name.trim().slice(0, 80)
+      if (!clean) return err('name is required')
+      const ws = workspaces.createWorkspace(clean, ownerId)
+      return text({
+        workspace: workspaceRow(workspaces.summaryFor(ws, ownerId)),
+        next: 'Pass workspace_id to create_canvas or create_design_system to file work in it.',
+      })
+    },
   )
 
   server.registerTool(
