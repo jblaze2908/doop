@@ -21,6 +21,7 @@ const AuthPage = lazy(() => import('./pages/AuthPage').then((m) => ({ default: m
 const DesktopHandoff = lazy(() => import('./pages/DesktopHandoff').then((m) => ({ default: m.DesktopHandoff })))
 const DesktopSignIn = lazy(() => import('./pages/DesktopSignIn').then((m) => ({ default: m.DesktopSignIn })))
 const Workspace = lazy(() => import('./pages/Workspace').then((m) => ({ default: m.Workspace })))
+const DesignSystemPage = lazy(() => import('./pages/DesignSystemPage').then((m) => ({ default: m.DesignSystemPage })))
 
 /* the canvas is where almost every visit goes next: fetch it while idle */
 if (typeof requestIdleCallback === 'function') requestIdleCallback(() => void loadCanvasPage(), { timeout: 4000 })
@@ -130,6 +131,8 @@ function Routes() {
     <Settings />
   ) : path.match(/^\/w\/([^/]+)/) ? (
     <Workspace workspaceId={path.match(/^\/w\/([^/]+)/)![1]!} key={path} />
+  ) : path.match(/^\/s\/([^/]+)/) ? (
+    <DesignSystemPage systemId={path.match(/^\/s\/([^/]+)/)![1]!} key={path} />
   ) : (
     <Home />
   )

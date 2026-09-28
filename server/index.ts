@@ -9,6 +9,7 @@ import { oAuthDiscoveryMetadata } from 'better-auth/plugins'
 import { WebSocketServer, WebSocket } from 'ws'
 import { store } from './store.ts'
 import * as designSystems from './designSystems.ts'
+import * as systemOps from './designSystemOps.ts'
 import * as homeFeed from './homeFeed.ts'
 import { canvasTouched, forgetCanvas, utilitiesFor, wireUtilities } from './utilities.ts'
 import { getImage } from './previews.ts'
@@ -645,11 +646,13 @@ function requireWorkspaceMember(req: express.Request, res: express.Response, wor
   return ws
 }
 
-app.post('/api/canvases', (req, res) => {
+app.post('/api/canvases', async (req, res) => {
   const name = String(req.body?.name || 'Untitled canvas')
   const workspaceId = typeof req.body?.workspaceId === 'string' ? req.body.workspaceId : undefined
   if (workspaceId && !requireWorkspaceMember(req, res, workspaceId)) return
-  res.json(store.createCanvas(name, req.user!.id, workspaceId))
+  const canvas = store.createCanvas(name, req.user!.id, workspaceId)
+  await systemOps.applyDefault(canvas)
+  res.json(canvas)
 })
 
 app.post('/api/canvases/:id/duplicate', async (req, res) => {
@@ -664,6 +667,7 @@ app.post('/api/canvases/:id/duplicate', async (req, res) => {
       : undefined
   try {
     const copy = await store.duplicateCanvas(source.id, req.user!.id, req.user!.name, { workspaceId })
+    if (copy) await systemOps.carryLink(source, copy, actions.resolveActor({ name: req.user!.name, kind: 'user' }))
     res.json(copy)
   } catch (error) {
     console.error('[canvas] duplicate failed', error)
@@ -680,7 +684,7 @@ app.get('/api/canvases/:id', (req, res) => {
    out to its owner's personal space (the owner, or a workspace admin).
    Moving is an access change, not an edit: every member of the target
    workspace can open it from now on. */
-app.put('/api/canvases/:id/workspace', (req, res) => {
+app.put('/api/canvases/:id/workspace', async (req, res) => {
   const c = requireCanvas(req, res, req.params.id)
   if (!c) return
   const target = req.body?.workspaceId
@@ -688,6 +692,8 @@ app.put('/api/canvases/:id/workspace', (req, res) => {
     return res.status(400).json({ error: 'workspaceId must be a workspace id or null' })
   if (!canManageCanvas(req.user!.id, c))
     return res.status(403).json({ error: 'only the canvas owner or a workspace admin can move it' })
+  const guarded = designSystems.sourceGuard(c.id)
+  if (guarded) return res.status(409).json({ error: guarded })
   if (target !== null) {
     if (target === c.workspaceId) return res.json({ ok: true })
     /* an admin's say over a workspace canvas ends at moving it out: re-homing
@@ -698,7 +704,9 @@ app.put('/api/canvases/:id/workspace', (req, res) => {
     if (!requireWorkspaceMember(req, res, target)) return
   }
   store.setWorkspace(c.id, target ?? undefined)
-  res.json({ ok: true })
+  /* a system from the old scope no longer applies: the canvas keeps a copy of its design */
+  const detached = await systemOps.afterMove(c, actions.resolveActor({ name: req.user!.name, kind: 'user' }))
+  res.json({ ok: true, ...(detached ? { detachedSystem: detached } : {}) })
 })
 
 app.post('/api/canvases/:id/claim', (req, res) => {
@@ -728,8 +736,8 @@ app.delete('/api/canvases/:id', (req, res) => {
      before they can be destroyed */
   if (!c.ownerId) return res.status(403).json({ error: 'claim it first' })
   if (!canManageCanvas(req.user!.id, c)) return res.status(403).json({ error: 'not yours' })
-  const blocked = designSystems.beforeCanvasDelete(c.id)
-  if (blocked) return res.status(409).json({ error: blocked })
+  const guarded = designSystems.sourceGuard(c.id)
+  if (guarded) return res.status(409).json({ error: guarded })
   actions.deleteCanvas(c.id)
   forgetCanvas(c.id)
   res.json({ ok: true })
@@ -905,6 +913,8 @@ function systemRow(s: DesignSystemMeta, userId: string) {
     ...s,
     canPublish: designSystems.canPublish(userId, s),
     canvasCount: designSystems.consumersOf(s.id).length,
+    isDefault: designSystems.isDefault(s),
+    swatches: designSystems.swatchesOf(s),
   }
 }
 
@@ -917,29 +927,89 @@ function requireSystem(req: express.Request, res: express.Response, id: string) 
   return s
 }
 
+function requirePublisher(req: express.Request, res: express.Response, id: string) {
+  const s = requireSystem(req, res, id)
+  if (s && !designSystems.canPublish(req.user!.id, s)) {
+    res.status(403).json({ error: 'only the owner or a workspace admin can change this design system' })
+    return null
+  }
+  return s
+}
+
+const userActor = (req: express.Request) => actions.resolveActor({ name: req.user!.name, kind: 'user' })
+
+/* ?canvasId= narrows the list to the systems that canvas may use (same scope, published) */
 app.get('/api/design-systems', (req, res) => {
+  const canvasId = typeof req.query.canvasId === 'string' ? req.query.canvasId : undefined
+  if (canvasId) {
+    const c = requireCanvas(req, res, canvasId)
+    if (!c) return
+    return res.json(systemOps.usableFor(req.user!.id, c).map((s) => systemRow(s, req.user!.id)))
+  }
   res.json(designSystems.listSystems(req.user!.id).map((s) => systemRow(s, req.user!.id)))
 })
 
-/* promote a canvas: its theme, components and guidelines become the system's draft */
-app.post('/api/design-systems', (req, res) => {
-  const { canvasId, name } = req.body ?? {}
-  if (typeof canvasId !== 'string' || typeof name !== 'string')
-    return res.status(400).json({ error: 'canvasId and name are required' })
-  const c = requireCanvas(req, res, canvasId)
-  if (!c) return
-  if (!canManageCanvas(req.user!.id, c))
-    return res.status(403).json({ error: 'only the canvas owner or a workspace admin can make it a design system' })
-  const r = designSystems.createSystem(c, name, req.user!.id)
+/* { name, workspaceId? } makes a new system; { name, canvasId } extracts one from that canvas */
+app.post('/api/design-systems', async (req, res) => {
+  const { canvasId, name, workspaceId } = req.body ?? {}
+  if (typeof name !== 'string') return res.status(400).json({ error: 'name is required' })
+  if (canvasId !== undefined) {
+    if (typeof canvasId !== 'string') return res.status(400).json({ error: 'canvasId must be a canvas id' })
+    const c = requireCanvas(req, res, canvasId)
+    if (!c) return
+    if (!canManageCanvas(req.user!.id, c))
+      return res.status(403).json({ error: 'only the canvas owner or a workspace admin can make a system from it' })
+    const r = await systemOps.extractDesignSystem(c, name, req.user!.id, userActor(req))
+    if (!r.ok) return res.status(r.status).json({ error: r.error })
+    return res.json(systemRow(r.value, req.user!.id))
+  }
+  if (workspaceId !== undefined) {
+    if (typeof workspaceId !== 'string') return res.status(400).json({ error: 'workspaceId must be a workspace id' })
+    if (!requireWorkspaceMember(req, res, workspaceId)) return
+  }
+  const r = await systemOps.createDesignSystem(name, req.user!.id, userActor(req), { workspaceId })
+  if (!r.ok) return res.status(r.status).json({ error: r.error })
+  res.json(systemRow(r.value.system, req.user!.id))
+})
+
+/* the system page: meta, draft summary, versions and the canvases using it that the viewer can open */
+app.get('/api/design-systems/:id', async (req, res) => {
+  const s = requireSystem(req, res, req.params.id)
+  if (!s) return
+  const userId = req.user!.id
+  res.json({
+    ...systemRow(s, userId),
+    draftChanged: designSystems.sourceStatus(s.sourceCanvasId)?.draftChanged ?? false,
+    draft: designSystems.draftSummary(s),
+    versions: await designSystems.listVersions(s.id),
+    canvases: designSystems
+      .consumersOf(s.id)
+      .filter((c) => canAccessCanvas(userId, c))
+      .map((c) => ({ id: c.id, name: c.name, pin: c.designSystemPin ?? null, updatedAt: c.updatedAt })),
+  })
+})
+
+app.patch('/api/design-systems/:id', (req, res) => {
+  const s = requirePublisher(req, res, req.params.id)
+  if (!s) return
+  const { name } = req.body ?? {}
+  if (typeof name !== 'string') return res.status(400).json({ error: 'name is required' })
+  const r = systemOps.renameDesignSystem(s.id, name, userActor(req))
   if (!r.ok) return res.status(r.status).json({ error: r.error })
   res.json(systemRow(r.value, req.user!.id))
 })
 
-app.post('/api/design-systems/:id/publish', async (req, res) => {
-  const s = requireSystem(req, res, req.params.id)
+app.delete('/api/design-systems/:id', (req, res) => {
+  const s = requirePublisher(req, res, req.params.id)
   if (!s) return
-  if (!designSystems.canPublish(req.user!.id, s))
-    return res.status(403).json({ error: 'only the owner or a workspace admin can publish this design system' })
+  const r = systemOps.deleteDesignSystem(s.id)
+  if (!r.ok) return res.status(r.status).json({ error: r.error })
+  res.json({ ok: true })
+})
+
+app.post('/api/design-systems/:id/publish', async (req, res) => {
+  const s = requirePublisher(req, res, req.params.id)
+  if (!s) return
   const { note, fromVersion } = req.body ?? {}
   if (note !== undefined && typeof note !== 'string') return res.status(400).json({ error: 'note must be a string' })
   if (fromVersion !== undefined && !Number.isInteger(fromVersion))
@@ -949,26 +1019,45 @@ app.post('/api/design-systems/:id/publish', async (req, res) => {
   res.json(systemRow(r.value, req.user!.id))
 })
 
-app.get('/api/design-systems/:id/versions', async (req, res) => {
-  const s = requireSystem(req, res, req.params.id)
-  if (!s) return
-  res.json(await designSystems.listVersions(s.id))
-})
-
+/* { systemId: null } stops using one; keepCopy: false skips flattening the system into the canvas */
 app.put('/api/canvases/:id/design-system', async (req, res) => {
   const c = requireCanvas(req, res, req.params.id)
   if (!c) return
   if (!hasDurableCanvasAccess(req.user!.id, c))
     return res.status(403).json({ error: 'link visitors cannot change the design system' })
-  const { systemId, pin } = req.body ?? {}
+  const { systemId, pin, keepCopy } = req.body ?? {}
   if (systemId !== null && typeof systemId !== 'string')
     return res.status(400).json({ error: 'systemId must be a design system id or null' })
   if (pin !== undefined && pin !== null && !Number.isInteger(pin))
     return res.status(400).json({ error: 'pin must be a version number or null' })
-  if (systemId !== null && !requireSystem(req, res, systemId)) return
+  if (systemId === null) {
+    const r = await systemOps.stopUsing(c, userActor(req), keepCopy !== false)
+    if (!r.ok) return res.status(r.status).json({ error: r.error })
+    return res.json({ link: null })
+  }
+  if (!requireSystem(req, res, systemId)) return
   const r = await designSystems.useSystem(c, systemId, pin ?? null)
   if (!r.ok) return res.status(r.status).json({ error: r.error })
   res.json({ link: r.value })
+})
+
+/* the workspace's default system: new canvases there start on it (admins only) */
+app.put('/api/workspaces/:id/default-design-system', (req, res) => {
+  const ws = requireWorkspaceMember(req, res, req.params.id)
+  if (!ws) return
+  if (!workspaces.hasRole(ws.id, req.user!.id, 'admin'))
+    return res.status(403).json({ error: 'only workspace admins can set the default design system' })
+  const { systemId } = req.body ?? {}
+  if (systemId !== null) {
+    if (typeof systemId !== 'string')
+      return res.status(400).json({ error: 'systemId must be a design system id or null' })
+    const s = designSystems.getSystem(systemId)
+    if (!s || s.workspaceId !== ws.id)
+      return res.status(404).json({ error: 'no design system with that id in this workspace' })
+    if (!s.publishedVersion) return res.status(409).json({ error: `publish “${s.name}” before making it the default` })
+  }
+  workspaces.setDefaultDesignSystem(ws.id, systemId ?? undefined)
+  res.json({ ok: true })
 })
 
 app.get('/api/canvases/:id/theme', (req, res) => {

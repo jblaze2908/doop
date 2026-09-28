@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid'
 import { store } from './store.ts'
 import { designOfCanvas } from './designSystems.ts'
+import type { DesignSnapshot } from '../shared/designSystem.ts'
 import * as persist from './db/persist.ts'
 import * as thumbs from './thumbs.ts'
 import { colorFor } from '../shared/types.ts'
@@ -1268,6 +1269,66 @@ export async function setTheme(canvasId: string, patch: ThemePatch, actor: Actor
   logActivity(canvasId, actor, `updated the canvas theme (${changed.join(', ') || 'no changes'})`)
   touch(canvasId, actor)
   return theme
+}
+
+/** Replace a canvas's own design layer wholesale: filling a new design system's
+ *  draft, clearing a canvas extracted into one, or flattening a system into a
+ *  canvas that stops using it. The layer is already resolved (no font fetch);
+ *  viewers get each change as usual, the feed gets one line. */
+export function setDesignLayer(canvasId: string, layer: DesignSnapshot, actor: Actor, summary: string): boolean {
+  const c = store.getCanvas(canvasId)
+  if (!c) return false
+  const now = Date.now()
+  if (layer.theme || c.theme) {
+    const theme: CanvasTheme = {
+      ...(layer.theme ?? { tokens: [], css: '', fonts: [], fontFaces: '' }),
+      version: (c.theme?.version ?? 0) + 1,
+      updatedAt: now,
+      updatedBy: actor.name,
+    }
+    store.setTheme(canvasId, theme)
+    broadcast(canvasId, { type: 'theme', theme, actor })
+  }
+
+  const next = new Map(liveComponents(layer.components).map((d) => [d.name, d]))
+  for (const prev of [...store.getComponents(canvasId)]) {
+    const d = next.get(prev.name)
+    if (!d && prev.deletedAt) continue
+    const { deletedAt: _gone, ...base } = d ?? prev
+    const def: ComponentDef = {
+      ...base,
+      version: prev.version + 1,
+      updatedAt: now,
+      updatedBy: actor.name,
+      ...(d ? {} : { deletedAt: now }),
+    }
+    store.putComponent(canvasId, def)
+    broadcast(canvasId, { type: 'component', component: def, actor })
+    next.delete(prev.name)
+  }
+  for (const d of next.values()) {
+    const { deletedAt: _gone, ...base } = d
+    const def: ComponentDef = { ...base, version: 1, updatedAt: now, updatedBy: actor.name }
+    store.putComponent(canvasId, def)
+    broadcast(canvasId, { type: 'component', component: def, actor })
+  }
+
+  const docs = new Map(layer.guidelines.map((d) => [d.name, d]))
+  for (const prev of [...store.getGuidelines(canvasId)]) {
+    if (docs.has(prev.name) || !store.deleteGuideline(canvasId, prev.name)) continue
+    persist.saveGuidelineVersion(canvasId, prev.name, '', actor.name, now)
+    broadcast(canvasId, { type: 'guidelines', name: prev.name, doc: null, actor })
+  }
+  for (const d of docs.values()) {
+    const pos = d.x !== undefined && d.y !== undefined ? { x: d.x, y: d.y } : undefined
+    const doc = store.setGuideline(canvasId, d.name, d.markdown, actor.name, pos, d.title ?? '')
+    if (!doc) continue
+    persist.saveGuidelineVersion(canvasId, d.name, d.markdown, actor.name, doc.updatedAt)
+    broadcast(canvasId, { type: 'guidelines', name: d.name, doc, actor })
+  }
+  logActivity(canvasId, actor, summary)
+  touch(canvasId, actor)
+  return true
 }
 
 /* ------------------------------------------------------------------ */

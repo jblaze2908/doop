@@ -94,6 +94,8 @@ export interface WorkspaceSummary {
   role: WorkspaceRole
   memberCount: number
   canvasCount: number
+  /** the design system new canvases here start on */
+  defaultDesignSystemId?: string
   createdAt: number
   updatedAt: number
 }

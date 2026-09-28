@@ -8,8 +8,10 @@ import {
   templateSlots,
   type ComponentDef,
 } from '../../shared/components'
+import { originOf, type DesignOrigin } from '../../shared/designSystem'
 import { useStore } from '../lib/store'
 import type { Frame } from '../../shared/types'
+import { originPrefix } from './RulesSection'
 import { api, errorMessage } from '../lib/api'
 import { useComponentDefs, useEffectiveComponents, useThemeCss, useUtilityCss } from '../lib/theme'
 import { timeAgo } from '../lib/time'
@@ -39,11 +41,13 @@ function usageLabel(used: { count: number }[]): string {
 /* stable fallback: a fresh [] from a selector re-renders on every store update */
 const NO_FRAMES: Frame[] = []
 
-/** The Components section of the Memory panel: every linked component with a
- *  live preview and its usage count; a click opens the editor. */
+/** The Components section of the Design tab: every linked component with a
+ *  live preview and its usage count; a click opens the editor. The design
+ *  system's read until overridden here. */
 export function ComponentsSection({ canvasId }: { canvasId: string }) {
   const defs = useEffectiveComponents()
   const own = useStore((s) => s.canvas?.components)
+  const systemDefs = useStore((s) => s.system?.snapshot.components)
   const systemName = useStore((s) => s.system?.system.name)
   const frames = useStore((s) => s.canvas?.frames ?? NO_FRAMES)
   const [open, setOpen] = useState<string | null>(null)
@@ -67,7 +71,7 @@ export function ComponentsSection({ canvasId }: { canvasId: string }) {
             <ComponentPreview def={d} />
             <ListTitle className="font-mono text-[12px]">&lt;{d.name}&gt;</ListTitle>
             <ListMeta>
-              {systemName && !own?.some((o) => o === d) ? `${systemName} · ` : ''}
+              {originPrefix(originOf(d.name, systemDefs, own), systemName)}
               {used.length ? usageLabel(used) : 'unused'} · {d.updatedBy} · {timeAgo(d.updatedAt)}
             </ListMeta>
           </ListRow>
@@ -77,6 +81,8 @@ export function ComponentsSection({ canvasId }: { canvasId: string }) {
         <ComponentModal
           canvasId={canvasId}
           def={live.find((d) => d.name === open) ?? null}
+          origin={originOf(open, systemDefs, own)}
+          systemName={systemName}
           onClose={() => setOpen(null)}
         />
       )}
@@ -107,10 +113,14 @@ function ComponentPreview({ def }: { def: ComponentDef }) {
 function ComponentModal({
   canvasId,
   def,
+  origin,
+  systemName,
   onClose,
 }: {
   canvasId: string
   def: ComponentDef | null
+  origin: DesignOrigin
+  systemName?: string
   onClose: () => void
 }) {
   const frames = useStore((s) => s.canvas?.frames ?? NO_FRAMES)
@@ -120,6 +130,9 @@ function ComponentModal({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  /* the system's definition reads until "Override here" */
+  const [overriding, setOverriding] = useState(false)
+  const locked = origin === 'system' && !overriding
 
   if (!def) {
     return (
@@ -138,7 +151,9 @@ function ComponentModal({
   }
 
   const used = componentUsages(frames, def.name)
-  const dirty = html !== def.html || css !== def.css || description !== (def.description ?? '')
+  /* an override starts as a copy of the system's, so saving it unchanged is a real write */
+  const dirty = overriding || html !== def.html || css !== def.css || description !== (def.description ?? '')
+  const disabled = busy || locked
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true)
@@ -163,12 +178,17 @@ function ComponentModal({
           props: {def.props.map((p) => p.name).join(', ') || 'none'} · slots:{' '}
           {templateSlots(def.html).join(', ') || 'none'} ·{' '}
           {used.length ? `used in ${used.map((u) => u.frameName).join(', ')}` : 'not used yet'}
+          {origin === 'system'
+            ? ` · from ${systemName}${overriding ? ' — saving overrides it on this canvas only' : ''}`
+            : origin === 'override'
+              ? ` · overrides ${systemName}`
+              : ''}
         </p>
         <Input
           className="mt-3"
           placeholder="What it is for"
           value={description}
-          disabled={busy}
+          disabled={disabled}
           onChange={(e) => setDescription(e.target.value)}
         />
         <label className="mt-3 block text-[11px] font-bold uppercase tracking-[0.08em] text-ink-faint">Template</label>
@@ -176,7 +196,7 @@ function ComponentModal({
           className={field}
           value={html}
           maxLength={MAX_COMPONENT_HTML_CHARS}
-          disabled={busy}
+          disabled={disabled}
           onChange={(e) => setHtml(e.target.value)}
         />
         <label className="mt-3 block text-[11px] font-bold uppercase tracking-[0.08em] text-ink-faint">CSS</label>
@@ -184,24 +204,28 @@ function ComponentModal({
           className={field}
           value={css}
           maxLength={MAX_COMPONENT_CSS_CHARS}
-          disabled={busy}
+          disabled={disabled}
           onChange={(e) => setCss(e.target.value)}
         />
         {error && <p className="mt-2.5 text-[13px] text-accent-ink">{error}</p>}
         <ModalActions className="items-center">
-          <Button variant="ghost" disabled={busy} onClick={() => setConfirmDelete(true)}>
-            Delete
-          </Button>
+          {origin !== 'system' && (
+            <Button variant="ghost" disabled={busy} onClick={() => setConfirmDelete(true)}>
+              {origin === 'override' ? 'Reset to system' : 'Delete'}
+            </Button>
+          )}
           <ConfirmDialog
             open={confirmDelete}
             onOpenChange={setConfirmDelete}
-            title={`Delete <${def.name}>?`}
+            title={origin === 'override' ? `Reset <${def.name}>?` : `Delete <${def.name}>?`}
             description={
-              used.length
-                ? `Its ${used.reduce((n, u) => n + u.count, 0)} instances stay in their frames and show a “missing component” box until it is recreated.`
-                : 'It is not used in any frame.'
+              origin === 'override'
+                ? `This canvas’s version goes and every instance renders “${systemName}”’s again.`
+                : used.length
+                  ? `Its ${used.reduce((n, u) => n + u.count, 0)} instances stay in their frames and show a “missing component” box until it is recreated.`
+                  : 'It is not used in any frame.'
             }
-            confirmLabel="Delete component"
+            confirmLabel={origin === 'override' ? 'Reset to system' : 'Delete component'}
             destructive
             onConfirm={() => run(() => api.deleteComponent(canvasId, def.name))}
           />
@@ -209,15 +233,21 @@ function ComponentModal({
           <Button variant="ghost" disabled={busy} onClick={onClose}>
             Cancel
           </Button>
-          <Button
-            variant="primary"
-            disabled={busy || !dirty || !html.trim()}
-            onClick={() =>
-              run(() => api.setComponent(canvasId, { name: def.name, html, css, props: def.props, description }))
-            }
-          >
-            {busy ? 'Saving…' : 'Save'}
-          </Button>
+          {locked ? (
+            <Button variant="primary" onClick={() => setOverriding(true)}>
+              Override here
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              disabled={busy || !dirty || !html.trim()}
+              onClick={() =>
+                run(() => api.setComponent(canvasId, { name: def.name, html, css, props: def.props, description }))
+              }
+            >
+              {busy ? 'Saving…' : 'Save'}
+            </Button>
+          )}
         </ModalActions>
       </>
     </Modal>

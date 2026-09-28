@@ -31,6 +31,7 @@ import {
   ViewStructureUp,
   NavArrowDown,
   NavArrowRight,
+  Palette,
   PlaySolid,
   Plus,
   RefreshDouble,
@@ -82,6 +83,8 @@ export const TextIcon = icon(Text)
 export const ImageIcon = icon(MediaImage)
 export const VectorIcon = icon(DesignNib)
 export const BookmarkIcon = icon(Bookmark)
+/** a design system: the palette its canvases share */
+export const PaletteIcon = icon(Palette)
 export const PlayIcon = icon(PlaySolid)
 export const ArrowUpIcon = icon(ArrowUp)
 export const ChevronLeftIcon = icon(NavArrowLeft)

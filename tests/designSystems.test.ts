@@ -20,6 +20,8 @@ vi.mock('../server/db/persist.ts', () => ({
   saveComponent: () => {},
   saveGuideline: () => {},
   saveGuidelineVersion: () => {},
+  deleteGuideline: () => {},
+  deleteCanvas: () => {},
   saveDesignSystem: () => {},
   deleteDesignSystem: () => {},
   saveDesignSystemVersion: async (v: { systemId: string; version: number; snapshot: DesignSnapshot }) => {
@@ -41,6 +43,7 @@ const actions = await import('../server/actions.ts')
 const { store } = await import('../server/store.ts')
 const { buildMcpServer } = await import('../server/mcp.ts')
 const designSystems = await import('../server/designSystems.ts')
+const systemOps = await import('../server/designSystemOps.ts')
 const workspaces = await import('../server/workspaces.ts')
 const { renderableHtml, renderStamp } = await import('../server/theme.ts')
 const { mergeComponents, mergeTheme } = await import('../shared/designSystem.ts')
@@ -129,7 +132,7 @@ describe('draft → publish → follow', () => {
       const created = await call('create_design_system', { name: 'Ledger', kit: 'mineral' })
       expect(created.error).toBeUndefined()
       const systemId = (created.json.designSystem as { id: string }).id
-      const sourceId = (created.json.sourceCanvas as { id: string }).id
+      const sourceId = (created.json.draftCanvas as { id: string }).id
       expect((await call('create_canvas', { name: 'Too early', design_system_id: systemId })).error).toContain(
         'not been published',
       )
@@ -188,12 +191,15 @@ describe('draft → publish → follow', () => {
       expect((await call('publish_design_system', { system_id: systemId, from_version: 1 })).json.version).toBe(4)
       expect(renderableHtml(frame)).not.toContain('#ABCDEF')
 
-      expect(designSystems.beforeCanvasDelete(sourceId)).toContain('1 canvas use')
-      await call('use_design_system', { canvas_id: pageId, system_id: null })
+      /* the draft goes only with its system, and a used system cannot go */
+      expect(designSystems.sourceGuard(sourceId)).toContain('draft of the design system')
+      expect(systemOps.deleteDesignSystem(systemId)).toMatchObject({ ok: false, status: 409 })
+      await call('use_design_system', { canvas_id: pageId, system_id: null, keep_copy: false })
       expect(renderableHtml(frame)).toContain('--accent: #123456')
       expect(renderableHtml(frame)).not.toContain('--surface')
-      expect(designSystems.beforeCanvasDelete(sourceId)).toBeUndefined()
+      expect(systemOps.deleteDesignSystem(systemId)).toMatchObject({ ok: true })
       expect(designSystems.getSystem(systemId)).toBeUndefined()
+      expect(store.getCanvas(sourceId)).toBeUndefined()
     } finally {
       await close()
     }
@@ -226,6 +232,153 @@ describe('who may use and publish', () => {
       await owner.close()
       await member.close()
       await stranger.close()
+    }
+  })
+})
+
+const idOf = (r: { json: Record<string, unknown> }, key = 'designSystem') => (r.json[key] as { id: string }).id
+const user = actions.resolveActor({ name: 'Jai', kind: 'user' })
+const localTokens = (canvasId: string) => (store.getCanvas(canvasId)?.theme?.tokens ?? []).map((t) => t.name)
+
+describe('hierarchy', () => {
+  it('keeps draft canvases off canvas lists and systems inside their own workspace', async () => {
+    const owner = await connect()
+    const ws = workspaces.createWorkspace('Hier', OWNER)
+    const other = workspaces.createWorkspace('Elsewhere', OWNER)
+    try {
+      const team = await owner.call('create_design_system', { name: 'Team', workspace_id: ws.id })
+      const mine = await owner.call('create_design_system', { name: 'Mine' })
+      const draftId = idOf(team, 'draftCanvas')
+      await owner.call('publish_design_system', { system_id: idOf(team) })
+      await owner.call('publish_design_system', { system_id: idOf(mine) })
+
+      const listed = (await owner.call('list_canvases', {})).json as unknown as { id: string }[]
+      expect(listed.map((c) => c.id)).not.toContain(draftId)
+      expect(workspaces.summaryFor(workspaces.getWorkspace(ws.id)!, OWNER).canvasCount).toBe(0)
+      expect(store.getCanvas(draftId)?.workspaceId).toBe(ws.id)
+
+      const elsewhere = await owner.call('create_canvas', { name: 'E', workspace_id: other.id })
+      const personal = await owner.call('create_canvas', { name: 'P' })
+      const own = (r: { json: Record<string, unknown> }) => r.json.id as string
+      expect(
+        (await owner.call('use_design_system', { canvas_id: own(elsewhere), system_id: idOf(team) })).error,
+      ).toContain('own workspace')
+      expect(
+        (await owner.call('use_design_system', { canvas_id: own(personal), system_id: idOf(team) })).error,
+      ).toContain('own workspace')
+      expect(
+        (await owner.call('create_canvas', { name: 'X', workspace_id: ws.id, design_system_id: idOf(mine) })).error,
+      ).toContain('another workspace')
+      expect(
+        (await owner.call('use_design_system', { canvas_id: own(personal), system_id: idOf(mine) })).error,
+      ).toBeUndefined()
+    } finally {
+      await owner.close()
+    }
+  })
+
+  it('starts new workspace canvases on the default system unless told otherwise', async () => {
+    const owner = await connect()
+    const ws = workspaces.createWorkspace('Defaults', OWNER)
+    try {
+      const team = await owner.call('create_design_system', { name: 'House', workspace_id: ws.id, kit: 'mineral' })
+      await owner.call('publish_design_system', { system_id: idOf(team) })
+      workspaces.setDefaultDesignSystem(ws.id, idOf(team))
+      const listed = (await owner.call('list_design_systems', {})).json.designSystems as {
+        workspaceDefault?: boolean
+      }[]
+      expect(listed.some((s) => s.workspaceDefault)).toBe(true)
+
+      const on = await owner.call('create_canvas', { name: 'On', workspace_id: ws.id })
+      expect((on.json.designSystem as { id: string }).id).toBe(idOf(team))
+      const off = await owner.call('create_canvas', { name: 'Off', workspace_id: ws.id, design_system_id: null })
+      expect(off.json.designSystem).toBeUndefined()
+      const outside = await owner.call('create_canvas', { name: 'Personal' })
+      expect(outside.json.designSystem).toBeUndefined()
+
+      /* deleting the default clears it */
+      await owner.call('use_design_system', { canvas_id: on.json.id, system_id: null, keep_copy: false })
+      expect(systemOps.deleteDesignSystem(idOf(team))).toMatchObject({ ok: true })
+      expect(workspaces.getWorkspace(ws.id)?.defaultDesignSystemId).toBeUndefined()
+    } finally {
+      await owner.close()
+    }
+  })
+
+  it('extracts a system from a canvas that then renders the same, and stopping keeps a copy', async () => {
+    const owner = await connect()
+    try {
+      const page = await owner.call('create_canvas', { name: 'Landing' })
+      const pageId = page.json.id as string
+      await actions.setTheme(pageId, { tokens: { list: [{ name: '--brand', value: '#2743ee' }], mode: 'merge' } }, user)
+      actions.setComponent(pageId, { name: 'ds-chip', html: '<span><slot></slot></span>', css: '', props: [] }, user)
+      actions.setGuideline(pageId, 'voice', '# Voice\n\nPlain words.', user)
+      const frame = store.createFrame(
+        pageId,
+        { name: 'F', x: 0, y: 0, width: 400, height: 300, html: '<ds-chip>x</ds-chip>' },
+        'Jai',
+      )!
+      const before = renderableHtml(frame)
+
+      const made = await owner.call('create_design_system', { name: 'Landing DS', canvas_id: pageId })
+      expect(made.error).toBeUndefined()
+      const systemId = idOf(made)
+      expect(made.json.canvas).toMatchObject({ id: pageId, usesVersion: 1 })
+      /* the design moved: nothing local left, same render */
+      expect(localTokens(pageId)).toEqual([])
+      expect(store.getGuidelines(pageId)).toEqual([])
+      expect(store.getComponents(pageId).every((d) => d.deletedAt)).toBe(true)
+      expect(renderableHtml(frame)).toBe(before)
+      const read = await owner.call('get_canvas', { canvas_id: pageId })
+      expect((read.json.designSystem as { id: string }).id).toBe(systemId)
+
+      /* extracting again, or from the draft, is refused */
+      expect((await owner.call('create_design_system', { name: 'Again', canvas_id: pageId })).error).toContain(
+        'stop using it',
+      )
+
+      const stopped = await owner.call('use_design_system', { canvas_id: pageId, system_id: null })
+      expect(stopped.json.keptCopy).toBe(true)
+      expect(store.getCanvas(pageId)?.designSystemId).toBeUndefined()
+      expect(localTokens(pageId)).toContain('--brand')
+      expect(store.getGuidelines(pageId).map((d) => d.name)).toEqual(['voice'])
+      expect(renderableHtml(frame)).toContain('--brand: #2743ee')
+      expect(renderableHtml(frame)).toContain('ds-chip')
+    } finally {
+      await owner.close()
+    }
+  })
+
+  it('detaches with a copy when a canvas leaves its system’s workspace or the workspace is deleted', async () => {
+    const owner = await connect()
+    const ws = workspaces.createWorkspace('Moving', OWNER)
+    workspaces.addMember(ws.id, 'ds-mover', 'member', OWNER)
+    const member = await connect('ds-mover')
+    try {
+      const team = await owner.call('create_design_system', { name: 'Moving DS', workspace_id: ws.id, kit: 'mineral' })
+      await owner.call('publish_design_system', { system_id: idOf(team) })
+      const sid = idOf(team)
+      const a = await owner.call('create_canvas', { name: 'A', workspace_id: ws.id, design_system_id: sid })
+      const b = await owner.call('create_canvas', { name: 'B', workspace_id: ws.id, design_system_id: sid })
+      const theirs = await member.call('create_canvas', { name: 'Theirs', workspace_id: ws.id, design_system_id: sid })
+
+      const moved = store.getCanvas(a.json.id as string)!
+      store.setWorkspace(moved.id, undefined)
+      expect(await systemOps.afterMove(moved, user)).toBe('Moving DS')
+      expect(moved.designSystemId).toBeUndefined()
+      expect(localTokens(moved.id)).toContain('--accent')
+
+      await workspaces.deleteWorkspace(ws.id)
+      await new Promise((r) => setTimeout(r, 0))
+      expect(designSystems.getSystem(sid)?.workspaceId).toBeUndefined()
+      /* the owner's canvas is still in the (now personal) system's scope; the member's is not */
+      expect(store.getCanvas(b.json.id as string)?.designSystemId).toBe(sid)
+      const detached = store.getCanvas(theirs.json.id as string)!
+      expect(detached.designSystemId).toBeUndefined()
+      expect(localTokens(detached.id)).toContain('--accent')
+    } finally {
+      await owner.close()
+      await member.close()
     }
   })
 })

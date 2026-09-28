@@ -82,6 +82,8 @@ export const workspaces = pgTable('workspaces', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   ownerId: text('owner_id').notNull(),
+  /** the design system new canvases in this workspace start on */
+  defaultDesignSystemId: text('default_design_system_id'),
   createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
 })

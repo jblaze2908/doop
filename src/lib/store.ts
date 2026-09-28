@@ -23,6 +23,8 @@ export interface Viewport {
   zoom: number
 }
 
+/** The side panel's tabs: agents, activity, the canvas's design (system, theme, components, rules), its memory. */
+export type PanelTabName = 'tasks' | 'activity' | 'design' | 'memory'
 interface State {
   canvas: Canvas | null
   presences: Record<string, Presence>
@@ -41,7 +43,7 @@ interface State {
   decisions: DesignDecision[]
   /** which tab the side panel shows — in the store so a Memory toast
    *  anywhere in the app can jump straight to the Memory tab */
-  panelTab: 'tasks' | 'activity' | 'memory'
+  panelTab: PanelTabName
   /** every selected frame, in selection order — marquee and ⇧-click build
    *  this up; a plain click collapses it to one */
   selectedIds: string[]
@@ -130,7 +132,7 @@ interface State {
   setReferenceLocal(id: string, reference: MemoryReference | null): void
   setDecisions(decisions: DesignDecision[]): void
   pushDecision(decision: DesignDecision): void
-  setPanelTab(tab: 'tasks' | 'activity' | 'memory'): void
+  setPanelTab(tab: PanelTabName): void
   requestFlyTo(frameId: string): void
   /** glide the camera to a world point at the current zoom (a peer's cursor) */
   requestFlyToPoint(x: number, y: number): void

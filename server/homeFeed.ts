@@ -64,7 +64,8 @@ function flush() {
   lastFlush = Date.now()
   for (const id of dirty) {
     const c = store.getCanvas(id)
-    if (c) toUsers(viewersOf(c), (userId) => ({ type: 'home:canvas', canvas: row(c, userId) }))
+    if (c && !store.hiddenFromLists(id))
+      toUsers(viewersOf(c), (userId) => ({ type: 'home:canvas', canvas: row(c, userId) }))
   }
   dirty.clear()
 }
@@ -101,7 +102,8 @@ export function refresh(userIds: Iterable<string>) {
 export function activity(canvasId: string, item: ActivityItem) {
   if (homes.size === 0) return
   const c = store.getCanvas(canvasId)
-  if (c) toUsers(viewersOf(c), { type: 'home:activity', item: { ...item, canvasId, canvasName: c.name } })
+  if (c && !store.hiddenFromLists(canvasId))
+    toUsers(viewersOf(c), { type: 'home:activity', item: { ...item, canvasId, canvasName: c.name } })
 }
 
 store.onChange(canvasChanged)

@@ -26,6 +26,8 @@ class Store {
   }
   onAccessLost: (canvasId: string, userIds: string[]) => void = () => {}
   onMoved: (canvasId: string, fromWorkspaceId: string | undefined) => void = () => {}
+  /** Set by server/designSystems.ts: a design system's source canvas is reached through its system, never listed. */
+  hiddenFromLists: (canvasId: string) => boolean = () => false
 
   init(canvases: Canvas[]) {
     for (const c of canvases) {
@@ -64,9 +66,10 @@ class Store {
     return [...this.canvases.values()]
       .filter(
         (c) =>
-          c.ownerId === userId ||
-          c.memberIds?.includes(userId) ||
-          (c.workspaceId !== undefined && workspaceIds.includes(c.workspaceId)),
+          (c.ownerId === userId ||
+            c.memberIds?.includes(userId) ||
+            (c.workspaceId !== undefined && workspaceIds.includes(c.workspaceId))) &&
+          !this.hiddenFromLists(c.id),
       )
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .map((c) => this.toMeta(c, userId))
@@ -212,7 +215,7 @@ class Store {
 
   countWorkspaceCanvases(workspaceId: string): number {
     let n = 0
-    for (const c of this.canvases.values()) if (c.workspaceId === workspaceId) n++
+    for (const c of this.canvases.values()) if (c.workspaceId === workspaceId && !this.hiddenFromLists(c.id)) n++
     return n
   }
 

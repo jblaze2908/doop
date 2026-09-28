@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { MAX_THEME_CSS_CHARS, type ThemeToken } from '../../shared/theme'
+import { originOf, type DesignOrigin } from '../../shared/designSystem'
 import { useStore } from '../lib/store'
+import { useEffectiveTheme } from '../lib/theme'
 import { api, errorMessage } from '../lib/api'
 import { throttle } from '../lib/throttle'
 import { timeAgo } from '../lib/time'
@@ -9,6 +11,7 @@ import { Input } from './ui/input'
 import { Textarea } from './ui/textarea'
 import { ListHint, ListItem, ListMeta, ListRow, ListSection, ListSummary, ListTitle } from './ui/list'
 import { Modal, ModalActions, ModalSpacer, ModalTitle } from './ui/modal'
+import { cn } from '@/lib/utils'
 
 const errorText = 'px-4 pb-2 text-[12px] text-accent-ink'
 const HEX6 = /^#[0-9a-f]{6}$/i
@@ -35,15 +38,21 @@ function splitFonts(input: string): string[] {
   return out
 }
 
-/** The Theme section of the Memory panel: tokens every frame inherits (edit a
- *  value inline, or pick a colour), the Google Fonts list, and the shared CSS. */
+/** The Theme section of the Design tab: tokens every frame inherits (edit a
+ *  value inline, or pick a colour), the Google Fonts list, and the shared CSS.
+ *  On a canvas that uses a design system its tokens show read-only until
+ *  overridden here; its fonts and CSS come first and the canvas's add to them. */
 export function ThemeSection({ canvasId }: { canvasId: string }) {
   const theme = useStore((s) => s.canvas?.theme)
+  const system = useStore((s) => s.system?.snapshot.theme)
+  const systemName = useStore((s) => s.system?.system.name)
+  const effective = useEffectiveTheme()
   const [cssOpen, setCssOpen] = useState(false)
+  const [systemCssOpen, setSystemCssOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const write = (patch: Parameters<typeof api.setTheme>[1]) => saveTheme(canvasId, patch, setError)
 
-  const tokens = theme?.tokens ?? []
+  const tokens = (system ? effective?.tokens : theme?.tokens) ?? []
   return (
     <>
       <ListSection>
@@ -57,23 +66,40 @@ export function ThemeSection({ canvasId }: { canvasId: string }) {
           CSS
         </Button>
       </ListSection>
-      {!tokens.length && !theme?.css && (
+      {!tokens.length && !effective?.css && (
         <ListHint>
           Tokens, fonts and CSS every frame on this canvas inherits. Change one and every frame follows.
         </ListHint>
       )}
       {tokens.map((t) => (
-        <TokenRow key={t.name} canvasId={canvasId} token={t} onError={setError} />
+        <TokenRow
+          key={t.name}
+          canvasId={canvasId}
+          token={t}
+          origin={system ? originOf(t.name, system.tokens, theme?.tokens) : 'local'}
+          systemName={systemName}
+          onError={setError}
+        />
       ))}
       <AddToken onAdd={(name, value) => write({ tokens: [{ name, value }] })} />
       <FontsRow
         fonts={theme?.fonts ?? []}
         unresolved={theme?.unresolvedFonts ?? []}
+        inherited={system?.fonts.length ? `${systemName}: ${system.fonts.join(', ')}` : undefined}
         onCommit={(fonts) => write({ fonts })}
       />
+      {system?.css ? (
+        <ListRow onClick={() => setSystemCssOpen(true)}>
+          <ListTitle>{systemName} CSS</ListTitle>
+          <ListSummary className="font-mono">{system.css.split('\n')[0]}</ListSummary>
+          <ListMeta>
+            {(system.css.length / 1000).toFixed(1)} KB · read-only here · this canvas’s CSS comes after it
+          </ListMeta>
+        </ListRow>
+      ) : null}
       {theme?.css ? (
         <ListRow onClick={() => setCssOpen(true)}>
-          <ListTitle>Shared CSS</ListTitle>
+          <ListTitle>{system ? 'Canvas CSS' : 'Shared CSS'}</ListTitle>
           <ListSummary className="font-mono">{theme.css.split('\n')[0]}</ListSummary>
           <ListMeta>
             {(theme.css.length / 1000).toFixed(1)} KB · {theme.updatedBy} · {timeAgo(theme.updatedAt)}
@@ -82,11 +108,31 @@ export function ThemeSection({ canvasId }: { canvasId: string }) {
       ) : null}
       {error && <p className={errorText}>{error}</p>}
       {cssOpen && <ThemeCssModal canvasId={canvasId} css={theme?.css ?? ''} onClose={() => setCssOpen(false)} />}
+      {systemCssOpen && (
+        <ThemeCssModal
+          canvasId={canvasId}
+          css={system?.css ?? ''}
+          readOnlyFrom={systemName}
+          onClose={() => setSystemCssOpen(false)}
+        />
+      )}
     </>
   )
 }
 
-function TokenRow({ canvasId, token, onError }: { canvasId: string; token: ThemeToken; onError: OnError }) {
+function TokenRow({
+  canvasId,
+  token,
+  origin,
+  systemName,
+  onError,
+}: {
+  canvasId: string
+  token: ThemeToken
+  origin: DesignOrigin
+  systemName?: string
+  onError: OnError
+}) {
   const [draft, setDraft] = useState(token.value)
   /* a remote edit replaces the draft; reset during render, not in an effect */
   const [seen, setSeen] = useState(token.value)
@@ -112,8 +158,34 @@ function TokenRow({ canvasId, token, onError }: { canvasId: string; token: Theme
     onCommit(value) // empty deletes the token
   }
 
+  const tip = [
+    token.description,
+    origin === 'system' ? `From ${systemName}` : origin === 'override' ? `Overrides ${systemName}` : undefined,
+  ]
+    .filter(Boolean)
+    .join(' — ')
+  if (origin === 'system')
+    return (
+      <ListItem className="flex-row items-center gap-2 py-[7px]" title={tip}>
+        {token.type === 'color' && (
+          <span className="size-5 flex-none rounded-[6px] border border-line" style={{ background: token.value }} />
+        )}
+        <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-ink-faint">{token.name}</span>
+        <span className="max-w-[92px] flex-none truncate font-mono text-[11.5px] text-ink-soft">{token.value}</span>
+        <Button
+          variant="bare"
+          size="sm"
+          className="flex-none px-1.5 text-[11px]"
+          aria-label={`Override ${token.name} on this canvas`}
+          onClick={() => onCommit(token.value)}
+        >
+          Override
+        </Button>
+      </ListItem>
+    )
+
   return (
-    <ListItem className="flex-row items-center gap-2 py-[7px]" title={token.description}>
+    <ListItem className="flex-row items-center gap-2 py-[7px]" title={tip || undefined}>
       {token.type === 'color' && (
         <label
           className="relative size-5 flex-none cursor-pointer overflow-hidden rounded-[6px] border border-line"
@@ -137,7 +209,7 @@ function TokenRow({ canvasId, token, onError }: { canvasId: string; token: Theme
       <Input
         variant="mono"
         inputSize="sm"
-        className="w-[124px] flex-none md:text-[11.5px]"
+        className={cn('flex-none md:text-[11.5px]', origin === 'override' ? 'w-[92px]' : 'w-[124px]')}
         aria-label={`${token.name} value`}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
@@ -150,6 +222,17 @@ function TokenRow({ canvasId, token, onError }: { canvasId: string; token: Theme
           }
         }}
       />
+      {origin === 'override' && (
+        <Button
+          variant="bare"
+          size="sm"
+          className="flex-none px-1.5 text-[11px]"
+          aria-label={`Reset ${token.name} to ${systemName}`}
+          onClick={() => onCommit('')}
+        >
+          Reset
+        </Button>
+      )}
     </ListItem>
   )
 }
@@ -202,10 +285,13 @@ function AddToken({ onAdd }: { onAdd: (name: string, value: string) => void }) {
 function FontsRow({
   fonts,
   unresolved,
+  inherited,
   onCommit,
 }: {
   fonts: string[]
   unresolved: string[]
+  /** the design system's fonts, which load first */
+  inherited?: string
   onCommit: (fonts: string[]) => void
 }) {
   const joined = fonts.join(', ')
@@ -223,7 +309,7 @@ function FontsRow({
 
   return (
     <ListItem className="py-2">
-      <ListMeta>Google Fonts</ListMeta>
+      <ListMeta>{inherited ? `Google Fonts · ${inherited}, plus` : 'Google Fonts'}</ListMeta>
       <Input
         inputSize="sm"
         className="md:text-[12px]"
@@ -243,7 +329,18 @@ function FontsRow({
   )
 }
 
-function ThemeCssModal({ canvasId, css, onClose }: { canvasId: string; css: string; onClose: () => void }) {
+function ThemeCssModal({
+  canvasId,
+  css,
+  readOnlyFrom,
+  onClose,
+}: {
+  canvasId: string
+  css: string
+  /** the design system this CSS comes from: shown, not edited */
+  readOnlyFrom?: string
+  onClose: () => void
+}) {
   const [draft, setDraft] = useState(css)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -264,9 +361,11 @@ function ThemeCssModal({ canvasId, css, onClose }: { canvasId: string; css: stri
   return (
     <Modal size="xl" onClose={() => !busy && onClose()}>
       <>
-        <ModalTitle>Theme CSS</ModalTitle>
+        <ModalTitle>{readOnlyFrom ? `${readOnlyFrom} CSS` : 'Theme CSS'}</ModalTitle>
         <p className="mt-1.5 text-[11.5px] text-ink-faint">
-          Injected into every frame ahead of its own styles. Use the tokens as var(--…); fonts go in the Fonts row.
+          {readOnlyFrom
+            ? `From the design system, ahead of this canvas’s CSS. Change it on the system’s draft.`
+            : 'Injected into every frame ahead of its own styles. Use the tokens as var(--…); fonts go in the Fonts row.'}
         </p>
         <Textarea
           className="mt-3 min-h-[38dvh] resize-y rounded-[12px] bg-surface px-4 py-3.5 font-mono leading-[1.65] focus:ring-0 sm:min-h-[46vh] md:text-[12.5px]"
@@ -275,6 +374,7 @@ function ThemeCssModal({ canvasId, css, onClose }: { canvasId: string; css: stri
           value={draft}
           maxLength={MAX_THEME_CSS_CHARS}
           disabled={busy}
+          readOnly={!!readOnlyFrom}
           onChange={(e) => setDraft(e.target.value)}
         />
         {error && <p className="mt-2.5 text-[13px] text-accent-ink">{error}</p>}
@@ -284,11 +384,13 @@ function ThemeCssModal({ canvasId, css, onClose }: { canvasId: string; css: stri
           </span>
           <ModalSpacer />
           <Button variant="ghost" disabled={busy} onClick={onClose}>
-            Cancel
+            {readOnlyFrom ? 'Close' : 'Cancel'}
           </Button>
-          <Button variant="primary" disabled={busy || draft === css} onClick={save}>
-            {busy ? 'Saving…' : 'Save'}
-          </Button>
+          {!readOnlyFrom && (
+            <Button variant="primary" disabled={busy || draft === css} onClick={save}>
+              {busy ? 'Saving…' : 'Save'}
+            </Button>
+          )}
         </ModalActions>
       </>
     </Modal>

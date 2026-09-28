@@ -13,10 +13,13 @@ import { PanelCollapseRightIcon } from './ui/icons'
 import { Input } from './ui/input'
 import { Dot } from './ui/dot'
 
-/* the Memory tab is a chunk of its own: most visits never open it */
+/* the Design and Memory tabs are chunks of their own: most visits never open them */
+const DesignPanel = lazy(() => import('./DesignPanel').then((m) => ({ default: m.DesignPanel })))
 const MemoryPanel = lazy(() => import('./MemoryPanel').then((m) => ({ default: m.MemoryPanel })))
 
 const emptyNote = 'px-4 py-6 text-center text-[13px] text-ink-faint'
+/* four tabs have to fit the 300px panel beside its collapse button */
+const tabCls = 'px-1.5 tracking-[0.04em]'
 
 /** The frame a task is "at": the last frame it touched that still exists,
  *  or — for a task still running before any edit landed — wherever the agent
@@ -67,11 +70,23 @@ export function ActivityPanel({
       <PanelTabsRoot value={tab} onValueChange={(next) => setTab(next as typeof tab)}>
         <PanelHeader>
           <PanelTabs>
-            <PanelTab value="tasks">Agents</PanelTab>
-            <PanelTab value="activity">Activity</PanelTab>
+            <PanelTab value="tasks" className={tabCls}>
+              Agents
+            </PanelTab>
+            <PanelTab value="activity" className={tabCls}>
+              Activity
+            </PanelTab>
+            <PanelTab
+              value="design"
+              className={tabCls}
+              title="The design system, theme, components and rules every frame on this canvas uses"
+            >
+              Design
+            </PanelTab>
             <PanelTab
               value="memory"
-              title="Design memory — references, rules and decisions every agent on this canvas designs with"
+              className={tabCls}
+              title="References and decisions every agent on this canvas designs with"
             >
               Memory
             </PanelTab>
@@ -93,6 +108,11 @@ export function ActivityPanel({
         </PanelTabPanel>
         <PanelTabPanel value="activity">
           <ActivityList />
+        </PanelTabPanel>
+        <PanelTabPanel value="design">
+          <Suspense fallback={null}>
+            <DesignPanel />
+          </Suspense>
         </PanelTabPanel>
         <PanelTabPanel value="memory">
           <Suspense fallback={null}>

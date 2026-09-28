@@ -138,6 +138,20 @@ export function mergeGuidelines(
   return [...system.filter((d) => !names.has(d.name)), ...(local ?? [])]
 }
 
+export type DesignOrigin = 'system' | 'override' | 'local'
+
+/** Where an effective token, component or guide comes from, for the UI: the
+ *  system alone, a local override of it, or the canvas alone. */
+export function originOf(
+  name: string,
+  system: readonly { name: string }[] | undefined,
+  local: readonly { name: string; deletedAt?: number }[] | undefined,
+): DesignOrigin {
+  const own = !!local?.some((d) => d.name === name && !d.deletedAt)
+  const inSystem = !!system?.some((d) => d.name === name)
+  return own ? (inSystem ? 'override' : 'local') : 'system'
+}
+
 /** Render-cache key for a canvas's effective design; never theme.version alone, since two systems can share one. */
 export function designKey(link: CanvasSystemLink | undefined, local: DesignLayer): string {
   const own = `${local.theme?.version ?? 0}.${componentsStamp(local.components)}`

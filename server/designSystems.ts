@@ -1,8 +1,9 @@
 import { nanoid } from 'nanoid'
 import * as persist from './db/persist.ts'
+import { refresh as refreshHomes } from './homeFeed.ts'
 import { store } from './store.ts'
 import * as workspaces from './workspaces.ts'
-import type { ComponentDef } from '../shared/components.ts'
+import { liveComponents, type ComponentDef } from '../shared/components.ts'
 import {
   designKey,
   draftStamp,
@@ -26,6 +27,8 @@ import type { Canvas, GuidelineDoc, ServerMessage } from '../shared/types.ts'
 const systems = new Map<string, DesignSystemMeta>()
 const bySource = new Map<string, string>() // source canvas id -> system id
 const snapshots = new Map<string, Map<number, DesignSnapshot>>()
+
+store.hiddenFromLists = (canvasId) => bySource.has(canvasId)
 
 let broadcast: (canvasId: string, msg: ServerMessage) => void = () => {}
 export function wireDesignSystems(send: typeof broadcast) {
@@ -53,7 +56,7 @@ async function ensureSnapshot(systemId: string, version: number): Promise<Design
 
 /** Boot, after store.init: every system, plus the snapshots canvases render. */
 export async function hydrateDesignSystems() {
-  for (const s of await persist.hydrateDesignSystems()) put(s)
+  for (const s of await persist.hydrateDesignSystems()) put(reconciled(s))
   const need = new Set<string>()
   for (const s of systems.values()) if (s.publishedVersion) need.add(`${s.id}@${s.publishedVersion}`)
   for (const c of store.canvases.values()) {
@@ -65,6 +68,16 @@ export async function hydrateDesignSystems() {
       return ensureSnapshot(id, Number(v))
     }),
   )
+}
+
+/* The first cut copied the workspace from the source canvas once, and a canvas move drifted it; the source canvas's is what access follows. */
+function reconciled(s: DesignSystemMeta): DesignSystemMeta {
+  const source = store.getCanvas(s.sourceCanvasId)
+  if (!source || source.workspaceId === s.workspaceId) return s
+  const { workspaceId: _drifted, ...rest } = s
+  const next = { ...rest, ...(source.workspaceId ? { workspaceId: source.workspaceId } : {}) }
+  persist.saveDesignSystem(next)
+  return next
 }
 
 export const getSystem = (id: string) => systems.get(id)
@@ -83,6 +96,32 @@ export function canPublish(userId: string | undefined, s: DesignSystemMeta): boo
   if (!userId) return false
   return s.ownerId === userId || (!!s.workspaceId && workspaces.hasRole(s.workspaceId, userId, 'admin'))
 }
+
+/** A canvas uses a system from its own scope only: its workspace's, or its owner's personal ones. */
+export function inScope(s: DesignSystemMeta, c: Pick<Canvas, 'workspaceId' | 'ownerId'>): boolean {
+  return s.workspaceId ? c.workspaceId === s.workspaceId : !c.workspaceId && c.ownerId === s.ownerId
+}
+
+function scopeLabel(workspaceId: string | undefined): string {
+  return workspaceId
+    ? `the workspace “${workspaces.getWorkspace(workspaceId)?.name ?? workspaceId}”`
+    : 'a personal space'
+}
+
+/** Everyone whose dashboard lists the system. */
+function viewersOf(s: DesignSystemMeta): string[] {
+  return s.workspaceId ? workspaces.memberIdsOf(s.workspaceId) : [s.ownerId]
+}
+
+/** The workspace's default system, when it is still usable there. */
+export function defaultSystemFor(workspaceId: string | undefined): DesignSystemMeta | undefined {
+  const id = workspaceId ? workspaces.getWorkspace(workspaceId)?.defaultDesignSystemId : undefined
+  const s = id ? systems.get(id) : undefined
+  return s && s.workspaceId === workspaceId && s.publishedVersion ? s : undefined
+}
+
+export const isDefault = (s: DesignSystemMeta) =>
+  !!s.workspaceId && workspaces.getWorkspace(s.workspaceId)?.defaultDesignSystemId === s.id
 
 export function listSystems(userId: string | undefined): DesignSystemMeta[] {
   return [...systems.values()].filter((s) => canSeeSystem(userId, s)).sort((a, b) => a.name.localeCompare(b.name))
@@ -144,7 +183,7 @@ export function effectiveCanvas(c: Canvas): Canvas {
 export type SystemResult<T> = { ok: true; value: T } | { ok: false; status: number; error: string }
 const fail = (status: number, error: string) => ({ ok: false, status, error }) as const
 
-/** Make a canvas the source of a new system: its theme, components and guidelines become the draft. */
+/** Register a fresh canvas as a new system's source (its draft); the system takes the canvas's scope. */
 export function createSystem(canvas: Canvas, name: string, userId: string): SystemResult<DesignSystemMeta> {
   const trimmed = name.trim().slice(0, 80)
   if (!trimmed) return fail(400, 'name is required')
@@ -164,7 +203,52 @@ export function createSystem(canvas: Canvas, name: string, userId: string): Syst
   put(s)
   persist.saveDesignSystem(s)
   broadcast(canvas.id, { type: 'system:source', system: s })
+  refreshHomes(viewersOf(s))
   return { ok: true, value: s }
+}
+
+/** Rename a system (designSystemOps renames its source canvas). Permission is the caller's. */
+export function renameSystem(systemId: string, name: string): SystemResult<DesignSystemMeta> {
+  const s = systems.get(systemId)
+  if (!s) return fail(404, 'no such design system')
+  const trimmed = name.trim().slice(0, 80)
+  if (!trimmed) return fail(400, 'name is required')
+  const next = { ...s, name: trimmed, updatedAt: Date.now() }
+  put(next)
+  persist.saveDesignSystem(next)
+  broadcast(s.sourceCanvasId, { type: 'system:source', system: next })
+  for (const c of consumersOf(s.id)) broadcast(c.id, { type: 'system', link: linkFor(c) ?? null })
+  refreshHomes(viewersOf(next))
+  return { ok: true, value: next }
+}
+
+/** Forget an unused system; returns its source canvas id, which the caller deletes. */
+export function deleteSystem(systemId: string): SystemResult<string> {
+  const s = systems.get(systemId)
+  if (!s) return fail(404, 'no such design system')
+  const n = consumersOf(s.id).length
+  if (n) return fail(409, `${n} canvas${n === 1 ? '' : 'es'} use “${s.name}” — switch them to another system first`)
+  systems.delete(s.id)
+  bySource.delete(s.sourceCanvasId)
+  snapshots.delete(s.id)
+  persist.deleteDesignSystem(s.id)
+  if (isDefault(s) && s.workspaceId) workspaces.setDefaultDesignSystem(s.workspaceId, undefined)
+  refreshHomes(viewersOf(s))
+  return { ok: true, value: s.sourceCanvasId }
+}
+
+/** A workspace was deleted (its canvases already went personal): its systems become their owners' personal ones. */
+export function workspaceGone(workspaceId: string): DesignSystemMeta[] {
+  const moved: DesignSystemMeta[] = []
+  for (const s of [...systems.values()]) {
+    if (s.workspaceId !== workspaceId) continue
+    const { workspaceId: _gone, ...rest } = s
+    const next = { ...rest, updatedAt: Date.now() }
+    put(next)
+    persist.saveDesignSystem(next)
+    moved.push(next)
+  }
+  return moved
 }
 
 /** Publish the source canvas's design as the next version (or republish an old
@@ -210,6 +294,7 @@ export async function publish(
   persist.saveDesignSystem(next)
   broadcast(s.sourceCanvasId, { type: 'system:source', system: next })
   for (const c of consumersOf(s.id)) if (c.designSystemPin === undefined) notify(c)
+  refreshHomes(viewersOf(next))
   return { ok: true, value: next }
 }
 
@@ -245,6 +330,11 @@ export async function useSystem(
   const s = systems.get(systemId)
   if (!s) return fail(404, 'no such design system')
   if (bySource.has(canvas.id)) return fail(409, 'a design system source canvas cannot use a design system')
+  if (!inScope(s, canvas))
+    return fail(
+      409,
+      `“${s.name}” belongs to ${scopeLabel(s.workspaceId)}${s.workspaceId ? '' : ' (its owner’s)'}; this canvas is in ${scopeLabel(canvas.workspaceId)}. A canvas uses systems from its own workspace only.`,
+    )
   if (!s.publishedVersion)
     return fail(409, `“${s.name}” has not been published yet — publish it from its source canvas first`)
   if (pin !== null && (!Number.isInteger(pin) || pin < 1 || pin > s.publishedVersion)) {
@@ -259,21 +349,37 @@ export async function useSystem(
   return { ok: true, value: linkFor(canvas) ?? null }
 }
 
-/** A source canvas cannot go while canvases use its system; with none, the system goes with it. */
-export function beforeCanvasDelete(canvasId: string): string | undefined {
+/** A source canvas is the system's draft: it goes, and moves, only with its system. */
+export function sourceGuard(canvasId: string): string | undefined {
   const s = systemOfSource(canvasId)
-  if (!s) return undefined
-  const n = consumersOf(s.id).length
-  if (n)
-    return `This canvas is the source of the design system “${s.name}”, which ${n} canvas${n === 1 ? '' : 'es'} use. Switch them to another system first.`
-  systems.delete(s.id)
-  bySource.delete(canvasId)
-  snapshots.delete(s.id)
-  persist.deleteDesignSystem(s.id)
-  return undefined
+  return s ? `This canvas is the draft of the design system “${s.name}” — manage it from the system’s page.` : undefined
 }
 
 export const listVersions = (systemId: string) => persist.listDesignSystemVersions(systemId)
+
+/* dashboard cards paint these as backgrounds in the app itself: plain colour syntax only, never url() or var() */
+const PLAIN_COLOR = /^(#[0-9a-f]{3,8}|[a-z]{3,20}|(rgba?|hsla?|oklch|oklab|lab|lch)\([\d\s.,%/+-]*\))$/i
+
+/** Up to 8 colour values for a dashboard card: the latest published version's, else the draft's. */
+export function swatchesOf(s: DesignSystemMeta): string[] {
+  const theme = snapshots.get(s.id)?.get(s.publishedVersion)?.theme ?? store.getCanvas(s.sourceCanvasId)?.theme
+  return (theme?.tokens ?? [])
+    .filter((t) => t.type === 'color' && PLAIN_COLOR.test(t.value.trim()))
+    .slice(0, 8)
+    .map((t) => t.value)
+}
+
+/** What the draft holds, for the system page. */
+export function draftSummary(s: DesignSystemMeta) {
+  const c = store.getCanvas(s.sourceCanvasId)
+  return {
+    tokens: c?.theme?.tokens.length ?? 0,
+    fonts: c?.theme?.fonts ?? [],
+    components: liveComponents(c?.components).map((d) => d.name),
+    rules: (c?.guidelines ?? []).map((d) => d.title ?? d.name),
+    frames: c?.frames.length ?? 0,
+  }
+}
 
 /** For the source canvas's panel: the system and whether its draft differs from the last publish. */
 export function sourceStatus(canvasId: string): (DesignSystemMeta & { draftChanged: boolean }) | undefined {

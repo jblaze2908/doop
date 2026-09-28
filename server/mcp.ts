@@ -12,6 +12,7 @@ import { capture, captureThrottled } from './analytics.ts'
 import { measureFrameHeight, renderFrame } from './screenshot.ts'
 import { utilitiesFor } from './utilities.ts'
 import * as designSystems from './designSystems.ts'
+import * as systemOps from './designSystemOps.ts'
 import { KIT_NAMES, KITS, kitTheme } from './kits.ts'
 import { GUIDE_DOCS, GUIDE_TOPICS } from './guide.ts'
 import { describeInspiration, fetchThumb, INSPIRATION_USAGE_NOTE, searchInspiration } from './inspiration.ts'
@@ -208,7 +209,7 @@ function systemInfo(c: Canvas) {
       name: s.name,
       version: link.version,
       ...(link.pinned ? { pinned: true, latest: s.publishedVersion } : {}),
-      note: `Tokens, components and style guides come from design system “${s.name}” v${link.version}, with this canvas's own on top. Theme, component and guideline writes here are local overrides on this canvas only; to change the system for every canvas, edit its source canvas ${s.sourceCanvasId} and publish.`,
+      note: `Tokens, components and style guides come from design system “${s.name}” v${link.version}, with this canvas's own on top. Theme, component and guideline writes here are local overrides on this canvas only; to change the system for every canvas, edit its draft canvas ${s.sourceCanvasId} and publish.`,
     }
   }
   const src = designSystems.sourceStatus(c.id)
@@ -220,7 +221,7 @@ function systemInfo(c: Canvas) {
     role: 'source',
     publishedVersion: src.publishedVersion,
     draftChanged: src.draftChanged,
-    note: `This canvas is the source (draft) of design system “${src.name}”. Its theme, components and style guides reach the ${users} canvas${users === 1 ? '' : 'es'} using it only when published (publish_design_system).`,
+    note: `This canvas is the draft of design system “${src.name}”; its frames are the system's specimens. Its theme, components and style guides reach the ${users} canvas${users === 1 ? '' : 'es'} using it only when published (publish_design_system).`,
   }
 }
 
@@ -469,14 +470,17 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
     'create_canvas',
     {
       description:
-        'Create a new design canvas. Returns the canvas id, which is part of the shareable URL (/c/<id>). Pass workspace_id (from list_canvases) to create it inside a shared workspace so every member can open it.',
+        'Create a new design canvas. Returns the canvas id, which is part of the shareable URL (/c/<id>). Pass workspace_id (from list_canvases) to create it inside a shared workspace so every member can open it; it starts on the workspace default design system unless design_system_id says otherwise.',
       inputSchema: {
         name: z.string().describe('Canvas name'),
         workspace_id: z.string().optional().describe('Create inside this shared workspace'),
         design_system_id: z
           .string()
+          .nullable()
           .optional()
-          .describe('Render this canvas from a design system (list_design_systems) from the start'),
+          .describe(
+            'Render this canvas from a design system of the same workspace (list_design_systems); null = none, omitted = the workspace default',
+          ),
         agent_name: agentName.optional(),
       },
     },
@@ -489,6 +493,8 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
       if (design_system_id && (!system || !designSystems.canSeeSystem(ownerId, system)))
         return err(`no design system with id ${design_system_id} available to this account`)
       if (system && !system.publishedVersion) return err(`“${system.name}” has not been published yet`)
+      if (system && !designSystems.inScope(system, { workspaceId: workspace_id, ownerId }))
+        return err(`“${system.name}” belongs to another workspace — a canvas uses systems from its own workspace only`)
       /* owned by the connecting user — an ownerless canvas would be invisible
          on every dashboard (and was once visible on all of them) */
       const canvas = store.createCanvas(name, ownerId, workspace_id)
@@ -496,12 +502,14 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
          is cheaper than inventing CSS, and nothing on a fresh canvas can clash */
       await actions.setTheme(canvas.id, { utilities: 'tailwind' }, actorFrom(agent_name))
       if (system) await designSystems.useSystem(canvas, system.id)
+      else if (design_system_id === undefined) await systemOps.applyDefault(canvas)
+      const linked = designSystems.linkFor(canvas)
       return text({
         id: canvas.id,
         name: canvas.name,
         url: `/c/${canvas.id}`,
         utilities: 'tailwind',
-        ...(system ? { designSystem: systemInfo(canvas) } : {}),
+        ...(linked ? { designSystem: systemInfo(canvas) } : {}),
       })
     },
   )
@@ -510,8 +518,11 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
     id: s.id,
     name: s.name,
     version: s.publishedVersion,
-    sourceCanvasId: s.sourceCanvasId,
-    ...(s.workspaceId ? { workspaceId: s.workspaceId } : {}),
+    draftCanvasId: s.sourceCanvasId,
+    ...(s.workspaceId
+      ? { workspaceId: s.workspaceId, workspaceName: workspaces.getWorkspace(s.workspaceId)?.name }
+      : { personal: true }),
+    ...(designSystems.isDefault(s) ? { workspaceDefault: true } : {}),
     canvases: designSystems.consumersOf(s.id).length,
     canPublish: designSystems.canPublish(ownerId, s),
   })
@@ -520,7 +531,7 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
     'list_design_systems',
     {
       description:
-        'List the design systems this account can use: tokens, fonts, CSS, components and style guides shared by many canvases. version 0 = never published (cannot be used yet). See get_guide({ topic: "design-systems" }).',
+        'List the design systems this account can use: tokens, fonts, CSS, components and style guides shared by the canvases of one workspace (or one person). version 0 = never published (cannot be used yet). See get_guide({ topic: "design-systems" }).',
       inputSchema: { agent_name: agentName.optional() },
       annotations: { readOnlyHint: true },
     },
@@ -531,35 +542,43 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
     'create_design_system',
     {
       description:
-        'Create a design system. Pass canvas_id to promote an existing canvas (its theme, components and style guides become the draft), or omit it to get a new source canvas, optionally started from a kit. The source canvas IS the draft: build there, then publish_design_system. Only the canvas owner or a workspace admin can promote a canvas.',
+        "Create a design system in a workspace (or your personal space). It gets a draft canvas: build tokens, components and style guides there, then publish_design_system. Pass canvas_id to make one from an existing canvas instead: its theme, components and style guides move into the new system (published as v1) and the canvas uses it, rendering the same. Making one from a canvas is the canvas owner's or a workspace admin's call.",
       inputSchema: {
         name: z.string().describe('System name, e.g. "Ledgerline"'),
-        canvas_id: z.string().optional().describe('Promote this canvas instead of creating a new one'),
-        workspace_id: z.string().optional().describe('New source canvas only: create it inside this workspace'),
-        kit: z.enum(KIT_NAMES).optional().describe('New source canvas only: start from this starter kit'),
+        canvas_id: z.string().optional().describe("Make the system from this canvas's design"),
+        workspace_id: z.string().optional().describe('New system only: create it inside this workspace'),
+        kit: z.enum(KIT_NAMES).optional().describe('New system only: start the draft from this starter kit'),
         agent_name: agentName.optional(),
       },
     },
     async ({ name, canvas_id, workspace_id, kit, agent_name }) => {
-      let canvas: Canvas | undefined
+      if (!ownerId) return err('design systems need a signed-in account')
+      const actor = actorFrom(agent_name)
       if (canvas_id) {
-        canvas = canvasFor(canvas_id)
+        const canvas = canvasFor(canvas_id)
         if (!canvas) return noCanvas(canvas_id)
         if (!canManageCanvas(ownerId, canvas))
-          return err('only the canvas owner or a workspace admin can make this canvas a design system')
-      } else {
-        if (workspace_id && !workspaces.isWorkspaceMember(workspace_id, ownerId))
-          return err(`no workspace with id ${workspace_id}`)
-        canvas = store.createCanvas(`${name.trim().slice(0, 60)} — design system`, ownerId, workspace_id)
-        await actions.setTheme(canvas.id, kit ? kitTheme(kit) : { utilities: 'tailwind' }, actorFrom(agent_name))
+          return err('only the canvas owner or a workspace admin can make a design system from this canvas')
+        const r = await systemOps.extractDesignSystem(canvas, name, ownerId, actor)
+        if (!r.ok) return err(r.error)
+        return text({
+          designSystem: systemRow(r.value),
+          draftCanvas: { id: r.value.sourceCanvasId, url: `/c/${r.value.sourceCanvasId}` },
+          canvas: { id: canvas.id, usesVersion: r.value.publishedVersion },
+          next: 'Change the system on its draft canvas and publish_design_system; writes on the original canvas are now local overrides.',
+        })
       }
-      if (!ownerId) return err('design systems need a signed-in account')
-      const r = designSystems.createSystem(canvas, name, ownerId)
+      if (workspace_id && !workspaces.isWorkspaceMember(workspace_id, ownerId))
+        return err(`no workspace with id ${workspace_id}`)
+      const r = await systemOps.createDesignSystem(name, ownerId, actor, {
+        workspaceId: workspace_id,
+        ...(kit ? { theme: kitTheme(kit) } : {}),
+      })
       if (!r.ok) return err(r.error)
       return text({
-        designSystem: systemRow(r.value),
-        sourceCanvas: { id: canvas.id, url: `/c/${canvas.id}` },
-        next: 'Build tokens, components and style guides on the source canvas (plus specimen frames that show them), review them, then publish_design_system.',
+        designSystem: systemRow(r.value.system),
+        draftCanvas: { id: r.value.sourceCanvasId, url: `/c/${r.value.sourceCanvasId}` },
+        next: 'Build tokens, components and style guides on the draft canvas (plus specimen frames that show them), review them, then publish_design_system.',
       })
     },
   )
@@ -592,23 +611,30 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
     'use_design_system',
     {
       description:
-        "Render a canvas from a design system: its tokens, fonts, CSS, components and style guides apply under the canvas's own. system_id null stops using one. pin keeps the canvas on one published version; omit or null to follow the latest.",
+        "Render a canvas from a design system of its own workspace: its tokens, fonts, CSS, components and style guides apply under the canvas's own. pin keeps the canvas on one published version; omit or null to follow the latest. system_id null stops using one; the canvas keeps a copy of the system's design as its own unless keep_copy is false.",
       inputSchema: {
         canvas_id: z.string(),
         system_id: z.string().nullable(),
         pin: z.number().int().positive().nullable().optional(),
+        keep_copy: z
+          .boolean()
+          .optional()
+          .describe('With system_id null: keep the design as the canvas’s own (default true)'),
         agent_name: agentName.optional(),
       },
     },
-    async ({ canvas_id, system_id, pin, agent_name }) => {
+    async ({ canvas_id, system_id, pin, keep_copy, agent_name }) => {
       const c = canvasFor(canvas_id)
       if (!c) return noCanvas(canvas_id)
       arrive(canvas_id, agent_name)
       if (!hasDurableCanvasAccess(ownerId, c)) return err('link visitors cannot change a canvas design system')
-      if (system_id !== null) {
-        const s = designSystems.getSystem(system_id)
-        if (!s || !designSystems.canSeeSystem(ownerId, s)) return err(`no design system with id ${system_id}`)
+      if (system_id === null) {
+        const r = await systemOps.stopUsing(c, actorFrom(agent_name), keep_copy !== false)
+        if (!r.ok) return err(r.error)
+        return text({ ok: true, designSystem: null, keptCopy: keep_copy !== false })
       }
+      const s = designSystems.getSystem(system_id)
+      if (!s || !designSystems.canSeeSystem(ownerId, s)) return err(`no design system with id ${system_id}`)
       const r = await designSystems.useSystem(c, system_id, pin ?? null)
       if (!r.ok) return err(r.error)
       return text({ ok: true, designSystem: systemInfo(c) ?? null })

@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Canvas, CanvasMeta, WorkspaceSummary } from '../../shared/types'
 import { colorFor } from '../../shared/types'
-import { api, errorMessage, type HomeActivity } from '../lib/api'
+import { api, errorMessage, type DesignSystemRow, type HomeActivity } from '../lib/api'
 import { authClient } from '../lib/auth'
 import { navigate } from '../App'
 import { Logo } from '../components/Logo'
 import { timeAgo } from '../lib/time'
 import { AgentIcon } from '../components/AgentIcon'
 import { ShareModal } from '../components/ShareModal'
-import { CreateWorkspaceModal, MoveCanvasModal } from '../components/WorkspaceModals'
+import { CreateDesignSystemModal, CreateWorkspaceModal, MoveCanvasModal } from '../components/WorkspaceModals'
+import { Swatches } from '../components/Swatches'
 import {
   AccountMenu,
   ConnectCard,
@@ -87,6 +88,8 @@ function upsertRow(list: CanvasMeta[], row: CanvasMeta): CanvasMeta[] {
 
 export function Home() {
   const [canvases, setCanvases] = useState<CanvasMeta[] | null>(null)
+  const [systems, setSystems] = useState<DesignSystemRow[] | null>(null)
+  const [creatingSystem, setCreatingSystem] = useState(false)
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([])
   const [activity, setActivity] = useState<HomeActivity[]>([])
   const [scope, setScope] = useState<Scope>('all')
@@ -114,10 +117,11 @@ export function Home() {
   })
 
   /* every fresh list is a chance to drop tabs for canvases that are gone —
-     deleted here, in another session, or by someone else */
+     deleted here, in another session, or by someone else. Design system
+     drafts are canvases too, listed under their systems. */
   useEffect(() => {
-    if (canvases) pruneTabs(new Set(canvases.map((c) => c.id)))
-  }, [canvases])
+    if (canvases && systems) pruneTabs(new Set([...canvases.map((c) => c.id), ...systems.map((s) => s.sourceCanvasId)]))
+  }, [canvases, systems])
 
   useEffect(() => {
     reload()
@@ -207,6 +211,7 @@ export function Home() {
 
   function reload() {
     api.listCanvases().then(setCanvases).catch(console.error)
+    api.listDesignSystems().then(setSystems).catch(console.error)
     api
       .listWorkspaces()
       .then((res) => setWorkspaces(res.workspaces))
@@ -242,6 +247,17 @@ export function Home() {
       )
       .filter((c) => !q || c.name.toLowerCase().includes(q))
   }, [canvases, scope, query])
+
+  /* the scope's design systems sit above its canvases: a workspace's own, or the personal ones */
+  const visibleSystems = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const ws = workspaceOf(scope)
+    return (systems ?? [])
+      .filter((s) => (ws ? s.workspaceId === ws : scope === 'mine' ? !s.workspaceId : scope === 'all'))
+      .filter((s) => !q || s.name.toLowerCase().includes(q))
+  }, [systems, scope, query])
+
+  const showSystems = systems !== null && scope !== 'shared'
 
   const workspaceCounts = useMemo(() => {
     const map = new Map<string, number>()
@@ -500,8 +516,63 @@ export function Home() {
             </Card>
           ) : (
             <>
+              {showSystems && (
+                <section className="mt-6" aria-label="Design systems">
+                  <h2 className="font-display text-[13.5px] font-semibold text-ink">
+                    Design systems
+                    <span className="ml-2 font-sans text-xs font-normal text-ink-faint">
+                      shared by the canvases {currentWorkspace ? 'in this workspace' : 'of one workspace, or yours'}
+                    </span>
+                  </h2>
+                  <div className="mt-2.5 grid grid-cols-[minmax(0,1fr)] gap-3 xs:grid-cols-[repeat(auto-fill,minmax(214px,1fr))] md:gap-4">
+                    <button
+                      className={cn(
+                        cardCls,
+                        'flex items-center gap-3 px-3.5 py-3 hover:border-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand',
+                      )}
+                      onClick={() => setCreatingSystem(true)}
+                    >
+                      <span className="grid size-7 flex-none place-items-center rounded-lg bg-paper-deep text-ink">
+                        <PlusIcon width={16} height={16} />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block font-display text-[13px] font-semibold">New design system</span>
+                        <span className="mt-0.5 block text-[11.5px] text-ink-soft">Tokens, components and rules</span>
+                      </span>
+                    </button>
+                    {visibleSystems.map((s) => (
+                      <button
+                        key={s.id}
+                        className={cn(
+                          cardCls,
+                          'px-3.5 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand',
+                        )}
+                        onClick={() => navigate(`/s/${s.id}`)}
+                      >
+                        <Swatches colors={s.swatches} className="h-2.5" />
+                        <span className="mt-2.5 flex min-w-0 items-center gap-1.5">
+                          <span className="truncate font-display text-[13.5px] font-semibold">{s.name}</span>
+                          {s.isDefault && <Badge className="ml-auto flex-none">default</Badge>}
+                        </span>
+                        <span className="mt-1 block truncate text-[11.5px] text-ink-faint">
+                          {s.publishedVersion ? `v${s.publishedVersion}` : 'draft'} · {s.canvasCount}{' '}
+                          {s.canvasCount === 1 ? 'canvas' : 'canvases'}
+                          {scopedWorkspace ? '' : ` · ${workspaceName(s.workspaceId) ?? 'Personal'}`}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
+
               {canvases !== null && (
-                <div className="mt-[18px] flex flex-wrap items-center gap-2.5 text-xs text-ink-faint xs:flex-nowrap">
+                <div
+                  className={cn(
+                    'flex flex-wrap items-center gap-2.5 text-xs text-ink-faint xs:flex-nowrap',
+                    showSystems ? 'mt-7' : 'mt-[18px]',
+                  )}
+                >
+                  {showSystems && <h2 className="font-display text-[13.5px] font-semibold text-ink">Canvases</h2>}
                   {/* the total is already in the subtitle — only say something
                       here when a search or scope has narrowed it */}
                   {(query.trim() || scope !== 'all') && (
@@ -648,11 +719,26 @@ export function Home() {
           canvas={moveCanvas}
           workspaces={workspaces}
           onClose={() => setMoveCanvas(null)}
-          onMoved={(workspaceId) => {
+          onMoved={(workspaceId, detachedSystem) => {
             setMoveCanvas(null)
-            showToast(workspaceId ? `Moved to ${workspaceName(workspaceId) ?? 'the workspace'}` : 'Moved to Personal')
+            const where = workspaceId
+              ? `Moved to ${workspaceName(workspaceId) ?? 'the workspace'}`
+              : 'Moved to Personal'
+            showToast(
+              detachedSystem
+                ? `${where}. “${detachedSystem}” stays behind; the canvas kept a copy of its design.`
+                : where,
+            )
             reload()
           }}
+        />
+      )}
+      {creatingSystem && (
+        <CreateDesignSystemModal
+          workspaces={workspaces}
+          workspaceId={scopedWorkspace}
+          onClose={() => setCreatingSystem(false)}
+          onCreated={(system) => navigate(`/s/${system.id}`)}
         />
       )}
       <ConfirmDialog

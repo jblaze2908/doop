@@ -596,23 +596,29 @@ tracking-wide text-ink-3; td py-3 border-t border-line; numbers tabular-nums tex
 
 const TOPIC_DESIGN_SYSTEMS = `## Design systems — one system, many canvases
 
-A design system is tokens, fonts, theme CSS, components and style guides shared by many
-canvases. list_design_systems shows the ones you can use.
+A design system is tokens, fonts, theme CSS, components and style guides shared by the canvases
+of one workspace (or of one person's personal space). list_design_systems shows the ones you
+can use; a canvas can only use a system from its own workspace.
 
 - Use one: use_design_system({ canvas_id, system_id }) — or create_canvas with
-  design_system_id. The canvas then renders the system's latest published version live:
-  its tokens are classes and var(--…) values, its components are tags, its style guides
-  show in get_canvas. Build with them instead of inventing a palette or type scale.
+  design_system_id. A new canvas in a workspace starts on the workspace default
+  (workspaceDefault: true) unless you pass design_system_id: null. The canvas renders the
+  system's latest published version live: its tokens are classes and var(--…) values, its
+  components are tags, its style guides show in get_canvas. Build with them instead of
+  inventing a palette or type scale.
 - A canvas keeps its own layer on top: set_theme_tokens, set_component and set_guidelines
   on a canvas that uses a system change THAT canvas only (same name = override). Override
   sparingly; a page that needs many overrides is a signal to change the system.
 - Pin: use_design_system({ canvas_id, system_id, pin: 3 }) keeps a canvas on version 3 while
-  the system moves on; pin: null follows the latest again.
-- Create one: create_design_system({ name, kit? }) makes a source canvas (or pass canvas_id
-  to promote an existing canvas). The source canvas IS the draft: build tokens, components
-  (batch every set_component) and style guides there, plus specimen frames that show them.
+  the system moves on; pin: null follows the latest again. system_id: null stops using it and
+  keeps a copy of its design on the canvas (keep_copy: false drops it).
+- Create one: create_design_system({ name, workspace_id?, kit? }) gives it a draft canvas
+  (draftCanvasId). Build tokens, components (batch every set_component) and style guides
+  there, plus specimen frames that show them. Or create_design_system({ name, canvas_id })
+  to make one from a canvas you already designed: its design moves into the system, which is
+  published as v1, and the canvas uses it.
 - Publish: publish_design_system({ system_id, note }) — the workspace admins' or owner's
-  call. Every canvas following the system updates at once, so review the source canvas
+  call. Every canvas following the system updates at once, so review the draft canvas
   first. from_version restores an old version as a new publish (rollback).
 `
 

@@ -27,6 +27,8 @@ export interface WorkspaceRecord {
   id: string
   name: string
   ownerId: string
+  /** the design system new canvases here start on */
+  defaultDesignSystemId?: string
   createdAt: number
   updatedAt: number
 }
@@ -55,6 +57,7 @@ export async function hydrateWorkspaces(): Promise<void> {
       id: r.id,
       name: r.name,
       ownerId: r.ownerId,
+      ...(r.defaultDesignSystemId ? { defaultDesignSystemId: r.defaultDesignSystemId } : {}),
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
     })
@@ -77,6 +80,12 @@ function membersOf(workspaceId: string): Map<string, Membership> {
 let membershipChanged: (userIds: string[]) => void = () => {}
 export function onMembershipChange(fn: (userIds: string[]) => void) {
   membershipChanged = fn
+}
+
+/* Set by server/designSystemOps.ts: a deleted workspace's systems and their canvases change scope. */
+let workspaceDeleted: (workspaceId: string) => void = () => {}
+export function onWorkspaceDeleted(fn: (workspaceId: string) => void) {
+  workspaceDeleted = fn
 }
 
 export function memberIdsOf(workspaceId: string): string[] {
@@ -122,6 +131,7 @@ export function summaryFor(ws: WorkspaceRecord, viewerId: string): WorkspaceSumm
     role: roleOf(ws.id, viewerId) ?? 'member',
     memberCount: members.get(ws.id)?.size ?? 0,
     canvasCount: store.countWorkspaceCanvases(ws.id),
+    ...(ws.defaultDesignSystemId ? { defaultDesignSystemId: ws.defaultDesignSystemId } : {}),
     createdAt: ws.createdAt,
     updatedAt: ws.updatedAt,
   }
@@ -164,12 +174,29 @@ export function renameWorkspace(id: string, name: string): WorkspaceRecord | und
   return ws
 }
 
+/** The design system new canvases in the workspace start on; undefined clears it. Checks are the caller's. */
+export function setDefaultDesignSystem(id: string, systemId: string | undefined): WorkspaceRecord | undefined {
+  const ws = records.get(id)
+  if (!ws) return undefined
+  if (systemId) ws.defaultDesignSystemId = systemId
+  else delete ws.defaultDesignSystemId
+  swallow(
+    db
+      .update(t.workspaces)
+      .set({ defaultDesignSystemId: systemId ?? null })
+      .where(eq(t.workspaces.id, id)),
+  )
+  membershipChanged(memberIdsOf(id))
+  return ws
+}
+
 /** Tear a workspace down: its canvases return to their owners' personal
  *  spaces (nothing is deleted). */
 export async function deleteWorkspace(id: string): Promise<void> {
   if (!records.has(id)) return
   const affected = memberIdsOf(id)
   store.detachWorkspace(id)
+  workspaceDeleted(id)
   records.delete(id)
   members.delete(id)
   membershipChanged(affected)

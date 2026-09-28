@@ -6,6 +6,7 @@ import { connect, disconnect, sendWs } from '../lib/ws'
 import { api, ApiError, type DiscoveredSite, type SyncKeyInfo } from '../lib/api'
 import { navigate } from '../App'
 import { BarDivider, TopBar, TopBarHome, TopBarTitle } from '../components/TopBar'
+import { SystemChip } from '../components/SystemChip'
 import { ensureTab } from '../lib/desktop'
 import { Stage } from '../components/Stage'
 import { ActivityPanel } from '../components/ActivityPanel'
@@ -284,6 +285,14 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
           <Badge className="max-md:hidden" title="Canvas id — agents use this with the MCP tools">
             {canvasId}
           </Badge>
+          <span className="max-md:hidden">
+            <SystemChip
+              onOpenDesign={() => {
+                useStore.getState().setPanelTab('design')
+                setShowActivity(true)
+              }}
+            />
+          </span>
           {!connected && (
             <Badge tone="accent" className="max-md:ml-auto">
               reconnecting…

@@ -155,6 +155,13 @@
       "when": 1790566972512,
       "tag": "0021_design_systems",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1790569263285,
+      "tag": "0022_workspace_default_design_system",
+      "breakpoints": true
     }
   ]
 }

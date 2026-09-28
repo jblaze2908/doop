@@ -1,9 +1,24 @@
 import type { CanvasTheme, ThemeTokenInput } from '../../shared/theme'
 import type { ComponentDef, ComponentInput } from '../../shared/components'
-import type { CanvasSystemLink, DesignSystemMeta } from '../../shared/designSystem'
+import type { CanvasSystemLink, DesignSystemMeta, DesignSystemVersion } from '../../shared/designSystem'
 
 /** A design system as GET /api/design-systems lists it for the viewer. */
-export type DesignSystemRow = DesignSystemMeta & { canPublish: boolean; canvasCount: number }
+export type DesignSystemRow = DesignSystemMeta & {
+  canPublish: boolean
+  canvasCount: number
+  /** the default for new canvases in its workspace */
+  isDefault: boolean
+  /** up to 8 colour token values, for a card */
+  swatches: string[]
+}
+
+/** The system page: the row plus the draft, its versions and the canvases using it that the viewer can open. */
+export interface DesignSystemDetail extends DesignSystemRow {
+  draftChanged: boolean
+  draft: { tokens: number; fonts: string[]; components: string[]; rules: string[]; frames: number }
+  versions: DesignSystemVersion[]
+  canvases: { id: string; name: string; pin: number | null; updatedAt: number }[]
+}
 import type {
   Canvas,
   CanvasMeta,
@@ -121,7 +136,10 @@ export const api = {
     req<Canvas>('/api/canvases', { method: 'POST', body: JSON.stringify({ name, workspaceId }) }),
   /* file a canvas in a workspace, or back in its owner's personal space (null) */
   moveCanvas: (id: string, workspaceId: string | null) =>
-    req(`/api/canvases/${id}/workspace`, { method: 'PUT', body: JSON.stringify({ workspaceId }) }),
+    req<{ ok: true; detachedSystem?: string }>(`/api/canvases/${id}/workspace`, {
+      method: 'PUT',
+      body: JSON.stringify({ workspaceId }),
+    }),
   duplicateCanvas: (id: string) => req<Canvas>(`/api/canvases/${id}/duplicate`, { method: 'POST' }),
   claimCanvas: (id: string) => req(`/api/canvases/${id}/claim`, { method: 'POST' }),
   renameCanvas: (id: string, name: string) =>
@@ -165,18 +183,29 @@ export const api = {
   deleteComponent: (canvasId: string, name: string) =>
     req(`/api/canvases/${canvasId}/components/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   /* design systems shared across canvases */
-  listDesignSystems: () => req<DesignSystemRow[]>('/api/design-systems'),
-  createDesignSystem: (canvasId: string, name: string) =>
-    req<DesignSystemRow>('/api/design-systems', { method: 'POST', body: JSON.stringify({ canvasId, name }) }),
-  publishDesignSystem: (id: string, note?: string) =>
-    req<DesignSystemRow>(`/api/design-systems/${id}/publish`, {
-      method: 'POST',
-      body: JSON.stringify(note ? { note } : {}),
-    }),
-  useDesignSystem: (canvasId: string, systemId: string | null, pin: number | null = null) =>
+  /* canvasId narrows the list to the systems that canvas may use */
+  listDesignSystems: (canvasId?: string) =>
+    req<DesignSystemRow[]>(`/api/design-systems${canvasId ? `?canvasId=${encodeURIComponent(canvasId)}` : ''}`),
+  getDesignSystem: (id: string) => req<DesignSystemDetail>(`/api/design-systems/${id}`),
+  /* { name, workspaceId? } makes a new system; { name, canvasId } makes one from that canvas's design */
+  createDesignSystem: (input: { name: string; workspaceId?: string } | { name: string; canvasId: string }) =>
+    req<DesignSystemRow>('/api/design-systems', { method: 'POST', body: JSON.stringify(input) }),
+  renameDesignSystem: (id: string, name: string) =>
+    req<DesignSystemRow>(`/api/design-systems/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+  deleteDesignSystem: (id: string) => req(`/api/design-systems/${id}`, { method: 'DELETE' }),
+  /* fromVersion republishes an old version (rollback) */
+  publishDesignSystem: (id: string, opts: { note?: string; fromVersion?: number } = {}) =>
+    req<DesignSystemRow>(`/api/design-systems/${id}/publish`, { method: 'POST', body: JSON.stringify(opts) }),
+  /* systemId null stops using one; keepCopy keeps its design as the canvas's own */
+  useDesignSystem: (canvasId: string, systemId: string | null, pin: number | null = null, keepCopy = true) =>
     req<{ link: CanvasSystemLink | null }>(`/api/canvases/${canvasId}/design-system`, {
       method: 'PUT',
-      body: JSON.stringify({ systemId, pin }),
+      body: JSON.stringify({ systemId, pin, keepCopy }),
+    }),
+  setDefaultDesignSystem: (workspaceId: string, systemId: string | null) =>
+    req(`/api/workspaces/${workspaceId}/default-design-system`, {
+      method: 'PUT',
+      body: JSON.stringify({ systemId }),
     }),
   /* design memory */
   pinReference: (canvasId: string, frameId: string) =>
