@@ -8,6 +8,7 @@ import { toNodeHandler, fromNodeHeaders } from 'better-auth/node'
 import { oAuthDiscoveryMetadata } from 'better-auth/plugins'
 import { WebSocketServer, WebSocket } from 'ws'
 import { store } from './store.ts'
+import * as designSystems from './designSystems.ts'
 import * as homeFeed from './homeFeed.ts'
 import { canvasTouched, forgetCanvas, utilitiesFor, wireUtilities } from './utilities.ts'
 import { getImage } from './previews.ts'
@@ -35,7 +36,8 @@ import * as storage from './storage.ts'
 import { seed } from './seed.ts'
 import { colorFor } from '../shared/types.ts'
 import { isPeerViewport } from '../shared/viewport.ts'
-import type { CanvasMeta, ClientMessage, Presence, ServerMessage } from '../shared/types.ts'
+import type { Canvas, CanvasMeta, ClientMessage, Presence, ServerMessage } from '../shared/types.ts'
+import type { DesignSystemMeta } from '../shared/designSystem.ts'
 
 const PORT = Number(process.env.PORT || 4400)
 
@@ -65,6 +67,7 @@ if (data.canvases.length === 0 && (await persist.importLegacyJson())) {
 }
 store.init(data.canvases)
 await workspaces.hydrateWorkspaces() // before the first request: canAccessCanvas reads membership
+await designSystems.hydrateDesignSystems() // after store.init: it loads the snapshots canvases render
 actions.hydrateLogs(data)
 seed()
 
@@ -627,6 +630,7 @@ function canvasRow(meta: CanvasMeta): CanvasMeta {
 
 homeFeed.wireHome(send, (c, viewerId) => canvasRow(store.toMeta(c, viewerId)))
 wireUtilities(broadcast)
+designSystems.wireDesignSystems(broadcast)
 store.onChange(canvasTouched)
 
 app.get('/api/canvases', (req, res) => res.json(workspaces.canvasesFor(req.user!.id).map(canvasRow)))
@@ -724,6 +728,8 @@ app.delete('/api/canvases/:id', (req, res) => {
      before they can be destroyed */
   if (!c.ownerId) return res.status(403).json({ error: 'claim it first' })
   if (!canManageCanvas(req.user!.id, c)) return res.status(403).json({ error: 'not yours' })
+  const blocked = designSystems.beforeCanvasDelete(c.id)
+  if (blocked) return res.status(409).json({ error: blocked })
   actions.deleteCanvas(c.id)
   forgetCanvas(c.id)
   res.json({ ok: true })
@@ -886,6 +892,85 @@ app.put('/api/canvases/:id/guidelines/:name', (req, res) => {
 })
 
 /* the canvas theme: same permission model as the design guides */
+/* ---- design systems (server/designSystems.ts) ---- */
+
+function systemInit(c: Canvas) {
+  const link = designSystems.linkFor(c)
+  const source = designSystems.systemOfSource(c.id)
+  return { ...(link ? { system: link } : {}), ...(source ? { systemSource: source } : {}) }
+}
+
+function systemRow(s: DesignSystemMeta, userId: string) {
+  return {
+    ...s,
+    canPublish: designSystems.canPublish(userId, s),
+    canvasCount: designSystems.consumersOf(s.id).length,
+  }
+}
+
+function requireSystem(req: express.Request, res: express.Response, id: string) {
+  const s = designSystems.getSystem(id)
+  if (!s || !designSystems.canSeeSystem(req.user!.id, s)) {
+    res.status(404).json({ error: 'no such design system' })
+    return null
+  }
+  return s
+}
+
+app.get('/api/design-systems', (req, res) => {
+  res.json(designSystems.listSystems(req.user!.id).map((s) => systemRow(s, req.user!.id)))
+})
+
+/* promote a canvas: its theme, components and guidelines become the system's draft */
+app.post('/api/design-systems', (req, res) => {
+  const { canvasId, name } = req.body ?? {}
+  if (typeof canvasId !== 'string' || typeof name !== 'string')
+    return res.status(400).json({ error: 'canvasId and name are required' })
+  const c = requireCanvas(req, res, canvasId)
+  if (!c) return
+  if (!canManageCanvas(req.user!.id, c))
+    return res.status(403).json({ error: 'only the canvas owner or a workspace admin can make it a design system' })
+  const r = designSystems.createSystem(c, name, req.user!.id)
+  if (!r.ok) return res.status(r.status).json({ error: r.error })
+  res.json(systemRow(r.value, req.user!.id))
+})
+
+app.post('/api/design-systems/:id/publish', async (req, res) => {
+  const s = requireSystem(req, res, req.params.id)
+  if (!s) return
+  if (!designSystems.canPublish(req.user!.id, s))
+    return res.status(403).json({ error: 'only the owner or a workspace admin can publish this design system' })
+  const { note, fromVersion } = req.body ?? {}
+  if (note !== undefined && typeof note !== 'string') return res.status(400).json({ error: 'note must be a string' })
+  if (fromVersion !== undefined && !Number.isInteger(fromVersion))
+    return res.status(400).json({ error: 'fromVersion must be a version number' })
+  const r = await designSystems.publish(s.id, req.user!.name, { note, fromVersion })
+  if (!r.ok) return res.status(r.status).json({ error: r.error })
+  res.json(systemRow(r.value, req.user!.id))
+})
+
+app.get('/api/design-systems/:id/versions', async (req, res) => {
+  const s = requireSystem(req, res, req.params.id)
+  if (!s) return
+  res.json(await designSystems.listVersions(s.id))
+})
+
+app.put('/api/canvases/:id/design-system', async (req, res) => {
+  const c = requireCanvas(req, res, req.params.id)
+  if (!c) return
+  if (!hasDurableCanvasAccess(req.user!.id, c))
+    return res.status(403).json({ error: 'link visitors cannot change the design system' })
+  const { systemId, pin } = req.body ?? {}
+  if (systemId !== null && typeof systemId !== 'string')
+    return res.status(400).json({ error: 'systemId must be a design system id or null' })
+  if (pin !== undefined && pin !== null && !Number.isInteger(pin))
+    return res.status(400).json({ error: 'pin must be a version number or null' })
+  if (systemId !== null && !requireSystem(req, res, systemId)) return
+  const r = await designSystems.useSystem(c, systemId, pin ?? null)
+  if (!r.ok) return res.status(r.status).json({ error: r.error })
+  res.json({ link: r.value })
+})
+
 app.get('/api/canvases/:id/theme', (req, res) => {
   const c = requireCanvas(req, res, req.params.id)
   if (!c) return
@@ -1031,7 +1116,7 @@ app.get('/api/frames/:id/export', async (req, res) => {
   const canvas = store.getCanvas(frame.canvasId)
   if (!canvas) return res.status(404).json({ error: 'canvas not found' })
   const target = req.query.target === 'html' ? 'html' : 'react'
-  res.json(exportFrameCode(frame, canvas, target, await utilitiesFor(canvas.id)))
+  res.json(exportFrameCode(frame, designSystems.effectiveCanvas(canvas), target, await utilitiesFor(canvas.id)))
 })
 
 app.post('/api/frames/:id/append', (req, res) => {
@@ -1440,6 +1525,7 @@ wss.on('connection', (ws, upgradeReq) => {
         selfColor: presence.color,
         serverBuild: BUILD_ID,
         utilityCss: await utilitiesFor(msg.canvasId),
+        ...systemInit(canvas),
       })
       /* An admin looking at a canvas must not act on it. Announcing presence
          would impersonate the owner in the room; maybePlay would have the

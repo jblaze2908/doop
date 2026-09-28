@@ -1,5 +1,6 @@
 import type { CanvasTheme } from './theme.ts'
 import type { ComponentDef } from './components.ts'
+import type { CanvasSystemLink, DesignSystemMeta } from './designSystem.ts'
 
 export interface Frame {
   id: string
@@ -69,6 +70,10 @@ export interface Canvas {
   theme?: CanvasTheme
   /** linked component definitions (tombstones included), sorted by name */
   components?: ComponentDef[]
+  /** the design system this canvas uses; theme, components and guidelines above override it */
+  designSystemId?: string
+  /** a pinned published version; unset = follow the latest publish */
+  designSystemPin?: number
 }
 
 /* ---- workspaces ---- */
@@ -315,6 +320,10 @@ export type ServerMessage =
   | { type: 'home:activity'; item: HomeActivity }
   /** the canvas's Tailwind utility sheet changed (server/utilities.ts) */
   | { type: 'utilities'; css: string }
+  /** the design system this canvas renders from changed: a publish, pin, switch or unlink */
+  | { type: 'system'; link: CanvasSystemLink | null }
+  /** this canvas is a design system's source and the system was published */
+  | { type: 'system:source'; system: DesignSystemMeta }
   | {
       type: 'init'
       canvas: Canvas
@@ -329,6 +338,10 @@ export type ServerMessage =
       serverBuild: string
       /** Tailwind utilities for the canvas's frames; '' when the canvas has not opted in */
       utilityCss?: string
+      /** the design system the canvas uses, with the snapshot it renders */
+      system?: CanvasSystemLink
+      /** set when this canvas is a design system's source (its draft) */
+      systemSource?: DesignSystemMeta
     }
   | { type: 'presence:join'; presence: Presence }
   | { type: 'presence:leave'; clientId: string }

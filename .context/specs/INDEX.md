@@ -10,6 +10,8 @@ lists every file in this folder.
   frame inherits; injection order, render-cache stamp, MCP/REST/WS surfaces.
 - [code-export.md](code-export.md) - Frame → React files (components, theme CSS, page) or one
   self-contained HTML document.
+- [design-systems.md](design-systems.md) - Design systems shared across canvases: source canvas as
+  draft, publish/pin/rollback, local override layer, merge rules, surfaces.
 - [element-inspector.md](element-inspector.md) - Element panel: token pickers, class chips, component
   props and swap, extra spacing/type controls, save-race and undo-conflict fixes.
 - [lean-reads.md](lean-reads.md) - Frame outline, section read and section replace for agents,

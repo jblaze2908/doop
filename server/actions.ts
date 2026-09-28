@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid'
 import { store } from './store.ts'
+import { designOfCanvas } from './designSystems.ts'
 import * as persist from './db/persist.ts'
 import * as thumbs from './thumbs.ts'
 import { colorFor } from '../shared/types.ts'
@@ -1139,7 +1140,7 @@ export function patchGuideline(
 
 /** Why a definition may not render as its author expects, if anything. */
 export function componentWarnings(canvasId: string, def: ComponentDef): string[] {
-  const warning = hostBoxWarning(def.css, compileTheme(store.getCanvas(canvasId)?.theme))
+  const warning = hostBoxWarning(def.css, compileTheme(designOfCanvas(canvasId).theme))
   return warning ? [warning] : []
 }
 

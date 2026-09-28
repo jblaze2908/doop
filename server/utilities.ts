@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { compile } from 'tailwindcss'
+import { designOfCanvas } from './designSystems.ts'
 import { store } from './store.ts'
 import type { CanvasTheme, ThemeToken } from '../shared/theme.ts'
 import type { ServerMessage } from '../shared/types.ts'
@@ -66,13 +67,15 @@ function classesOf(key: string, at: number, html: string): string[] {
 
 /* component templates render in every frame's shadow roots, so their classes count too */
 function* sources(canvasId: string): Generator<string[]> {
-  const c = store.getCanvas(canvasId)
-  for (const f of c?.frames ?? []) yield classesOf(f.id, f.updatedAt, f.html)
-  for (const d of c?.components ?? []) if (!d.deletedAt) yield classesOf(`${canvasId}/${d.name}`, d.updatedAt, d.html)
+  for (const f of store.getCanvas(canvasId)?.frames ?? []) yield classesOf(f.id, f.updatedAt, f.html)
+  for (const d of designOfCanvas(canvasId).components) {
+    if (!d.deletedAt) yield classesOf(`${canvasId}/${d.name}`, d.updatedAt, d.html)
+  }
 }
 
 interface Sheet {
-  version: number
+  /** the effective theme it was compiled for: mergeTheme is memoized, so identity means unchanged */
+  theme: CanvasTheme
   build: (candidates: string[]) => string
   seen: Set<string>
   css: string
@@ -83,10 +86,10 @@ async function sheetFor(canvasId: string, theme: CanvasTheme): Promise<Sheet> {
   const cached = canvasSheets.get(canvasId)
   if (cached) {
     const sheet = await cached
-    if (sheet.version === theme.version) return sheet
+    if (sheet.theme === theme) return sheet
   }
   const fresh = compile(input(theme), { loadStylesheet }).then((c) => ({
-    version: theme.version,
+    theme,
     build: (candidates: string[]) => c.build(candidates),
     seen: new Set<string>(),
     css: '',
@@ -98,7 +101,7 @@ async function sheetFor(canvasId: string, theme: CanvasTheme): Promise<Sheet> {
 /** The canvas's utility stylesheet ('' when it has not opted in). Cost: a
  *  class scan of frames and components whose html changed, then an incremental build. */
 export async function utilitiesFor(canvasId: string): Promise<string> {
-  const theme = store.getCanvas(canvasId)?.theme
+  const theme = designOfCanvas(canvasId).theme
   if (theme?.utilities !== 'tailwind') return ''
   const sheet = await sheetFor(canvasId, theme)
   const added: string[] = []
@@ -127,7 +130,7 @@ const DEBOUNCE_MS = 50
  *  return at once; opted-in ones rebuild at most every 50 ms and broadcast
  *  only when the sheet actually changed. */
 export function canvasTouched(canvasId: string) {
-  if (pending.has(canvasId) || store.getCanvas(canvasId)?.theme?.utilities !== 'tailwind') return
+  if (pending.has(canvasId) || designOfCanvas(canvasId).theme?.utilities !== 'tailwind') return
   pending.add(canvasId)
   setTimeout(() => {
     pending.delete(canvasId)

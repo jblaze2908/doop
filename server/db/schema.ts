@@ -12,6 +12,7 @@ import {
 } from 'drizzle-orm/pg-core'
 import type { CanvasTheme } from '../../shared/theme.ts'
 import type { ComponentProp } from '../../shared/components.ts'
+import type { DesignSnapshot } from '../../shared/designSystem.ts'
 
 /**
  * One Postgres-dialect schema for every environment: PGlite (embedded, file
@@ -33,9 +34,46 @@ export const canvases = pgTable('canvases', {
   /** tokens, fonts and CSS every frame inherits; null = no theme. Written on
    *  its own (saveCanvasTheme), never by the per-edit canvas upsert. */
   theme: jsonb('theme').$type<CanvasTheme>(),
+  /** the design system this canvas uses; its own theme/components/guidelines override it */
+  designSystemId: text('design_system_id'),
+  /** a pinned published version; null = follow the latest publish */
+  designSystemPin: integer('design_system_pin'),
   createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
 })
+
+/** A design system shared across canvases. Its draft IS its source canvas's
+ *  theme, components and guidelines; consumers see only published versions. */
+export const designSystems = pgTable('design_systems', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  sourceCanvasId: text('source_canvas_id').notNull().unique(),
+  /** null = the owner's personal system */
+  workspaceId: text('workspace_id'),
+  ownerId: text('owner_id').notNull(),
+  /** 0 = never published */
+  publishedVersion: integer('published_version').notNull(),
+  /** the source canvas's draft stamp at the last publish ("draft has changes" = differs) */
+  publishedStamp: text('published_stamp'),
+  publishedAt: bigint('published_at', { mode: 'number' }),
+  publishedBy: text('published_by'),
+  createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+})
+
+/** Immutable published snapshots; a rollback republishes an old one as a new version. */
+export const designSystemVersions = pgTable(
+  'design_system_versions',
+  {
+    systemId: text('system_id').notNull(),
+    version: integer('version').notNull(),
+    snapshot: jsonb('snapshot').$type<DesignSnapshot>().notNull(),
+    note: text('note'),
+    publishedAt: bigint('published_at', { mode: 'number' }).notNull(),
+    publishedBy: text('published_by').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.systemId, t.version] })],
+)
 
 /** A shared workspace: a team's home for canvases. Membership (below) grants
  *  access to every canvas inside it, so a workspace is the org-level unit

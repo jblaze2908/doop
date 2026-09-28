@@ -172,6 +172,28 @@ class Store {
     return c
   }
 
+  /* ---- design systems (server/designSystems.ts) ---- */
+
+  /** Point a canvas at a design system (or none); pin undefined = follow the latest publish.
+   *  A design edit: the canvas renders differently. */
+  setDesignSystem(id: string, systemId: string | undefined, pin: number | undefined): Canvas | undefined {
+    const c = this.canvases.get(id)
+    if (!c) return undefined
+    if (systemId) c.designSystemId = systemId
+    else delete c.designSystemId
+    if (systemId && pin !== undefined) c.designSystemPin = pin
+    else delete c.designSystemPin
+    c.updatedAt = Date.now()
+    persist.saveCanvas(c)
+    this.changed(id)
+    return c
+  }
+
+  /** A canvas's rendering changed from outside it (a design system publish). */
+  touch(id: string) {
+    if (this.canvases.has(id)) this.changed(id)
+  }
+
   /* ---- workspaces ---- */
 
   /** File a canvas in a workspace, or take it back to its owner's personal

@@ -16,6 +16,7 @@ export const GUIDE_TOPICS = [
   'style-guides',
   'redesigns',
   'export',
+  'design-systems',
 ] as const
 export type GuideTopic = (typeof GUIDE_TOPICS)[number]
 
@@ -168,7 +169,8 @@ doctrine: get_guide({ topic: "design-brief" }).
 Fastest path on a fresh canvas: apply_kit with the kit closest to your mood (editorial,
 product-dark, mineral, signage, candlelit), adjust its tokens to the brief with
 set_theme_tokens, and build sections from get_guide({ topic: "recipes" }) — every recipe uses
-the kit's token classes, so restyling is a token change, not a rewrite.
+the kit's token classes, so restyling is a token change, not a rewrite. If the work belongs
+to a brand that already has a design system (list_design_systems), use_design_system instead.
 
 ## Streaming — how to write designs
 
@@ -262,7 +264,8 @@ get_guide({ topic }) with: "recipes" (Tailwind section patterns for any kit), "c
 "design-brief" (the full brief ritual and taste doctrine), "images" (sourcing photos,
 icons, logos and backgrounds), "lean-reads" (outline, section read and replace),
 "components" (linked components), "style-guides" (style guides and pinned references),
-"redesigns" (auditing an existing page, two directions), "export" (code and image export).
+"redesigns" (auditing an existing page, two directions), "export" (code and image export),
+"design-systems" (one system shared by many canvases: create, publish, use).
 `
 
 const TOPIC_COLLABORATION = `## Comments and @mentions
@@ -591,6 +594,28 @@ tracking-wide text-ink-3; td py-3 border-t border-line; numbers tabular-nums tex
 </label>
 `
 
+const TOPIC_DESIGN_SYSTEMS = `## Design systems — one system, many canvases
+
+A design system is tokens, fonts, theme CSS, components and style guides shared by many
+canvases. list_design_systems shows the ones you can use.
+
+- Use one: use_design_system({ canvas_id, system_id }) — or create_canvas with
+  design_system_id. The canvas then renders the system's latest published version live:
+  its tokens are classes and var(--…) values, its components are tags, its style guides
+  show in get_canvas. Build with them instead of inventing a palette or type scale.
+- A canvas keeps its own layer on top: set_theme_tokens, set_component and set_guidelines
+  on a canvas that uses a system change THAT canvas only (same name = override). Override
+  sparingly; a page that needs many overrides is a signal to change the system.
+- Pin: use_design_system({ canvas_id, system_id, pin: 3 }) keeps a canvas on version 3 while
+  the system moves on; pin: null follows the latest again.
+- Create one: create_design_system({ name, kit? }) makes a source canvas (or pass canvas_id
+  to promote an existing canvas). The source canvas IS the draft: build tokens, components
+  (batch every set_component) and style guides there, plus specimen frames that show them.
+- Publish: publish_design_system({ system_id, note }) — the workspace admins' or owner's
+  call. Every canvas following the system updates at once, so review the source canvas
+  first. from_version restores an old version as a new publish (rollback).
+`
+
 export const GUIDE_DOCS: Record<GuideTopic, string> = {
   'draft-instructions': DRAFT_GUIDE,
   recipes: TOPIC_RECIPES,
@@ -602,4 +627,5 @@ export const GUIDE_DOCS: Record<GuideTopic, string> = {
   'style-guides': TOPIC_STYLE_GUIDES,
   redesigns: TOPIC_REDESIGNS,
   export: TOPIC_EXPORT,
+  'design-systems': TOPIC_DESIGN_SYSTEMS,
 }

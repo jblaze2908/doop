@@ -1,25 +1,25 @@
-import { store } from './store.ts'
+import { designOfCanvas } from './designSystems.ts'
 import { compileTheme, fontFamilyOf, MAX_FONT_FACE_CHARS, sanitizeFontFaces } from '../shared/theme.ts'
-import { componentsStamp, prepareFrameHtml, runtimeDefs } from '../shared/components.ts'
+import { prepareFrameHtml, runtimeDefs } from '../shared/components.ts'
 import type { Frame } from '../shared/types.ts'
 
 /* Google serves woff2 with unicode-range subsets only to a modern browser UA */
 const FONT_UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
 
-/** Everything a frame render depends on: the frame, its canvas theme and
- *  component definitions. Render caches compare this, not frame.updatedAt. */
+/** Everything a frame render depends on: the frame, its canvas's theme and
+ *  components, and the design system version under them. Render caches
+ *  compare this, not frame.updatedAt. */
 export function renderStamp(frame: Pick<Frame, 'canvasId' | 'updatedAt'>): string {
-  const c = store.getCanvas(frame.canvasId)
-  return `${frame.updatedAt}:${c?.theme?.version ?? 0}:${componentsStamp(c?.components)}`
+  return `${frame.updatedAt}:${designOfCanvas(frame.canvasId).key}`
 }
 
 /** The frame document server renders load: theme and component runtime
  *  spliced in exactly where the browser runtime puts them. */
 export function renderableHtml(frame: Pick<Frame, 'canvasId' | 'html'>, utilityCss = ''): string {
-  const c = store.getCanvas(frame.canvasId)
+  const d = designOfCanvas(frame.canvasId)
   const html = frame.html || '<!doctype html><html><body></body></html>'
-  return prepareFrameHtml(html, compileTheme(c?.theme), runtimeDefs(c?.components), utilityCss)
+  return prepareFrameHtml(html, compileTheme(d.theme), runtimeDefs(d.components), utilityCss)
 }
 
 /* a bare family asks for every weight first; static families 400 on a range */

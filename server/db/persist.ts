@@ -7,6 +7,7 @@ import * as t from './schema.ts'
 import { extractAssetIds } from '../assets.ts'
 import { isCanvasTheme, type CanvasTheme } from '../../shared/theme.ts'
 import type { ComponentDef } from '../../shared/components.ts'
+import type { DesignSnapshot, DesignSystemMeta, DesignSystemVersion } from '../../shared/designSystem.ts'
 import type {
   ActivityItem,
   AgentTask,
@@ -38,6 +39,8 @@ function canvasColumns(c: Canvas) {
     ownerId: c.ownerId ?? null,
     linkAccess: c.linkAccess ?? null,
     workspaceId: c.workspaceId ?? null,
+    designSystemId: c.designSystemId ?? null,
+    designSystemPin: c.designSystemPin ?? null,
     updatedAt: c.updatedAt,
   }
 }
@@ -576,6 +579,8 @@ export async function hydrate(): Promise<Hydrated> {
     linkAccess: c.linkAccess === 'edit' ? 'edit' : undefined,
     ...(c.workspaceId ? { workspaceId: c.workspaceId } : {}),
     ...(isCanvasTheme(c.theme) ? { theme: c.theme } : {}),
+    ...(c.designSystemId ? { designSystemId: c.designSystemId } : {}),
+    ...(c.designSystemPin != null ? { designSystemPin: c.designSystemPin } : {}),
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
     frames: [],
@@ -752,6 +757,90 @@ export async function hydrate(): Promise<Hydrated> {
   }
 
   return { canvases, tasks, feedback, comments, activity, decisions }
+}
+
+/* ---- design systems (server/designSystems.ts owns the in-memory registry) ---- */
+
+export function saveDesignSystem(s: DesignSystemMeta) {
+  const cols = {
+    name: s.name,
+    sourceCanvasId: s.sourceCanvasId,
+    workspaceId: s.workspaceId ?? null,
+    ownerId: s.ownerId,
+    publishedVersion: s.publishedVersion,
+    publishedStamp: s.publishedStamp ?? null,
+    publishedAt: s.publishedAt ?? null,
+    publishedBy: s.publishedBy ?? null,
+    updatedAt: s.updatedAt,
+  }
+  swallow(
+    db
+      .insert(t.designSystems)
+      .values({ id: s.id, ...cols, createdAt: s.createdAt })
+      .onConflictDoUpdate({ target: t.designSystems.id, set: cols }),
+  )
+}
+
+export function deleteDesignSystem(id: string) {
+  swallow(
+    db
+      .delete(t.designSystemVersions)
+      .where(eq(t.designSystemVersions.systemId, id))
+      .then(() => db.delete(t.designSystems).where(eq(t.designSystems.id, id))),
+  )
+}
+
+/** Awaited: a publish is not reported until its snapshot is durable. */
+export async function saveDesignSystemVersion(v: DesignSystemVersion & { snapshot: DesignSnapshot }) {
+  await db.insert(t.designSystemVersions).values({
+    systemId: v.systemId,
+    version: v.version,
+    snapshot: v.snapshot,
+    note: v.note ?? null,
+    publishedAt: v.publishedAt,
+    publishedBy: v.publishedBy,
+  })
+}
+
+export async function loadDesignSystemSnapshot(systemId: string, version: number): Promise<DesignSnapshot | undefined> {
+  const [row] = await db
+    .select({ snapshot: t.designSystemVersions.snapshot })
+    .from(t.designSystemVersions)
+    .where(and(eq(t.designSystemVersions.systemId, systemId), eq(t.designSystemVersions.version, version)))
+  return row?.snapshot
+}
+
+/** Version history without the snapshots (cold path). */
+export async function listDesignSystemVersions(systemId: string): Promise<DesignSystemVersion[]> {
+  const rows = await db
+    .select({
+      systemId: t.designSystemVersions.systemId,
+      version: t.designSystemVersions.version,
+      note: t.designSystemVersions.note,
+      publishedAt: t.designSystemVersions.publishedAt,
+      publishedBy: t.designSystemVersions.publishedBy,
+    })
+    .from(t.designSystemVersions)
+    .where(eq(t.designSystemVersions.systemId, systemId))
+    .orderBy(desc(t.designSystemVersions.version))
+  return rows.map((r) => ({ ...r, note: r.note ?? undefined }))
+}
+
+export async function hydrateDesignSystems(): Promise<DesignSystemMeta[]> {
+  const rows = await db.select().from(t.designSystems)
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    sourceCanvasId: r.sourceCanvasId,
+    ...(r.workspaceId ? { workspaceId: r.workspaceId } : {}),
+    ownerId: r.ownerId,
+    publishedVersion: r.publishedVersion,
+    ...(r.publishedStamp != null ? { publishedStamp: r.publishedStamp } : {}),
+    ...(r.publishedAt != null ? { publishedAt: r.publishedAt } : {}),
+    ...(r.publishedBy != null ? { publishedBy: r.publishedBy } : {}),
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }))
 }
 
 /** One-time import of the pre-DB data/store.json so existing canvases survive. */
