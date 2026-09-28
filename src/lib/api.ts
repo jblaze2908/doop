@@ -1,5 +1,9 @@
 import type { CanvasTheme, ThemeTokenInput } from '../../shared/theme'
 import type { ComponentDef, ComponentInput } from '../../shared/components'
+import type { CanvasSystemLink, DesignSystemMeta } from '../../shared/designSystem'
+
+/** A design system as GET /api/design-systems lists it for the viewer. */
+export type DesignSystemRow = DesignSystemMeta & { canPublish: boolean; canvasCount: number }
 import type {
   Canvas,
   CanvasMeta,
@@ -160,6 +164,20 @@ export const api = {
     }),
   deleteComponent: (canvasId: string, name: string) =>
     req(`/api/canvases/${canvasId}/components/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  /* design systems shared across canvases */
+  listDesignSystems: () => req<DesignSystemRow[]>('/api/design-systems'),
+  createDesignSystem: (canvasId: string, name: string) =>
+    req<DesignSystemRow>('/api/design-systems', { method: 'POST', body: JSON.stringify({ canvasId, name }) }),
+  publishDesignSystem: (id: string, note?: string) =>
+    req<DesignSystemRow>(`/api/design-systems/${id}/publish`, {
+      method: 'POST',
+      body: JSON.stringify(note ? { note } : {}),
+    }),
+  useDesignSystem: (canvasId: string, systemId: string | null, pin: number | null = null) =>
+    req<{ link: CanvasSystemLink | null }>(`/api/canvases/${canvasId}/design-system`, {
+      method: 'PUT',
+      body: JSON.stringify({ systemId, pin }),
+    }),
   /* design memory */
   pinReference: (canvasId: string, frameId: string) =>
     req(`/api/canvases/${canvasId}/references`, { method: 'POST', body: JSON.stringify({ frameId }) }),

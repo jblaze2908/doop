@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Frame } from '../../shared/types'
 import { useStore } from '../lib/store'
+import { useEffectiveComponents, useEffectiveTheme } from '../lib/theme'
 import {
   inspectElement,
   onFrameReady,
@@ -114,8 +115,8 @@ export function ElementPanel({ frame, selector, className }: { frame: Frame; sel
       .catch(console.error)
   }
 
-  const theme = useStore((s) => s.canvas?.theme)
-  const componentDefs = useStore((s) => s.canvas?.components)
+  const theme = useEffectiveTheme()
+  const componentDefs = useEffectiveComponents()
   const system = useMemo<DesignSystem>(
     () => ({
       colors: tokensOf(theme, ['color']),

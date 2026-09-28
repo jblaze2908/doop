@@ -15,6 +15,7 @@ import type {
 import type { SnapGuide } from './snap'
 import type { CanvasTheme } from '../../shared/theme'
 import type { ComponentDef } from '../../shared/components'
+import type { CanvasSystemLink, DesignSystemMeta } from '../../shared/designSystem'
 
 export interface Viewport {
   x: number
@@ -75,6 +76,10 @@ interface State {
   canvasNotFound: boolean
   /** the canvas's Tailwind utility sheet from the server; '' when it has not opted in */
   utilityCss: string
+  /** the design system this canvas renders from, with the snapshot (its own theme/components override it) */
+  system: CanvasSystemLink | null
+  /** set when this canvas is a design system's source: its design is that system's draft */
+  systemSource: DesignSystemMeta | null
   /** a reconnect revealed a newer client bundle on the server — offer a reload */
   updateReady: boolean
   /** frameId -> color, set briefly when a remote actor updates a frame */
@@ -91,6 +96,8 @@ interface State {
   setConnected(v: boolean): void
   setCanvasNotFound(v: boolean): void
   setUtilityCss(css: string): void
+  setSystem(link: CanvasSystemLink | null): void
+  setSystemSource(system: DesignSystemMeta | null): void
   setUpdateReady(v: boolean): void
   setPresences(list: Presence[]): void
   upsertPresence(p: Presence): void
@@ -225,6 +232,8 @@ export const useStore = create<State>((set, get) => ({
   connected: false,
   canvasNotFound: false,
   utilityCss: '',
+  system: null,
+  systemSource: null,
   updateReady: false,
   flashes: {},
   streams: {},
@@ -233,6 +242,8 @@ export const useStore = create<State>((set, get) => ({
   setConnected: (connected) => set({ connected }),
   setCanvasNotFound: (canvasNotFound) => set({ canvasNotFound }),
   setUtilityCss: (utilityCss) => set({ utilityCss }),
+  setSystem: (system) => set({ system }),
+  setSystemSource: (systemSource) => set({ systemSource }),
   setUpdateReady: (updateReady) => set({ updateReady }),
   setPresences: (list) =>
     set((s) => ({

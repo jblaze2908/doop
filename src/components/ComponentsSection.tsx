@@ -11,7 +11,7 @@ import {
 import { useStore } from '../lib/store'
 import type { Frame } from '../../shared/types'
 import { api, errorMessage } from '../lib/api'
-import { useComponentDefs, useThemeCss, useUtilityCss } from '../lib/theme'
+import { useComponentDefs, useEffectiveComponents, useThemeCss, useUtilityCss } from '../lib/theme'
 import { timeAgo } from '../lib/time'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -42,7 +42,9 @@ const NO_FRAMES: Frame[] = []
 /** The Components section of the Memory panel: every linked component with a
  *  live preview and its usage count; a click opens the editor. */
 export function ComponentsSection({ canvasId }: { canvasId: string }) {
-  const defs = useStore((s) => s.canvas?.components)
+  const defs = useEffectiveComponents()
+  const own = useStore((s) => s.canvas?.components)
+  const systemName = useStore((s) => s.system?.system.name)
   const frames = useStore((s) => s.canvas?.frames ?? NO_FRAMES)
   const [open, setOpen] = useState<string | null>(null)
   const live = liveComponents(defs)
@@ -65,6 +67,7 @@ export function ComponentsSection({ canvasId }: { canvasId: string }) {
             <ComponentPreview def={d} />
             <ListTitle className="font-mono text-[12px]">&lt;{d.name}&gt;</ListTitle>
             <ListMeta>
+              {systemName && !own?.some((o) => o === d) ? `${systemName} · ` : ''}
               {used.length ? usageLabel(used) : 'unused'} · {d.updatedBy} · {timeAgo(d.updatedAt)}
             </ListMeta>
           </ListRow>

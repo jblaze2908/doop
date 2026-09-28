@@ -105,6 +105,8 @@ export function handle(msg: ServerMessage) {
       }
       s.setCanvas(msg.canvas)
       s.setUtilityCss(msg.utilityCss ?? '')
+      s.setSystem(msg.system ?? null)
+      s.setSystemSource(msg.systemSource ?? null)
       s.setPresences(msg.presences)
       s.setActivity(msg.activity)
       s.setTasks(msg.tasks)
@@ -184,6 +186,12 @@ export function handle(msg: ServerMessage) {
       break
     case 'utilities':
       s.setUtilityCss(msg.css)
+      break
+    case 'system':
+      s.setSystem(msg.link)
+      break
+    case 'system:source':
+      s.setSystemSource(msg.system)
       break
     case 'component':
       s.setComponentLocal(msg.component)

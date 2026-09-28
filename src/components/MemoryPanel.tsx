@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { GuidelineDoc, MemoryReference } from '../../shared/types'
 import { useStore } from '../lib/store'
 import { api } from '../lib/api'
@@ -13,8 +13,10 @@ import { MarkdownBlock, Modal, ModalActions, ModalLede, ModalSpacer, ModalTitle 
 import { ConfirmDialog } from './ui/alert-dialog'
 import { isThemeEmpty } from '../../shared/theme'
 import { prepareFrameHtml } from '../../shared/components'
-import { useComponentDefs, useThemeCss, useUtilityCss } from '../lib/theme'
+import { useComponentDefs, useEffectiveTheme, useThemeCss, useUtilityCss } from '../lib/theme'
 import { ThemeSection } from './ThemeSection'
+import { DesignSystemSection } from './DesignSystemSection'
+import { mergeGuidelines } from '../../shared/designSystem'
 import { ComponentsSection } from './ComponentsSection'
 
 const MAX_GUIDELINE_CHARS = 24_000
@@ -55,10 +57,12 @@ const NO_REFS: MemoryReference[] = []
  *  feedback). */
 export function MemoryPanel() {
   const canvasId = useStore((s) => s.canvas?.id)
-  const docs = useStore((s) => s.canvas?.guidelines ?? NO_DOCS)
+  const ownDocs = useStore((s) => s.canvas?.guidelines ?? NO_DOCS)
+  const systemDocs = useStore((s) => s.system?.snapshot.guidelines)
+  const docs = useMemo(() => mergeGuidelines(systemDocs, ownDocs), [systemDocs, ownDocs])
   const references = useStore((s) => s.canvas?.references ?? NO_REFS)
   const decisions = useStore((s) => s.decisions)
-  const themeEmpty = useStore((s) => isThemeEmpty(s.canvas?.theme))
+  const themeEmpty = isThemeEmpty(useEffectiveTheme())
   /** slug of the open guide, '' = create a new one, null = closed */
   const [openGuide, setOpenGuide] = useState<string | null>(null)
   const [openRef, setOpenRef] = useState<string | null>(null)
@@ -112,6 +116,7 @@ export function MemoryPanel() {
         ))
       )}
 
+      <DesignSystemSection canvasId={canvasId} />
       <ThemeSection canvasId={canvasId} />
       <ComponentsSection canvasId={canvasId} />
 
@@ -270,7 +275,13 @@ type Mode = 'read' | 'edit' | 'history'
 /** One design guide in a modal: read, edit (title + markdown), version
  *  history with restore, delete. name = null opens in create mode. */
 function GuideModal({ canvasId, name, onClose }: { canvasId: string; name: string | null; onClose: () => void }) {
-  const doc = useStore((s) => s.canvas?.guidelines?.find((d) => d.name === name) ?? null)
+  /* a design system's guide saved here becomes this canvas's own override of the same name */
+  const doc = useStore(
+    (s) =>
+      s.canvas?.guidelines?.find((d) => d.name === name) ??
+      s.system?.snapshot.guidelines.find((d) => d.name === name) ??
+      null,
+  )
   const creating = name === null
   const [mode, setMode] = useState<Mode>('read')
   const [titleDraft, setTitleDraft] = useState('')

@@ -10,7 +10,7 @@ import { sendWs } from '../lib/ws'
 import { throttle } from '../lib/throttle'
 import { getIdentity } from '../lib/identity'
 import { FRAME_BOOTSTRAP } from '../lib/frameRuntime'
-import { useComponentDefs, useFrameThemeCss, useUtilityCss } from '../lib/theme'
+import { useComponentDefs, useEffectiveTheme, useFrameThemeCss, useUtilityCss } from '../lib/theme'
 import { themeFonts, type FrameFont } from '../lib/frameFonts'
 import { recordCreate, recordUpdate, recordUpdates, trackSave } from '../lib/history'
 import { snapFrame } from '../lib/snap'
@@ -335,7 +335,7 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
     if (!runtimeReady) return
     iframeRef.current?.contentWindow?.postMessage({ type: 'draft:theme', css: themeCss, utilities: utilityCss }, '*')
   }, [runtimeReady, themeCss, utilityCss])
-  const theme = useStore((s) => s.canvas?.theme)
+  const theme = useEffectiveTheme()
   useEffect(() => {
     if (!runtimeReady) return
     let live = true
