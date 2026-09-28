@@ -10,6 +10,7 @@ import * as workspaces from './workspaces.ts'
 import { auth, getUserName, isBanned, PUBLIC_ORIGIN } from './auth.ts'
 import { capture, captureThrottled } from './analytics.ts'
 import { measureFrameHeight, renderFrame } from './screenshot.ts'
+import { utilitiesFor } from './utilities.ts'
 import { GUIDE_DOCS, GUIDE_TOPICS } from './guide.ts'
 import { describeInspiration, fetchThumb, INSPIRATION_USAGE_NOTE, searchInspiration } from './inspiration.ts'
 import { ESCAPED_HTML_NOTE, looksEscapedHtml } from './escapedHtml.ts'
@@ -48,6 +49,8 @@ You MUST call get_guide({ topic: "draft-instructions" }) once before using other
 - Narrate: call set_status with a one-line summary when you start a task and whenever your focus shifts — people watching the canvas see it live next to your name.
 - Creating: create_frame, then stream the design with append_frame_html one complete section at a time (~1–4 KB chunks; start=true on the first, done=true on the last). Each chunk renders the moment it arrives — viewers watch you work.
 - Sizing: a page that scrolls (landing page, docs) gets height "fit" on create_frame — Draft sizes it to the rendered document after every write; screens keep fixed sizes. To inspect one part, get_frame_screenshot with selector returns a full-size crop.
+- Round trips: batch runs several writes in one call (all components, all frames of a set, a run of edits) — use it for anything that does not depend on an earlier result.
+- Styling: canvases you create have Tailwind utilities on — write classes (tokens become classes: bg-<token>, text-<token>, font-<token>) instead of CSS.
 - Review: after every create or significant edit you MUST call get_frame_screenshot and fix what looks wrong before moving on.
 - Small edits: edit_frame_html (exact find/replace — the change morphs into the rendered frame in place). Full redesigns: set_frame_html or a new stream. Rename/move/resize: update_frame.
 - Variants: duplicate_frame copies a frame and applies find/replace edits to the copy in one call (dark mode, another headline, a narrower width) — never re-send a whole document to make a variant.
@@ -113,6 +116,46 @@ async function fitHeight(frameId: string, actor: Actor): Promise<Frame | undefin
   const height = await measureFrameHeight(f).catch(() => undefined)
   return height && height !== f.height ? actions.updateFrame(frameId, { height }, actor) : f
 }
+
+/* Tools batch may run: writes and lean reads. Streaming and screenshots stay
+   direct calls — batching them would hide the live build and the render. */
+const BATCHABLE_TOOLS = [
+  'set_component',
+  'delete_component',
+  'create_frame',
+  'set_frame_html',
+  'edit_frame_html',
+  'replace_frame_section',
+  'update_frame',
+  'duplicate_frame',
+  'delete_frame',
+  'set_theme_tokens',
+  'set_theme_fonts',
+  'set_theme_css',
+  'set_guidelines',
+  'save_decision',
+  'set_status',
+  'get_frame_outline',
+  'get_frame_section',
+  'get_component',
+  'get_theme',
+] as const
+
+type BatchHandler = (
+  args: Record<string, unknown>,
+  extra: unknown,
+) => Promise<{ content: { type: string; text?: unknown }[]; isError?: boolean }>
+
+function parseJson(raw: string | undefined): unknown {
+  try {
+    return raw === undefined ? undefined : JSON.parse(raw)
+  } catch {
+    return raw
+  }
+}
+
+/** Long edge of a review screenshot (get_frame_screenshot without scale). */
+const REVIEW_EDGE = 1024
 
 const REVIEW_NUDGE =
   'You have not seen this design yet. Call get_frame_screenshot on it now, judge it against the review checkpoints (fit, spacing, hierarchy, contrast, alignment, realism), and fix any issues before moving on.'
@@ -293,6 +336,15 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
     if (agent_name) actions.heartbeatAgent(canvasId, actorFrom(agent_name))
   }
   const server = new McpServer({ name: 'draft-canvas', version: '0.1.0' }, { instructions: INSTRUCTIONS })
+  /* batch runs other tools through their own handlers and input schemas, so
+     capture both as the batchable ones register */
+  const batchable = new Map<string, { schema: z.ZodTypeAny; run: BatchHandler }>()
+  const register = server.registerTool.bind(server)
+  server.registerTool = ((name: string, config: { inputSchema?: z.ZodRawShape }, cb: BatchHandler) => {
+    if ((BATCHABLE_TOOLS as readonly string[]).includes(name))
+      batchable.set(name, { schema: z.object(config.inputSchema ?? {}), run: cb })
+    return register(name, config as never, cb as never)
+  }) as unknown as typeof server.registerTool
 
   server.registerTool(
     'get_guide',
@@ -390,7 +442,7 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
         agent_name: agentName.optional(),
       },
     },
-    async ({ name, workspace_id }) => {
+    async ({ name, workspace_id, agent_name }) => {
       if (workspace_id) {
         const ws = workspaces.getWorkspace(workspace_id)
         if (!ws || !workspaces.isWorkspaceMember(ws.id, ownerId)) return err(`no workspace with id ${workspace_id}`)
@@ -398,7 +450,10 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
       /* owned by the connecting user — an ownerless canvas would be invisible
          on every dashboard (and was once visible on all of them) */
       const canvas = store.createCanvas(name, ownerId, workspace_id)
-      return text({ id: canvas.id, name: canvas.name, url: `/c/${canvas.id}` })
+      /* an agent's new canvas starts with Tailwind utilities on: writing classes
+         is cheaper than inventing CSS, and nothing on a fresh canvas can clash */
+      await actions.setTheme(canvas.id, { utilities: 'tailwind' }, actorFrom(agent_name))
+      return text({ id: canvas.id, name: canvas.name, url: `/c/${canvas.id}`, utilities: 'tailwind' })
     },
   )
 
@@ -660,12 +715,21 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
       description: `Replace the canvas theme's shared CSS (max ${MAX_THEME_CSS_CHARS.toLocaleString('en-US')} chars; empty string clears it). It is injected into EVERY frame ahead of the frame's own <style>, so frames only carry what is unique to them. Put the design system here: resets, type scale, component classes (.btn, .card …). Use var(--…) from set_theme_tokens; no @import (fonts go through set_theme_fonts).`,
       inputSchema: {
         canvas_id: z.string(),
-        css: z.string().max(MAX_THEME_CSS_CHARS),
+        css: z.string().max(MAX_THEME_CSS_CHARS).optional().describe('Omit to keep the current CSS'),
+        utilities: z
+          .enum(['tailwind', 'none'])
+          .optional()
+          .describe(
+            '"tailwind": every frame gets Tailwind utilities for the classes it uses, and colour/font/shadow tokens become classes (bg-<token>, font-<token>)',
+          ),
         agent_name: agentName,
       },
     },
-    async ({ canvas_id, css, agent_name }) =>
-      themeWrite(canvas_id, agent_name, { css }, (t) => ({ cssBytes: t.css.length })),
+    async ({ canvas_id, css, utilities, agent_name }) =>
+      themeWrite(canvas_id, agent_name, { css, utilities }, (t) => ({
+        cssBytes: t.css.length,
+        utilities: t.utilities ?? 'none',
+      })),
   )
 
   server.registerTool(
@@ -1329,7 +1393,7 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
       const c = store.getCanvas(f.canvasId)
       if (!c) return noFrame(frame_id)
       arrive(f.canvasId, agent_name)
-      return text(exportFrameCode(f, c, target ?? 'react'))
+      return text(exportFrameCode(f, c, target ?? 'react', await utilitiesFor(c.id)))
     },
   )
 
@@ -1589,7 +1653,9 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
         scale: z
           .union([z.literal(1), z.literal(2)])
           .optional()
-          .describe('Device scale factor: 1 (default) or 2 for a retina-resolution image'),
+          .describe(
+            'Full resolution at 1x or 2x. Omit for the review size (long edge 1024 px, JPEG): cheaper to look at, enough to judge layout',
+          ),
         selector: z
           .string()
           .optional()
@@ -1604,14 +1670,18 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
       if (!f) return noFrame(frame_id)
       arrive(f.canvasId, agent_name)
       try {
-        const png = await renderFrame(f, scale ?? 1, { selector })
+        /* image tokens scale with pixels and stay in the agent's context for every
+           later turn, so the default is a review-size JPEG; crops stay full size */
+        const review = scale === undefined && !selector
+        const factor = review ? Math.min(1, REVIEW_EDGE / Math.max(f.width, f.height)) : (scale ?? 1)
+        const image = await renderFrame(f, factor, { selector, type: review ? 'jpeg' : 'png', quality: 85 })
         return withFeedback(
           {
             content: [
-              { type: 'image' as const, data: png.toString('base64'), mimeType: 'image/png' },
+              { type: 'image' as const, data: image.toString('base64'), mimeType: review ? 'image/jpeg' : 'image/png' },
               {
                 type: 'text' as const,
-                text: `Screenshot of “${f.name}”${selector ? ` — ${selector}` : ''} (${f.width}×${f.height}@${scale ?? 1}x, html ${f.html.length} bytes)`,
+                text: `Screenshot of “${f.name}”${selector ? ` — ${selector}` : ''} (${f.width}×${f.height}${review ? ', review size — pass selector for a full-size crop of one part' : `@${scale ?? 1}x`}, html ${f.html.length} bytes)`,
               },
             ],
           },
@@ -1890,6 +1960,48 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
       if (!frame) return noFrame(frame_id)
       fitFrames.delete(frame_id)
       return text({ ok: true, deleted: frame.name })
+    },
+  )
+
+  server.registerTool(
+    'batch',
+    {
+      description:
+        'Run several Draft tool calls in ONE call, in order: every set_component of a design system, all create_frame calls for a set of screens, a run of edits. Each saves you a round trip. Each op is { tool, args } with the same args that tool takes (agent_name is filled in). Stops at the first failing op and says which; the ops before it stay applied. Not for append_frame_html or screenshots — call those directly so viewers watch the build and you see the render.',
+      inputSchema: {
+        ops: z
+          .array(
+            z.object({
+              tool: z.enum(BATCHABLE_TOOLS),
+              args: z.record(z.string(), z.unknown()).default({}),
+            }),
+          )
+          .min(1)
+          .max(25),
+        agent_name: agentName,
+      },
+    },
+    async ({ ops, agent_name }, extra) => {
+      const results: unknown[] = []
+      for (const [i, op] of ops.entries()) {
+        const tool = batchable.get(op.tool)!
+        const applied = i ? ` Ops 1–${i} were applied.` : ''
+        const parsed = tool.schema.safeParse({ agent_name, ...op.args })
+        if (!parsed.success) {
+          const why = parsed.error.issues.map((e) => `${e.path.join('.') || 'args'}: ${e.message}`).join('; ')
+          return err(`op ${i + 1} (${op.tool}): invalid args — ${why}.${applied}`)
+        }
+        const r = await tool.run(parsed.data, extra)
+        const texts = r.content.flatMap((c) => (c.type === 'text' && typeof c.text === 'string' ? [c.text] : []))
+        if (r.isError) return err(`op ${i + 1} (${op.tool}) failed: ${texts.join(' ')}${applied}`)
+        results.push({
+          op: i + 1,
+          tool: op.tool,
+          result: parseJson(texts[0]),
+          ...(texts.length > 1 ? { notes: texts.slice(1) } : {}),
+        })
+      }
+      return text({ ok: true, results })
     },
   )
 

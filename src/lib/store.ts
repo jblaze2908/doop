@@ -73,6 +73,8 @@ interface State {
    *  or the id in the URL was never one) — CanvasPage shows a not-found
    *  screen instead of an unusable, unresponsive canvas UI */
   canvasNotFound: boolean
+  /** the canvas's Tailwind utility sheet from the server; '' when it has not opted in */
+  utilityCss: string
   /** a reconnect revealed a newer client bundle on the server — offer a reload */
   updateReady: boolean
   /** frameId -> color, set briefly when a remote actor updates a frame */
@@ -88,6 +90,7 @@ interface State {
   setCanvas(c: Canvas | null): void
   setConnected(v: boolean): void
   setCanvasNotFound(v: boolean): void
+  setUtilityCss(css: string): void
   setUpdateReady(v: boolean): void
   setPresences(list: Presence[]): void
   upsertPresence(p: Presence): void
@@ -221,6 +224,7 @@ export const useStore = create<State>((set, get) => ({
   snapGuides: [],
   connected: false,
   canvasNotFound: false,
+  utilityCss: '',
   updateReady: false,
   flashes: {},
   streams: {},
@@ -228,6 +232,7 @@ export const useStore = create<State>((set, get) => ({
   setCanvas: (canvas) => set({ canvas }),
   setConnected: (connected) => set({ connected }),
   setCanvasNotFound: (canvasNotFound) => set({ canvasNotFound }),
+  setUtilityCss: (utilityCss) => set({ utilityCss }),
   setUpdateReady: (updateReady) => set({ updateReady }),
   setPresences: (list) =>
     set((s) => ({

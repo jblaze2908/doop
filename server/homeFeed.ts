@@ -104,7 +104,7 @@ export function activity(canvasId: string, item: ActivityItem) {
   if (c) toUsers(viewersOf(c), { type: 'home:activity', item: { ...item, canvasId, canvasName: c.name } })
 }
 
-store.onChanged = canvasChanged
+store.onChange(canvasChanged)
 store.onRemoved = canvasRemoved
 store.onAccessLost = accessLost
 store.onMoved = canvasMoved

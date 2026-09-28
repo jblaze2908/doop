@@ -5,15 +5,17 @@ import { useStore } from './store'
 /** The open canvas's compiled theme CSS. Stable per theme object, so an
  *  effect keyed on it re-posts only when the theme actually changes. */
 export function useThemeCss(): string {
-  return compileTheme(useStore((s) => s.canvas?.theme))
+  return compileTheme(useStore((s) => s.canvas?.theme)) + useStore((s) => s.utilityCss)
 }
 
 /** The same, minus @font-face: live frames get the faces as bytes instead
  *  (lib/frameFonts), fetched once by the page rather than once per iframe. */
 export function useFrameThemeCss(): string {
-  return compileTheme(
-    useStore((s) => s.canvas?.theme),
-    false,
+  return (
+    compileTheme(
+      useStore((s) => s.canvas?.theme),
+      false,
+    ) + useStore((s) => s.utilityCss)
   )
 }
 

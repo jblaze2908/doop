@@ -104,6 +104,7 @@ export function handle(msg: ServerMessage) {
         else if (loadedBuild !== msg.serverBuild) s.setUpdateReady(true)
       }
       s.setCanvas(msg.canvas)
+      s.setUtilityCss(msg.utilityCss ?? '')
       s.setPresences(msg.presences)
       s.setActivity(msg.activity)
       s.setTasks(msg.tasks)
@@ -180,6 +181,9 @@ export function handle(msg: ServerMessage) {
       break
     case 'theme':
       s.setThemeLocal(msg.theme)
+      break
+    case 'utilities':
+      s.setUtilityCss(msg.css)
       break
     case 'component':
       s.setComponentLocal(msg.component)

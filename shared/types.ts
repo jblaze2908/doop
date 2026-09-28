@@ -313,6 +313,8 @@ export type ServerMessage =
   /** access or workspaces changed in a way a row cannot express: refetch the lists */
   | { type: 'home:refresh' }
   | { type: 'home:activity'; item: HomeActivity }
+  /** the canvas's Tailwind utility sheet changed (server/utilities.ts) */
+  | { type: 'utilities'; css: string }
   | {
       type: 'init'
       canvas: Canvas
@@ -325,6 +327,8 @@ export type ServerMessage =
       selfColor: string
       /** id of the client bundle the server is serving; 'dev' outside production */
       serverBuild: string
+      /** Tailwind utilities for the canvas's frames; '' when the canvas has not opted in */
+      utilityCss?: string
     }
   | { type: 'presence:join'; presence: Presence }
   | { type: 'presence:leave'; clientId: string }

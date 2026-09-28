@@ -25,6 +25,8 @@ export interface CanvasTheme {
   fontFaces: string
   /** families Google Fonts could not serve when they were set (offline self-host, typo) */
   unresolvedFonts?: string[]
+  /** 'tailwind': frames on this canvas get Tailwind utilities for the classes they use (server/utilities.ts) */
+  utilities?: 'tailwind'
   /** bumped on every change; render caches key on it */
   version: number
   updatedAt: number

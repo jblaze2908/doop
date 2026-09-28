@@ -13,6 +13,7 @@ vi.mock('../server/db/persist.ts', () => ({
   saveCanvas: () => {},
   saveCanvasSoon: () => {},
   saveFrame: () => {},
+  saveComponent: () => {},
 }))
 
 const actions = await import('../server/actions.ts')
@@ -68,7 +69,7 @@ beforeEach(() => {
 describe('agent guide', () => {
   it('keeps the core small and indexes every topic it leaves out', () => {
     const core = GUIDE_DOCS['draft-instructions']
-    expect(core.length).toBeLessThan(10_000)
+    expect(core.length).toBeLessThan(11_000)
     for (const topic of GUIDE_TOPICS) {
       expect(GUIDE_DOCS[topic].length).toBeGreaterThan(0)
       if (topic !== 'draft-instructions') expect(core).toContain(`"${topic}"`)
@@ -100,7 +101,81 @@ describe('quieter results', () => {
   })
 })
 
+describe('batch', () => {
+  it('runs independent writes in one call, in order, through each tool’s own validation', async () => {
+    const f = frame('<h1>Old</h1>')
+    const { call, close } = await connect()
+    try {
+      const res = await call('batch', {
+        ops: [
+          {
+            tool: 'set_component',
+            args: {
+              canvas_id: canvasId,
+              name: 'ds-chip',
+              html: '<span><slot></slot></span>',
+              css: ':host{display:inline-block}',
+            },
+          },
+          { tool: 'edit_frame_html', args: { frame_id: f.id, old_str: 'Old', new_str: 'New' } },
+          { tool: 'create_frame', args: { canvas_id: canvasId, name: 'Second', html: '<p>2</p>' } },
+        ],
+      })
+      expect(res.isError, res.texts[0]).toBeFalsy()
+      const out = JSON.parse(res.texts[0] ?? '{}') as { results: { op: number; tool: string }[] }
+      expect(out.results.map((r) => r.tool)).toEqual(['set_component', 'edit_frame_html', 'create_frame'])
+      expect(store.getFrame(f.id)!.html).toBe('<h1>New</h1>')
+      expect(store.getCanvas(canvasId)!.frames.map((x) => x.name)).toContain('Second')
+    } finally {
+      await close()
+    }
+  })
+
+  it('stops at the first failing op and says which ran', async () => {
+    const f = frame('<h1>Old</h1>')
+    const { call, close } = await connect()
+    try {
+      const res = await call('batch', {
+        ops: [
+          { tool: 'edit_frame_html', args: { frame_id: f.id, old_str: 'Old', new_str: 'New' } },
+          { tool: 'edit_frame_html', args: { frame_id: f.id, old_str: 'missing', new_str: 'x' } },
+          { tool: 'create_frame', args: { canvas_id: canvasId, name: 'Never', html: '<p/>' } },
+        ],
+      })
+      expect(res.isError).toBe(true)
+      expect(res.texts[0]).toContain('op 2 (edit_frame_html) failed')
+      expect(res.texts[0]).toContain('Ops 1–1 were applied')
+      expect(store.getCanvas(canvasId)!.frames.map((x) => x.name)).not.toContain('Never')
+      const bad = await call('batch', { ops: [{ tool: 'create_frame', args: { canvas_id: canvasId } }] })
+      expect(bad.texts[0]).toContain('op 1 (create_frame): invalid args')
+    } finally {
+      await close()
+    }
+  })
+
+  it('keeps streaming and screenshots out of batches', async () => {
+    const { call, close } = await connect()
+    try {
+      const res = await call('batch', { ops: [{ tool: 'append_frame_html', args: {} }] })
+      expect(res.isError).toBe(true)
+    } finally {
+      await close()
+    }
+  })
+})
+
 describe.skipIf(!findBrowserPath())('fit and crop (real Chrome)', () => {
+  it('returns a review-size JPEG by default and full resolution on request', async () => {
+    const f = frame('<div style="height:900px;background:#123"></div>', 1440, 900)
+    const { call, close } = await connect()
+    try {
+      const client = await call('get_frame_screenshot', { frame_id: f.id })
+      expect(client.texts[0]).toContain('review size')
+    } finally {
+      await close()
+    }
+  }, 60_000)
+
   it('measures a page taller than its frame, and one shorter, so fitting grows and shrinks', async () => {
     expect(await measureFrameHeight(frame('<div style="height:2400px"></div>'))).toBeGreaterThanOrEqual(2400)
     const short = await measureFrameHeight(

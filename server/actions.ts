@@ -1224,6 +1224,7 @@ export interface ThemePatch {
   tokens?: { list: ThemeTokenInput[]; mode: 'merge' | 'replace' }
   css?: string
   fonts?: string[]
+  utilities?: 'tailwind' | 'none'
 }
 
 /** Apply a partial theme write. Returns the new theme, undefined when the
@@ -1242,12 +1243,15 @@ export async function setTheme(canvasId: string, patch: ThemePatch, actor: Actor
   if (!c) return undefined
   const prev = c.theme
   const unresolved = resolved ? resolved.unresolved : (prev?.unresolvedFonts ?? [])
+  const utilities =
+    patch.utilities === undefined ? prev?.utilities : patch.utilities === 'tailwind' ? 'tailwind' : undefined
   const theme: CanvasTheme = {
     tokens: patch.tokens ? mergeTokens(prev?.tokens ?? [], patch.tokens.list, patch.tokens.mode) : (prev?.tokens ?? []),
     css: css ?? prev?.css ?? '',
     fonts: fonts ?? prev?.fonts ?? [],
     fontFaces: resolved ? resolved.fontFaces : (prev?.fontFaces ?? ''),
     ...(unresolved.length ? { unresolvedFonts: unresolved } : {}),
+    ...(utilities ? { utilities } : {}),
     version: (prev?.version ?? 0) + 1,
     updatedAt: Date.now(),
     updatedBy: actor.name,
@@ -1258,6 +1262,7 @@ export async function setTheme(canvasId: string, patch: ThemePatch, actor: Actor
     ...(patch.tokens ? [`${patch.tokens.list.length} token${patch.tokens.list.length === 1 ? '' : 's'}`] : []),
     ...(css !== undefined ? ['its CSS'] : []),
     ...(fonts ? ['its fonts'] : []),
+    ...(patch.utilities ? [patch.utilities === 'tailwind' ? 'Tailwind utilities on' : 'Tailwind utilities off'] : []),
   ]
   logActivity(canvasId, actor, `updated the canvas theme (${changed.join(', ') || 'no changes'})`)
   touch(canvasId, actor)

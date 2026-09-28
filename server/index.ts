@@ -9,6 +9,7 @@ import { oAuthDiscoveryMetadata } from 'better-auth/plugins'
 import { WebSocketServer, WebSocket } from 'ws'
 import { store } from './store.ts'
 import * as homeFeed from './homeFeed.ts'
+import { canvasTouched, forgetCanvas, utilitiesFor, wireUtilities } from './utilities.ts'
 import { getImage } from './previews.ts'
 import * as actions from './actions.ts'
 import { exportFrameCode } from './exportCode.ts'
@@ -625,6 +626,8 @@ function canvasRow(meta: CanvasMeta): CanvasMeta {
 }
 
 homeFeed.wireHome(send, (c, viewerId) => canvasRow(store.toMeta(c, viewerId)))
+wireUtilities(broadcast)
+store.onChange(canvasTouched)
 
 app.get('/api/canvases', (req, res) => res.json(workspaces.canvasesFor(req.user!.id).map(canvasRow)))
 
@@ -722,6 +725,7 @@ app.delete('/api/canvases/:id', (req, res) => {
   if (!c.ownerId) return res.status(403).json({ error: 'claim it first' })
   if (!canManageCanvas(req.user!.id, c)) return res.status(403).json({ error: 'not yours' })
   actions.deleteCanvas(c.id)
+  forgetCanvas(c.id)
   res.json({ ok: true })
 })
 
@@ -891,8 +895,10 @@ app.get('/api/canvases/:id/theme', (req, res) => {
 app.put('/api/canvases/:id/theme', async (req, res) => {
   if (!requireCanvas(req, res, req.params.id)) return
   const actor = actions.resolveActor({ name: req.user!.name, kind: 'user' })
-  const { tokens, mode, css, fonts } = req.body ?? {}
+  const { tokens, mode, css, fonts, utilities } = req.body ?? {}
   if (tokens !== undefined && !Array.isArray(tokens)) return res.status(400).json({ error: 'tokens must be an array' })
+  if (utilities !== undefined && utilities !== 'tailwind' && utilities !== 'none')
+    return res.status(400).json({ error: 'utilities must be "tailwind" or "none"' })
   if (css !== undefined && typeof css !== 'string') return res.status(400).json({ error: 'css must be a string' })
   if (fonts !== undefined && !Array.isArray(fonts)) return res.status(400).json({ error: 'fonts must be an array' })
   try {
@@ -902,6 +908,7 @@ app.put('/api/canvases/:id/theme', async (req, res) => {
         ...(tokens ? { tokens: { list: tokens, mode: mode === 'replace' ? 'replace' : 'merge' } } : {}),
         ...(css !== undefined ? { css } : {}),
         ...(fonts ? { fonts: fonts.map(String) } : {}),
+        ...(utilities ? { utilities } : {}),
       },
       actor,
     )
@@ -1018,12 +1025,13 @@ app.patch('/api/frames/:id', (req, res) => {
 })
 
 /* frame → code: React files (default) or one self-contained HTML document */
-app.get('/api/frames/:id/export', (req, res) => {
+app.get('/api/frames/:id/export', async (req, res) => {
   const frame = requireFrame(req, res, req.params.id)
   if (!frame) return
   const canvas = store.getCanvas(frame.canvasId)
   if (!canvas) return res.status(404).json({ error: 'canvas not found' })
-  res.json(exportFrameCode(frame, canvas, req.query.target === 'html' ? 'html' : 'react'))
+  const target = req.query.target === 'html' ? 'html' : 'react'
+  res.json(exportFrameCode(frame, canvas, target, await utilitiesFor(canvas.id)))
 })
 
 app.post('/api/frames/:id/append', (req, res) => {
@@ -1111,9 +1119,8 @@ app.post('/api/canvases/:id/import', async (req, res) => {
   const canvas = requireCanvas(req, res, req.params.id)
   if (!canvas) return
   try {
-    const { importPage, importSitePages, assertPublicHttpUrl, isSameSiteUrl, MAX_SITE_PAGES } = await import(
-      './importer.ts'
-    )
+    const { importPage, importSitePages, assertPublicHttpUrl, isSameSiteUrl, MAX_SITE_PAGES } =
+      await import('./importer.ts')
     const requested: string[] | null = Array.isArray(req.body?.urls)
       ? (req.body.urls as unknown[]).map((value) => String(value))
       : null
@@ -1432,6 +1439,7 @@ wss.on('connection', (ws, upgradeReq) => {
         decisions: actions.getDecisions(msg.canvasId),
         selfColor: presence.color,
         serverBuild: BUILD_ID,
+        utilityCss: await utilitiesFor(msg.canvasId),
       })
       /* An admin looking at a canvas must not act on it. Announcing presence
          would impersonate the owner in the room; maybePlay would have the

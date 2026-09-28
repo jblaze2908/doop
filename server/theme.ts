@@ -16,10 +16,10 @@ export function renderStamp(frame: Pick<Frame, 'canvasId' | 'updatedAt'>): strin
 
 /** The frame document server renders load: theme and component runtime
  *  spliced in exactly where the browser runtime puts them. */
-export function renderableHtml(frame: Pick<Frame, 'canvasId' | 'html'>): string {
+export function renderableHtml(frame: Pick<Frame, 'canvasId' | 'html'>, utilityCss = ''): string {
   const c = store.getCanvas(frame.canvasId)
   const html = frame.html || '<!doctype html><html><body></body></html>'
-  return prepareFrameHtml(html, compileTheme(c?.theme), runtimeDefs(c?.components))
+  return prepareFrameHtml(html, compileTheme(c?.theme) + utilityCss, runtimeDefs(c?.components))
 }
 
 /* a bare family asks for every weight first; static families 400 on a range */

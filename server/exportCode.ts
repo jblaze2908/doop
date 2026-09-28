@@ -316,9 +316,10 @@ function componentFile(def: ComponentDef, defs: Map<string, ComponentDef>, warni
   ]
 }
 
-export function exportFrameCode(frame: Frame, canvas: Canvas, target: 'react' | 'html'): CodeExport {
+/** utilityCss: the canvas's Tailwind sheet (server/utilities.ts), '' when it has not opted in. */
+export function exportFrameCode(frame: Frame, canvas: Canvas, target: 'react' | 'html', utilityCss = ''): CodeExport {
   if (target === 'html') {
-    const html = prepareFrameHtml(frame.html, compileTheme(canvas.theme), runtimeDefs(canvas.components))
+    const html = prepareFrameHtml(frame.html, compileTheme(canvas.theme) + utilityCss, runtimeDefs(canvas.components))
     return { target, entry: 'index.html', files: [{ path: 'index.html', content: html }], warnings: [] }
   }
   const defs = new Map(liveComponents(canvas.components).map((d) => [d.name, d]))
@@ -348,6 +349,7 @@ export function exportFrameCode(frame: Frame, canvas: Canvas, target: 'react' | 
       content: [tokens, theme?.fontFaces ?? ''].filter(Boolean).join('\n') + '\n',
     })
   if (theme?.css) files.push({ path: 'styles/theme.css', content: theme.css + '\n' })
+  if (utilityCss) files.push({ path: 'styles/utilities.css', content: utilityCss + '\n' })
   for (const name of used) files.push(...componentFile(defs.get(name)!, defs, warnings))
   const pageCss = componentSelectors([...links, ...styles].join('\n'), used)
   files.push({ path: `${Page}.css`, content: pageCss + '\n' })
@@ -355,6 +357,7 @@ export function exportFrameCode(frame: Frame, canvas: Canvas, target: 'react' | 
     ...(ctx.cssVars!.used ? [`import type { CSSProperties } from 'react'`] : []),
     ...(files.some((f) => f.path === 'styles/tokens.css') ? [`import './styles/tokens.css'`] : []),
     ...(theme?.css ? [`import './styles/theme.css'`] : []),
+    ...(utilityCss ? [`import './styles/utilities.css'`] : []),
     ...[...ctx.used].sort().map((n) => `import { ${pascal(n)} } from './components/${pascal(n)}'`),
     `import './${Page}.css'`,
     '',

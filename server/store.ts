@@ -15,8 +15,15 @@ class Store {
   /* Set by the home feed (server/homeFeed.ts). Every change a dashboard row
      shows goes through one of these; they run per stream chunk, so they must
      stay O(1). */
-  onChanged: (canvasId: string) => void = () => {}
+  private changeListeners: ((canvasId: string) => void)[] = []
   onRemoved: (canvas: Canvas) => void = () => {}
+  /** Subscribe to every change a canvas row or its frames' rendering shows. */
+  onChange(fn: (canvasId: string) => void) {
+    this.changeListeners.push(fn)
+  }
+  private changed(canvasId: string) {
+    for (const fn of this.changeListeners) fn(canvasId)
+  }
   onAccessLost: (canvasId: string, userIds: string[]) => void = () => {}
   onMoved: (canvasId: string, fromWorkspaceId: string | undefined) => void = () => {}
 
@@ -71,7 +78,7 @@ class Store {
     if (workspaceId) canvas.workspaceId = workspaceId
     this.canvases.set(canvas.id, canvas)
     persist.saveCanvas(canvas)
-    this.onChanged(canvas.id)
+    this.changed(canvas.id)
     return canvas
   }
 
@@ -124,7 +131,7 @@ class Store {
     await persist.saveCanvasCopy(canvas)
     this.canvases.set(canvas.id, canvas)
     for (const frame of frames) this.frameIndex.set(frame.id, canvas.id)
-    this.onChanged(canvas.id)
+    this.changed(canvas.id)
     return canvas
   }
 
@@ -149,7 +156,7 @@ class Store {
     if (!c || c.ownerId) return undefined
     c.ownerId = userId
     persist.saveCanvas(c)
-    this.onChanged(id)
+    this.changed(id)
     return c
   }
 
@@ -205,7 +212,7 @@ class Store {
     if (!(c.memberIds ??= []).includes(userId)) {
       c.memberIds.push(userId)
       persist.saveMember(canvasId, userId, addedBy, Date.now())
-      this.onChanged(canvasId)
+      this.changed(canvasId)
     }
     return c
   }
@@ -226,7 +233,7 @@ class Store {
     c.name = name
     c.updatedAt = Date.now()
     persist.saveCanvas(c)
-    this.onChanged(id)
+    this.changed(id)
     return c
   }
 
@@ -239,6 +246,7 @@ class Store {
     c.updatedAt = theme.updatedAt
     persist.saveCanvasTheme(canvasId, theme)
     persist.saveCanvas(c)
+    this.changed(canvasId)
     return c
   }
 
@@ -406,7 +414,7 @@ class Store {
     this.frameIndex.set(frame.id, canvasId)
     persist.saveFrame(frame, true)
     persist.saveCanvas(c)
-    this.onChanged(c.id)
+    this.changed(c.id)
     return frame
   }
 
@@ -431,7 +439,7 @@ class Store {
     c.updatedAt = Date.now()
     persist.saveFrame(frame) // debounced: streaming appends land as one write per burst
     persist.saveCanvasSoon(c) // likewise: updatedAt moves on every chunk
-    this.onChanged(c.id)
+    this.changed(c.id)
     return frame
   }
 
@@ -447,7 +455,7 @@ class Store {
     this.frameIndex.delete(frameId)
     persist.deleteFrame(frameId)
     persist.saveCanvas(c)
-    this.onChanged(c.id)
+    this.changed(c.id)
     return frame
   }
 }

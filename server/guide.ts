@@ -144,8 +144,15 @@ and fix real issues before moving on:
 Prefer targeted fixes over rewrites. Never delete and restart a mostly-good frame — the
 humans watching lose work they may have been reacting to.
 
-To check one part closely, pass selector (e.g. "section.pricing") to get_frame_screenshot:
-a full-size crop of that element instead of the whole frame shrunk to fit.
+Screenshots come at review size (long edge 1024 px). Review a tall page section by
+section: pass selector (e.g. "section.pricing") to get_frame_screenshot for a full-size
+crop of that element instead of the whole frame shrunk to fit.
+
+## Round trips — batch what does not depend on a result
+
+Every tool call is a round trip that re-sends your whole context. Put independent writes in
+ONE batch call: every set_component of a design system, all create_frame calls for a set of
+screens, a run of edits across frames. Stream (append_frame_html) and screenshot directly.
 
 ## Design brief — before your first frame
 
@@ -209,6 +216,17 @@ own <style> still wins where it needs to. get_canvas reports it; get_theme reads
   A token change then restyles every frame at once.
 - A frame that must ignore the theme (an import, a page that ships its own full CSS)
   opts out with <html data-draft-theme="off">.
+
+## Tailwind utilities — write classes, not CSS
+
+A canvas you create starts with Tailwind utilities on (set_theme_css({ utilities: "tailwind" })
+turns them on for an existing one). Style with classes — class="flex items-center gap-6
+rounded-2xl bg-surface px-8 py-6" — instead of writing CSS: Draft generates the rules for the
+classes each frame uses. Theme tokens become classes: a colour token --ink is text-ink,
+bg-ink and border-ink; a font token --font-display is font-display; a shadow token
+--shadow-card is shadow-card. Arbitrary values work: w-[1240px], text-[136px],
+tracking-[-0.03em]. Write a <style> block only for what classes cannot say (keyframes,
+complex selectors).
 
 ## Design quality
 

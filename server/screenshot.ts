@@ -3,6 +3,7 @@ import puppeteer, { type Browser, type Page } from 'puppeteer-core'
 import type { Frame } from '../shared/types.ts'
 import { guardPublicPageRequests } from './publicUrl.ts'
 import { renderableHtml } from './theme.ts'
+import { utilitiesFor } from './utilities.ts'
 
 /**
  * Render a frame's HTML in headless Chrome so agents can *see* their work.
@@ -107,7 +108,7 @@ async function loadFramePage(frame: Frame): Promise<IsolatedPage> {
       deviceScaleFactor: 1,
     })
     try {
-      await page.setContent(renderableHtml(frame), {
+      await page.setContent(renderableHtml(frame, await utilitiesFor(frame.canvasId)), {
         waitUntil: 'load',
         timeout: 8000,
       })
