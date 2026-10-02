@@ -41,6 +41,31 @@ function findBrowser(): string {
 }
 
 let browserPromise: Promise<Browser> | null = null
+let idleTimer: ReturnType<typeof setTimeout> | null = null
+/* pages being opened or open; the browser only closes at zero */
+let inUse = 0
+
+/* An idle Chromium held ~380 MB RSS on the server for good (measured 2026-10-02), while renders come in bursts.
+   It now exits this long after the last page closes; the next render pays one browser launch. */
+export const BROWSER_IDLE_MS = Number(process.env.DRAFT_BROWSER_IDLE_MS || 90_000)
+
+/* Armed when the last page closes: one timer, never a poll. */
+function armIdleClose(): void {
+  if (idleTimer) clearTimeout(idleTimer)
+  idleTimer = setTimeout(() => void closeIfIdle(), BROWSER_IDLE_MS)
+  idleTimer.unref()
+}
+
+async function closeIfIdle(): Promise<void> {
+  idleTimer = null
+  const pending = browserPromise
+  if (!pending) return
+  const browser = await pending.catch(() => null)
+  if (!browser || browserPromise !== pending) return
+  if (inUse > 0) return
+  browserPromise = null
+  await browser.close().catch(() => {})
+}
 
 export async function getBrowser(): Promise<Browser> {
   if (browserPromise) {
@@ -48,7 +73,7 @@ export async function getBrowser(): Promise<Browser> {
     if (b.connected) return b
     browserPromise = null
   }
-  browserPromise = puppeteer.launch({
+  const launching = puppeteer.launch({
     executablePath: findBrowser(),
     headless: true,
     args: [
@@ -58,11 +83,22 @@ export async function getBrowser(): Promise<Browser> {
       '--disable-webrtc-multiple-routes',
       '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
       '--hide-scrollbars',
+      /* no GPU process and none of Chrome's background services: a headless renderer needs neither */
+      '--disable-gpu',
+      '--disable-background-networking',
+      '--disable-component-update',
+      '--disable-default-apps',
+      '--disable-sync',
+      '--disable-features=OptimizationGuideModelDownloading,OptimizationHintsFetching,OnDeviceModelBackgroundDownload,MediaRouter,Translate',
       /* containers: no user namespaces for the sandbox, tiny /dev/shm */
       ...(process.env.CHROME_NO_SANDBOX ? ['--no-sandbox', '--disable-dev-shm-usage'] : []),
     ],
   })
-  return browserPromise
+  browserPromise = launching
+  launching.catch(() => {
+    if (browserPromise === launching) browserPromise = null
+  })
+  return launching
 }
 
 export interface IsolatedPage {
@@ -73,8 +109,18 @@ export interface IsolatedPage {
 /** External pages never share cookies, cache or service workers across users
  *  or imports. Closing the wrapper tears down the entire browser context. */
 export async function openIsolatedPage(): Promise<IsolatedPage> {
-  const browser = await getBrowser()
-  const context = await browser.createBrowserContext()
+  inUse++
+  if (idleTimer) clearTimeout(idleTimer)
+  const release = () => {
+    if (--inUse === 0) armIdleClose()
+  }
+  let context: Awaited<ReturnType<Browser['createBrowserContext']>>
+  try {
+    context = await (await getBrowser()).createBrowserContext()
+  } catch (error) {
+    release()
+    throw error
+  }
   try {
     const page = await context.newPage()
     let closed = false
@@ -84,10 +130,12 @@ export async function openIsolatedPage(): Promise<IsolatedPage> {
         if (closed) return
         closed = true
         await context.close().catch(() => {})
+        release()
       },
     }
   } catch (error) {
     await context.close().catch(() => {})
+    release()
     throw error
   }
 }
