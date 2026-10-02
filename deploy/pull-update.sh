@@ -3,6 +3,8 @@ set -euo pipefail
 
 # Pull-based deploy: the host fetches the branch itself, so nothing outside it holds server access.
 # Run by deploy/draft.timer every 2 min; a no-op unless the branch moved or the app is down.
+# Under scale0 (github.com/jblaze2908/scale0) a stopped app is asleep, not down: the rollout goes through
+# `scale0 restart draft` and the health check through the held address, which wakes it.
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/draft}"
 ENV_FILE="${DRAFT_ENV_FILE:-/etc/draft/draft.env}"
 BRANCH="${DEPLOY_BRANCH:-main}"
@@ -16,6 +18,15 @@ exec 9>"$STATE_DIR/deploy.lock"
 flock -n 9 || exit 0
 
 compose() { docker compose -p draft -f deploy/compose.yml --env-file "$ENV_FILE" "$@"; }
+scaled() { command -v scale0 >/dev/null && scale0 managed draft; }
+# Start the app on the checked-out code: directly, or by waking it under scale0 so it can sleep again.
+start_app() {
+  if scaled; then
+    compose build && compose up --detach db && scale0 restart draft
+  else
+    compose up --detach --build --remove-orphans
+  fi
+}
 
 notify() {
   # Optional ops alerts; NTFY_* live in the root-only env file and are never echoed.
@@ -33,7 +44,7 @@ git fetch --prune origin "$BRANCH"
 target_commit="$(git rev-parse "origin/$BRANCH")"
 short="${target_commit:0:8}"
 
-if [[ "$deployed_commit" == "$target_commit" ]] && compose ps --services --status running | grep -qx app; then
+if [[ "$deployed_commit" == "$target_commit" ]] && { scaled || compose ps --services --status running | grep -qx app; }; then
   exit 0
 fi
 # Don't rebuild a commit that already failed; a new push clears it.
@@ -44,7 +55,7 @@ fi
 restore_previous_release() {
   echo "Restoring $rollback_commit" >&2
   git checkout --detach "$rollback_commit"
-  compose up --detach --build --remove-orphans
+  start_app
 }
 
 reject() {
@@ -69,7 +80,7 @@ if compose ps --services --status running | grep -qx db; then
   ls -1t "$BACKUP_DIR"/pre-*.sql.gz | tail -n +15 | xargs -r rm -f
 fi
 
-if ! compose up --detach --build --remove-orphans; then
+if ! start_app; then
   echo "Compose rollout failed" >&2
   restore_previous_release
   reject "compose up failed"
