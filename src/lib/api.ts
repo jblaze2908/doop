@@ -23,6 +23,7 @@ import type {
   Canvas,
   CanvasMeta,
   Frame,
+  FrameAudit,
   HomeActivity,
   WorkspaceDetail,
   WorkspaceInvite,
@@ -208,6 +209,8 @@ export const api = {
       body: JSON.stringify({ systemId }),
     }),
   /* design memory */
+  /* the result also reaches every viewer as a frame:audit message */
+  auditFrame: (frameId: string) => req<FrameAudit>(`/api/frames/${frameId}/audit`, { method: 'POST' }),
   pinReference: (canvasId: string, frameId: string) =>
     req(`/api/canvases/${canvasId}/references`, { method: 'POST', body: JSON.stringify({ frameId }) }),
   unpinReference: (canvasId: string, refId: string) =>

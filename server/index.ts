@@ -12,6 +12,7 @@ import * as designSystems from './designSystems.ts'
 import * as systemOps from './designSystemOps.ts'
 import * as homeFeed from './homeFeed.ts'
 import { canvasTouched, forgetCanvas, utilitiesFor, wireUtilities } from './utilities.ts'
+import { auditsFor, recordAudit, wireAudits } from './designAudit.ts'
 import { getImage } from './previews.ts'
 import * as actions from './actions.ts'
 import { exportFrameCode } from './exportCode.ts'
@@ -37,7 +38,7 @@ import * as storage from './storage.ts'
 import { seed } from './seed.ts'
 import { colorFor } from '../shared/types.ts'
 import { isPeerViewport } from '../shared/viewport.ts'
-import type { Canvas, CanvasMeta, ClientMessage, Presence, ServerMessage } from '../shared/types.ts'
+import type { Canvas, CanvasMeta, ClientMessage, FrameAudit, Presence, ServerMessage } from '../shared/types.ts'
 import type { DesignSystemMeta } from '../shared/designSystem.ts'
 
 const PORT = Number(process.env.PORT || 4400)
@@ -632,6 +633,12 @@ function canvasRow(meta: CanvasMeta): CanvasMeta {
 homeFeed.wireHome(send, (c, viewerId) => canvasRow(store.toMeta(c, viewerId)))
 wireUtilities(broadcast)
 designSystems.wireDesignSystems(broadcast)
+wireAudits(broadcast)
+
+function withAudits(frames: Canvas['frames']): { audits?: FrameAudit[] } {
+  const audits = auditsFor(frames)
+  return audits.length ? { audits } : {}
+}
 store.onChange(canvasTouched)
 
 app.get('/api/canvases', (req, res) => res.json(workspaces.canvasesFor(req.user!.id).map(canvasRow)))
@@ -1429,6 +1436,21 @@ app.get('/api/frames/:id/screenshot.png', async (req, res) => {
   }
 })
 
+/* a human asked for the design check from the canvas; the result reaches every viewer */
+app.post('/api/frames/:id/audit', async (req, res) => {
+  const frame = requireFrame(req, res, req.params.id)
+  if (!frame) return
+  try {
+    const { auditFrame } = await import('./screenshot.ts')
+    const audit = await auditFrame(frame)
+    recordAudit(frame.canvasId, audit)
+    res.json(audit)
+  } catch (e) {
+    console.warn('[design-check]', e instanceof Error ? e.message : e)
+    res.status(500).json({ error: 'design check failed' })
+  }
+})
+
 /* MCP endpoint — point any MCP-capable AI at http://localhost:PORT/mcp.
    Protected by OAuth: unauthenticated calls get 401 + discovery pointers. */
 app.all('/mcp', handleMcpRequest)
@@ -1615,6 +1637,7 @@ wss.on('connection', (ws, upgradeReq) => {
         serverBuild: BUILD_ID,
         utilityCss: await utilitiesFor(msg.canvasId),
         ...systemInit(canvas),
+        ...withAudits(canvas.frames),
       })
       /* An admin looking at a canvas must not act on it. Announcing presence
          would impersonate the owner in the room; maybePlay would have the

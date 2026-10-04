@@ -6,6 +6,7 @@ import type {
   DesignDecision,
   ElementComment,
   Frame,
+  FrameAudit,
   GuidelineDoc,
   MemoryReference,
   PeerViewport,
@@ -88,6 +89,12 @@ interface State {
   flashes: Record<string, { color: string; at: number }>
   /** frameId -> actor currently streaming a design into it */
   streams: Record<string, { name: string; color: string }>
+  /** frameId -> its latest design check (stale once the frame's updatedAt moves on) */
+  audits: Record<string, FrameAudit>
+  /** frameId -> a design check this viewer asked for that is running or failed */
+  checks: Record<string, 'running' | 'failed'>
+  /** the frame whose design-check popover is open */
+  openCheck: string | null
   /** a request for the Stage to glide the camera to a frame */
   flyTo: { frameId: string; at: number } | { point: { x: number; y: number }; at: number } | null
   /** clientId of the peer whose camera this one is tracking (Figma-style
@@ -156,6 +163,10 @@ interface State {
   setSnapGuides(guides: SnapGuide[]): void
   flash(frameId: string, color: string): void
   setStream(frameId: string, actor: { name: string; color: string } | null): void
+  setAudits(list: FrameAudit[]): void
+  upsertAudit(audit: FrameAudit): void
+  setCheck(frameId: string, state: 'running' | 'failed' | null): void
+  setOpenCheck(frameId: string | null): void
 }
 
 const LAYERS_OPEN_KEY = 'draft:layers-open'
@@ -239,6 +250,9 @@ export const useStore = create<State>((set, get) => ({
   updateReady: false,
   flashes: {},
   streams: {},
+  audits: {},
+  checks: {},
+  openCheck: null,
 
   setCanvas: (canvas) => set({ canvas }),
   setConnected: (connected) => set({ connected }),
@@ -451,6 +465,16 @@ export const useStore = create<State>((set, get) => ({
       else delete streams[frameId]
       return { streams }
     }),
+  setAudits: (list) => set({ audits: Object.fromEntries(list.map((a) => [a.frameId, a])) }),
+  upsertAudit: (audit) => set((s) => ({ audits: { ...s.audits, [audit.frameId]: audit } })),
+  setCheck: (frameId, state) =>
+    set((s) => {
+      const checks = { ...s.checks }
+      if (state) checks[frameId] = state
+      else delete checks[frameId]
+      return { checks }
+    }),
+  setOpenCheck: (openCheck) => set({ openCheck }),
   flash: (frameId, color) => {
     set((s) => ({ flashes: { ...s.flashes, [frameId]: { color, at: Date.now() } } }))
     setTimeout(() => {

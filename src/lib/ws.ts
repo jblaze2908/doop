@@ -113,6 +113,7 @@ export function handle(msg: ServerMessage) {
       s.setFeedback(msg.feedback)
       s.setComments(msg.comments)
       s.setDecisions(msg.decisions)
+      s.setAudits(msg.audits ?? [])
       break
     case 'presence:join':
       if (msg.presence.clientId !== me) s.upsertPresence(msg.presence)
@@ -167,6 +168,9 @@ export function handle(msg: ServerMessage) {
     case 'frame:patched':
       s.patchFrameLocal(msg.frameId, { ...msg.patch, updatedAt: msg.updatedAt, updatedBy: msg.updatedBy })
       if (msg.actor.clientId !== me && !s.streams[msg.frameId]) s.flash(msg.frameId, msg.actor.color)
+      break
+    case 'frame:audit':
+      s.upsertAudit(msg.audit)
       break
     case 'frame:streaming':
       s.setStream(msg.frameId, msg.active ? { name: msg.actor.name, color: msg.actor.color } : null)

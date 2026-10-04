@@ -19,6 +19,9 @@
 - `@modelcontextprotocol/sdk` 1.12.0 - the MCP server that lets external agents (e.g. Claude
   Code) design on a canvas. `@anthropic-ai/sdk` 0.115.0 only auto-tags backgrounds in
   `scripts/import-backgrounds.ts`.
+- Impeccable anti-pattern detector (vendored, Apache-2.0, `server/vendor/impeccable`) - the design check:
+  61 rules in a WASM bundle run inside server-rendered frame pages (`server/designAudit.ts`); re-pull a
+  pinned commit with `scripts/vendor-impeccable.sh`.
 - `ws` 8.18.0 - WebSocket server for realtime multiplayer (cursors, presence, frame edits,
   activity feed) over one room per canvas.
 

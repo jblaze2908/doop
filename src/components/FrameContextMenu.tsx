@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import { copyFrames, duplicateFrames, hasFrameClip, pasteFrameAtScreen } from '../lib/frameClipboard'
 import { deleteFramesTracked } from '../lib/history'
 import { useStore } from '../lib/store'
+import { runDesignCheck } from '../lib/designCheck'
 import { MOD_KEY } from '../lib/keys'
 import { ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from './ui/context-menu'
 import { MenuHint } from './ui/menu'
@@ -54,6 +55,15 @@ export function FrameContextMenu({ frame, at }: { frame: Frame; at: MutableRefOb
         <a href={`/i/${frame.id}.jpg?scale=2&download`}>Download JPG</a>
       </ContextMenuItem>
       <ContextMenuSeparator />
+      <ContextMenuItem
+        title="Look for AI-design tells and quality issues (Impeccable's 61 rules)"
+        onSelect={() => {
+          useStore.getState().setOpenCheck(frame.id)
+          void runDesignCheck(frame.id)
+        }}
+      >
+        Check design
+      </ContextMenuItem>
       <ContextMenuItem
         title="Will be used as reference — agents copy its style in new designs"
         onSelect={() => api.pinReference(frame.canvasId, frame.id).catch(console.error)}

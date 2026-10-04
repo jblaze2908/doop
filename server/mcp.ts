@@ -9,7 +9,8 @@ import { canAccessCanvas, canManageCanvas, hasDurableCanvasAccess } from './acce
 import * as workspaces from './workspaces.ts'
 import { auth, getUserName, isBanned, PUBLIC_ORIGIN } from './auth.ts'
 import { capture, captureThrottled } from './analytics.ts'
-import { measureFrameHeight, renderFrame } from './screenshot.ts'
+import { auditFrame, measureFrameHeight, renderFrame } from './screenshot.ts'
+import { auditPage, auditReport, auditSummary, recordAudit } from './designAudit.ts'
 import { utilitiesFor } from './utilities.ts'
 import * as designSystems from './designSystems.ts'
 import * as systemOps from './designSystemOps.ts'
@@ -1934,14 +1935,32 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
         const review = scale === undefined
         const tall = selector ? 1 : REVIEW_HEIGHT / f.height
         const factor = review ? Math.min(1, REVIEW_WIDTH / f.width, tall) : scale
-        const image = await renderFrame(f, factor, { selector, type: review ? 'jpeg' : 'png', quality: 85 })
+        /* a whole-frame review also runs the design check on the page it already loaded */
+        let check = ''
+        const image = await renderFrame(f, factor, {
+          selector,
+          type: review ? 'jpeg' : 'png',
+          quality: 85,
+          after: selector
+            ? undefined
+            : async (page) => {
+                try {
+                  const audit = await auditPage(page, f, designSystems.designOfCanvas(f.canvasId).theme)
+                  recordAudit(f.canvasId, audit)
+                  check = `\n\n${auditSummary(audit)}`
+                } catch (e) {
+                  /* the shot stands on its own; a failed check only loses the findings */
+                  console.warn('[design-check]', e instanceof Error ? e.message : e)
+                }
+              },
+        })
         return withFeedback(
           {
             content: [
               { type: 'image' as const, data: image.toString('base64'), mimeType: review ? 'image/jpeg' : 'image/png' },
               {
                 type: 'text' as const,
-                text: `Screenshot of “${f.name}”${selector ? ` — ${selector}` : ''} (${f.width}×${f.height}${review ? ', review size' : `@${scale}x`}, html ${f.html.length} bytes)`,
+                text: `Screenshot of “${f.name}”${selector ? ` — ${selector}` : ''} (${f.width}×${f.height}${review ? ', review size' : `@${scale}x`}, html ${f.html.length} bytes)${check}`,
               },
             ],
           },
@@ -1950,6 +1969,32 @@ export function buildMcpServer(owner?: string, ownerId?: string): McpServer {
         )
       } catch (e) {
         return err(`screenshot failed: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    },
+  )
+
+  server.registerTool(
+    'audit_frame',
+    {
+      description:
+        'Run the design check on a frame: Impeccable\'s 61-rule anti-pattern detector (AI-design tells like gradient text, purple palettes, nested cards; quality issues like low contrast, tiny text, cramped padding; off-theme colours, radii and fonts when the canvas has theme tokens). Returns every finding grouped by rule, with why it matters. A whole-frame get_frame_screenshot already includes a short version; use this for the full list. Fix guidance per rule: get_guide({ topic: "design-review" }).',
+      inputSchema: { frame_id: z.string(), agent_name: agentName.optional() },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ frame_id, agent_name }) => {
+      const f = frameFor(frame_id)
+      if (!f) return noFrame(frame_id)
+      arrive(f.canvasId, agent_name)
+      try {
+        const audit = await auditFrame(f)
+        recordAudit(f.canvasId, audit)
+        return withFeedback(
+          text({ frame: f.name, ...auditReport(audit) }),
+          f.canvasId,
+          agent_name ? actorFrom(agent_name) : undefined,
+        )
+      } catch (e) {
+        return err(`design check failed: ${e instanceof Error ? e.message : String(e)}`)
       }
     },
   )

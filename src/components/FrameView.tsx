@@ -28,6 +28,7 @@ import { SyncIcon } from './ui/icons'
 import { isSyncedFrame } from '../lib/sync'
 import { AgentIcon } from './AgentIcon'
 import { RoleMark } from './RoleMark'
+import { DesignCheckChip, DesignCheckPopover } from './DesignCheck'
 
 /* Counter-scale contract: chrome that keeps constant on-screen size divides
    by the `--zoom` variable the Stage publishes (capped at 2.4× when zoomed
@@ -679,6 +680,7 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
             )}
             <span className="overflow-hidden text-ellipsis">{frame.name}</span>
             <span className="flex gap-1">
+              <DesignCheckChip frame={frame} />
               {stream && (
                 <span className={EDITOR_CHIP} style={{ background: stream.color }}>
                   <AgentIcon name={stream.name} size={9} color="#fff" />
@@ -695,6 +697,8 @@ export const FrameView = memo(function FrameView({ frame, raster }: { frame: Fra
                 ))}
             </span>
           </div>
+
+          <DesignCheckPopover frame={frame} />
 
           <div
             className={cn(

@@ -1,6 +1,8 @@
 import fs from 'node:fs'
 import puppeteer, { type Browser, type Page } from 'puppeteer-core'
-import type { Frame } from '../shared/types.ts'
+import type { Frame, FrameAudit } from '../shared/types.ts'
+import { auditPage } from './designAudit.ts'
+import { designOfCanvas } from './designSystems.ts'
 import { guardPublicPageRequests } from './publicUrl.ts'
 import { renderableHtml } from './theme.ts'
 import { utilitiesFor } from './utilities.ts'
@@ -464,7 +466,15 @@ export async function renderFrame(
   frame: Frame,
   /* output pixel density — fractional values downscale huge frames */
   scale: number = 1,
-  opts: { type?: 'png' | 'jpeg'; quality?: number; maxHeight?: number; selector?: string; deadlineMs?: number } = {},
+  opts: {
+    type?: 'png' | 'jpeg'
+    quality?: number
+    maxHeight?: number
+    selector?: string
+    deadlineMs?: number
+    /** more work on the same loaded page once the shot is taken — one page load, not two */
+    after?: (page: Page) => Promise<void>
+  } = {},
 ): Promise<Buffer> {
   return withFramePage(
     frame,
@@ -485,10 +495,22 @@ export async function renderFrame(
         ...(type === 'jpeg' ? { quality: opts.quality ?? 90 } : {}),
         ...(clip ? { clip } : {}),
       })
+      await opts.after?.(page)
       return Buffer.from(buf)
     },
     opts.deadlineMs,
   )
+}
+
+/** Run the design check on a frame (one page load, ~0.2–0.5 s plus the check itself). */
+export async function auditFrame(frame: Frame): Promise<FrameAudit> {
+  return withFramePage(frame, async (page) => {
+    await page.setViewport({
+      width: Math.max(1, Math.round(frame.width)),
+      height: Math.max(1, Math.round(frame.height)),
+    })
+    return auditPage(page, frame, designOfCanvas(frame.canvasId).theme)
+  })
 }
 
 /** Tallest a fitted frame gets: past this a page is a document, not a design. */

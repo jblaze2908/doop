@@ -90,6 +90,12 @@ describe('agent guide', () => {
     }
   })
 
+  it('gives every detector rule a fix in design-review', async () => {
+    const rules = (await import('../server/vendor/impeccable/antipatterns.json')).default as Array<{ id: string }>
+    const review = GUIDE_DOCS['design-review']
+    expect(rules.filter((r) => !review.includes(r.id)).map((r) => r.id)).toEqual([])
+  })
+
   it('serves a topic through get_guide', async () => {
     const { call, close } = await connect()
     try {

@@ -303,6 +303,29 @@ export interface PeerViewport {
   height: number
 }
 
+/* ---- design check (Impeccable's anti-pattern detector, server/designAudit.ts) ---- */
+
+export interface DesignFinding {
+  /** detector rule id, e.g. "gradient-text" */
+  rule: string
+  category: 'slop' | 'quality'
+  severity: 'warning' | 'error'
+  /** a heuristic the detector itself marks as worth a look rather than a defect */
+  advisory?: true
+  selector: string
+  detail: string
+}
+
+export interface FrameAudit {
+  frameId: string
+  /** the frame's updatedAt when checked: a different one means the result is stale */
+  frameUpdatedAt: number
+  at: number
+  findings: DesignFinding[]
+  /** findings past the cap, left out */
+  truncated?: number
+}
+
 /* ---- websocket protocol ---- */
 
 export type ClientMessage =
@@ -344,6 +367,8 @@ export type ServerMessage =
       system?: CanvasSystemLink
       /** set when this canvas is a design system's source (its draft) */
       systemSource?: DesignSystemMeta
+      /** the latest design check of each frame that has one */
+      audits?: FrameAudit[]
     }
   | { type: 'presence:join'; presence: Presence }
   | { type: 'presence:leave'; clientId: string }
@@ -380,6 +405,7 @@ export type ServerMessage =
     }
   | { type: 'frame:deleted'; frameId: string; actor: Actor }
   | { type: 'frame:streaming'; frameId: string; active: boolean; actor: Actor }
+  | { type: 'frame:audit'; audit: FrameAudit }
   | { type: 'canvas:renamed'; name: string; actor: Actor }
   /** a style-guide doc was written, moved (doc set) or deleted (doc null) */
   | { type: 'guidelines'; name: string; doc: GuidelineDoc | null; actor: Actor }

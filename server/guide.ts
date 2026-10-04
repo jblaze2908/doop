@@ -4,6 +4,14 @@
  */
 
 import { AGENT_ROLES } from '../shared/agents.ts'
+import {
+  TOPIC_COLORIZE,
+  TOPIC_CRITIQUE,
+  TOPIC_DESIGN_REVIEW,
+  TOPIC_LAYOUT,
+  TOPIC_POLISH,
+  TOPIC_TYPESET,
+} from './guideImpeccable.ts'
 
 export const GUIDE_TOPICS = [
   'draft-instructions',
@@ -17,6 +25,12 @@ export const GUIDE_TOPICS = [
   'redesigns',
   'export',
   'design-systems',
+  'design-review',
+  'critique',
+  'typeset',
+  'layout',
+  'colorize',
+  'polish',
 ] as const
 export type GuideTopic = (typeof GUIDE_TOPICS)[number]
 
@@ -116,13 +130,12 @@ and picking it up assigns it to you. When you see one:
   Handle it anyway: locate the frame with get_canvas/get_frame, make the change,
   review with get_frame_screenshot. A human request overrides the
   don't-touch-others'-frames etiquette below.
-- Update set_status to say what you're picking up (e.g. "Addressing Kevin's feedback
-  on the pricing card").
+- Update set_status to say what you're picking up.
 - Pass your agent_name on every call, including get_canvas, get_frame and
   get_frame_screenshot — open requests can only reach agents that identify themselves.
 
-Comments, @mentions and board cards reach you through their own tools — get_guide({ topic:
-"collaboration" }) when you work on them.
+Comments, @mentions and board cards have their own tools — get_guide({ topic:
+"collaboration" }).
 
 ## Review checkpoints — MANDATORY
 
@@ -143,12 +156,16 @@ and fix real issues before moving on:
 - **Logos**: any placeholder brand mark (gray tile, "LOGO", initials, an invented company
   wordmark) still in the frame — replace it with the company's real logo.
 
+A whole-frame screenshot carries a Design check (Impeccable's anti-pattern detector): fix each
+finding or keep it only when deliberate. "design-review" has the fix per rule; audit_frame
+lists all.
+
 Prefer targeted fixes over rewrites. Never delete and restart a mostly-good frame — the
 humans watching lose work they may have been reacting to.
 
 Screenshots come at review size (at most 1024 px wide): one whole-frame shot is enough
-to judge layout, rhythm and contrast. Crop with selector (e.g. "section.pricing") only
-when a detail is unclear in it — every image stays in your context for the rest of the task.
+to judge layout, rhythm and contrast. Crop with selector only when a detail is unclear in
+it — every image stays in your context for the rest of the task.
 
 ## Round trips — batch what does not depend on a result
 
@@ -189,8 +206,7 @@ Viewers watch designs assemble live. Stream with append_frame_html:
   Fix direction-level problems NOW, before propagating them through the rest of the
   page. Then continue streaming and do the full review at the end as usual.
 - End chunks at element boundaries. If one lands mid-element anyway, the server heals it
-  (closes an open <style>, trims a half-written tag, drops an unfinished <script>), so
-  never hold a chunk back to "finish" something.
+  (closes the tag, drops an unfinished <script>), so never hold a chunk back.
 - For small tweaks (copy, a color, one element's spacing) use edit_frame_html — an exact
   find/replace that morphs into the rendered frame in place, with no re-render. Resending
   a whole document via set_frame_html is for genuine redesigns.
@@ -205,8 +221,8 @@ Viewers watch designs assemble live. Stream with append_frame_html:
 - Always reset: * { margin: 0; box-sizing: border-box; } and design to the exact frame size.
 - Size frames to their content: mobile screen 390×844, desktop screen 1280×800, card or
   component 480×360, square social post 640×640. A page that scrolls (landing page, docs,
-  long form) gets height "fit" on create_frame: Draft measures the rendered document after
-  every write, streamed chunks included, and sizes the frame to it — never guess a height.
+  long form) gets height "fit" on create_frame: Draft sizes the frame to the rendered
+  document after every write, streamed chunks included — never guess a height.
   Screens keep their fixed viewport size.
 
 ## Canvas theme — one stylesheet for every frame
@@ -259,13 +275,14 @@ Write a <style> block only for what classes cannot say (keyframes, complex selec
 
 ## More topics — load when the task needs them
 
-get_guide({ topic }) with: "recipes" (Tailwind section patterns for any kit), "collaboration"
+get_guide({ topic }) with: "recipes" (Tailwind section patterns), "collaboration"
 (comments, @mention roles, board cards),
-"design-brief" (the full brief ritual and taste doctrine), "images" (sourcing photos,
-icons, logos and backgrounds), "lean-reads" (outline, section read and replace),
-"components" (linked components), "style-guides" (style guides and pinned references),
-"redesigns" (auditing an existing page, two directions), "export" (code and image export),
-"design-systems" (one system shared by many canvases: create, publish, use).
+"design-brief" (the brief ritual, taste doctrine), "images" (photos, icons, logos,
+backgrounds), "lean-reads" (outline, section, replace),
+"components" (linked components), "style-guides" (style guides, pinned references),
+"redesigns" (audit, two directions), "export" (code, images),
+"design-systems" (one system shared by many canvases), "critique" (a full design review),
+and focused passes "typeset", "layout", "colorize", "polish".
 `
 
 const TOPIC_COLLABORATION = `## Comments and @mentions
@@ -516,8 +533,7 @@ column counts and the sizes to fit the brief; keep the structure when it serves.
 **Hero, split**
 <section class="mx-auto grid max-w-6xl items-center gap-12 px-6 py-24 md:grid-cols-2">
   <div>
-    <p class="text-xs font-medium uppercase tracking-[0.12em] text-accent">Eyebrow</p>
-    <h1 class="mt-4 font-display text-6xl leading-[1.02] tracking-tight text-ink">Headline that says the one thing</h1>
+    <h1 class="font-display text-6xl leading-[1.02] tracking-tight text-ink">Headline that says the one thing</h1>
     <p class="mt-6 max-w-md text-lg text-ink-2">One or two sentences of specific, human copy.</p>
     <div class="mt-8 flex gap-3">
       <a class="rounded-full bg-accent px-6 py-3 font-medium text-on-accent">Primary action</a>
@@ -535,8 +551,7 @@ column counts and the sizes to fit the brief; keep the structure when it serves.
   <h2 class="max-w-xl font-display text-4xl text-ink">Section headline</h2>
   <div class="mt-12 grid gap-6 md:grid-cols-3">
     <article class="rounded-card border border-line bg-surface-2 p-6">
-      <div class="size-10 rounded-lg bg-accent/15"></div>
-      <h3 class="mt-5 text-lg font-semibold text-ink">Feature</h3>
+      <h3 class="flex items-center gap-3 text-lg font-semibold text-ink"><!-- real icon, size-5 text-accent -->Feature</h3>
       <p class="mt-2 text-sm leading-relaxed text-ink-2">What it does, in one specific line.</p>
     </article>
   </div>
@@ -634,4 +649,10 @@ export const GUIDE_DOCS: Record<GuideTopic, string> = {
   redesigns: TOPIC_REDESIGNS,
   export: TOPIC_EXPORT,
   'design-systems': TOPIC_DESIGN_SYSTEMS,
+  'design-review': TOPIC_DESIGN_REVIEW,
+  critique: TOPIC_CRITIQUE,
+  typeset: TOPIC_TYPESET,
+  layout: TOPIC_LAYOUT,
+  colorize: TOPIC_COLORIZE,
+  polish: TOPIC_POLISH,
 }
